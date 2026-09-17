@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS dramas (
   status TEXT NOT NULL DEFAULT 'draft',
   thumbnail TEXT,
   metadata TEXT NOT NULL DEFAULT '{}',
+  canvas_revision INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -78,12 +79,12 @@ CREATE TABLE IF NOT EXISTS storyboards (
   updated_at TEXT NOT NULL,
   UNIQUE(episode_id, storyboard_number)
 );
-DROP TABLE IF EXISTS ai_service_configs;
 CREATE TABLE IF NOT EXISTS provider_model_catalog (
   provider TEXT NOT NULL,
   model_id TEXT NOT NULL,
   label TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('text', 'image', 'video')),
+  capabilities TEXT NOT NULL DEFAULT '{}',
   synchronized_at TEXT NOT NULL,
   PRIMARY KEY(provider, model_id, kind)
 );
@@ -151,7 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_storyboards_episode ON storyboards(episode_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON async_tasks(status);
 `;
 
-export function migrate(database: SQLiteDatabase): void {
+export function initializeDatabase(database: SQLiteDatabase): void {
   database.pragma('foreign_keys = ON');
   database.exec(SCHEMA);
 }

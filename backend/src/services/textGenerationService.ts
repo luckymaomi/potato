@@ -10,6 +10,7 @@ export interface TextGenerationInput {
   provider?: string;
   json?: boolean;
   maxTokens?: number;
+  signal?: AbortSignal;
 }
 
 export class TextGenerationService {
@@ -33,6 +34,7 @@ export class TextGenerationService {
       ],
       jsonMode: input.json,
       maxTokens: input.maxTokens,
+      signal: input.signal,
     });
     return result.text;
   }

@@ -42,6 +42,7 @@ test('Agnes 文本适配器调用 chat completions 并归一化内容', async ()
 });
 
 test('Agnes 图片适配器保留 size、ratio 和 extra_body 契约', async () => {
+  const resolved: string[] = [];
   const adapter = createAgnesAdapter(async (input, init) => {
     assert.equal(String(input), 'https://apihub.agnes-ai.com/v1/images/generations');
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -49,18 +50,27 @@ test('Agnes 图片适配器保留 size、ratio 和 extra_body 契约', async () 
     assert.equal(body.ratio, '9:16');
     assert.deepEqual(body.extra_body, {
       response_format: 'url',
-      image: ['https://cdn.test/reference.png'],
+      image: ['data:image/png;base64,cmVmZXJlbmNl'],
     });
     return new Response(JSON.stringify({ data: [{ url: 'https://cdn.test/generated.png' }] }), { status: 200 });
   });
 
-  const result = await adapter.submitImage!({ config: config('image', 'agnes-image-2.5-flash'), log }, {
+  const result = await adapter.submitImage!({
+    config: config('image', 'agnes-image-2.5-flash'),
+    log,
+    resolveMediaReference: async (source, options) => {
+      resolved.push(`${options?.format}:${source}`);
+      return 'data:image/png;base64,cmVmZXJlbmNl';
+    },
+  }, {
     prompt: 'portrait',
     model: 'agnes-image-2.5-flash',
-    size: '1440x2560',
+    size: '2K',
+    aspectRatio: '9:16',
     referenceImages: ['https://cdn.test/reference.png'],
   });
   assert.deepEqual(result, { status: 'completed', imageUrl: 'https://cdn.test/generated.png' });
+  assert.deepEqual(resolved, ['inline:https://cdn.test/reference.png']);
   assert.deepEqual(mapAgnesImageSizeSpec('2560x1440'), { size: '2K', ratio: '16:9' });
 });
 

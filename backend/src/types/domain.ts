@@ -9,6 +9,7 @@ export interface DramaRow {
   status: string;
   thumbnail: string | null;
   metadata: string;
+  canvas_revision: number;
   created_at: string;
   updated_at: string;
 }

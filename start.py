@@ -1,4 +1,4 @@
-"""Start the mini-video backend and frontend development servers."""
+"""Start the tomato-ai-drama backend and frontend development servers."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ FRONTEND = ROOT / "frontend"
 
 
 def fail(message: str) -> int:
-    print(f"[mini-video] {message}")
+    print(f"[tomato-ai-drama] {message}")
     if os.name == "nt":
         input("按回车退出...")
     return 1
@@ -23,7 +23,7 @@ def fail(message: str) -> int:
 def start_windows() -> None:
     new_console = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
     subprocess.Popen(
-        ["cmd.exe", "/k", "npm.cmd run migrate && npm.cmd run dev"],
+        ["cmd.exe", "/k", "npm.cmd run dev"],
         cwd=BACKEND,
         creationflags=new_console,
     )
@@ -35,7 +35,6 @@ def start_windows() -> None:
 
 
 def start_posix() -> None:
-    subprocess.run(["npm", "run", "migrate"], cwd=BACKEND, check=True)
     subprocess.Popen(["npm", "run", "dev"], cwd=BACKEND)
     subprocess.Popen(["npm", "run", "dev", "--", "--host", "127.0.0.1"], cwd=FRONTEND)
 
@@ -51,8 +50,8 @@ def main() -> int:
     else:
         start_posix()
 
-    print("[mini-video] Backend: http://localhost:5679")
-    print("[mini-video] Frontend: http://localhost:3012")
+    print("[tomato-ai-drama] Backend: http://localhost:5679")
+    print("[tomato-ai-drama] Frontend: http://localhost:3012")
     return 0
 
 

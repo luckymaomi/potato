@@ -55,16 +55,24 @@ test('PearAPI 同步图片归一化为 completed，并保留图生图参考图',
   const adapter = createPearApiAdapter(fetchQueue([
     { body: { code: 200, data: { status: 'completed', image_urls: ['https://cdn.test/image.png'] } } },
   ], requests));
-  const result = await runImageProvider(adapter, { config: config('image'), log: silentLogger }, {
+  const result = await runImageProvider(adapter, {
+    config: config('image', { generation_key: 'generation-key' }),
+    log: silentLogger,
+    resolveMediaReference: async (_source, options) => {
+      assert.equal(options?.format, 'inline');
+      return 'data:image/png;base64,cmVmZXJlbmNl';
+    },
+  }, {
     prompt: '雨夜街道',
     model: 'test-model',
-    size: '1024x1024',
+    aspectRatio: '9:16',
     referenceImages: ['https://cdn.test/reference.png'],
   });
   assert.deepEqual(result, { status: 'completed', imageUrl: 'https://cdn.test/image.png' });
   assert.equal(requests[0].url, 'https://api.example.test/api/image_generate');
-  assert.deepEqual(requests[0].body.images, ['https://cdn.test/reference.png']);
-  assert.equal(requests[0].body.key, 'test-key');
+  assert.deepEqual(requests[0].body.images, ['data:image/png;base64,cmVmZXJlbmNl']);
+  assert.equal(requests[0].body.size, '9:16');
+  assert.equal(requests[0].body.key, 'generation-key');
 });
 
 test('PearAPI 文本模型使用实时目录声明的 chat completions 协议', async () => {
@@ -89,7 +97,7 @@ test('PearAPI 异步图片由统一运行时轮询到完成', async () => {
     { body: { code: 200, data: { status: 'completed', task_id: 'image-task', image_urls: ['https://cdn.test/final.png'] } } },
   ], requests));
   const result = await runImageProvider(adapter, {
-    config: config('image', { task_type: 'async' }),
+    config: config('image', { task_type: 'async', generation_key: 'generation-key' }),
     log: silentLogger,
   }, {
     prompt: '山谷',
@@ -102,13 +110,13 @@ test('PearAPI 异步图片由统一运行时轮询到完成', async () => {
   assert.equal(requests[1].body.task_id, 'image-task');
 });
 
-test('PearAPI 视频提交和轮询使用同一适配器合同', async () => {
+test('PearAPI 视频提交和轮询使用普通分发 Key', async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const adapter = createPearApiAdapter(fetchQueue([
     { body: { code: 200, data: { status: 'queued', task_id: 'video-task' } } },
     { body: { code: 200, data: { status: 'completed', task_id: 'video-task', progress: 100, api_file_url: 'https://cdn.test/video.mp4' } } },
   ], requests));
-  const context = { config: config('video'), log: silentLogger };
+  const context = { config: config('video', { generation_key: 'generation-key' }), log: silentLogger };
   const submitted = await adapter.submitVideo!(context, {
     prompt: '人物转身',
     model: 'test-model',
@@ -125,7 +133,9 @@ test('PearAPI 视频提交和轮询使用同一适配器合同', async () => {
     progress: 100,
   });
   assert.deepEqual(requests[0].body.images, ['https://cdn.test/start.png']);
+  assert.equal(requests[0].body.key, 'generation-key');
   assert.equal(requests[1].body.taskid, 'video-task');
+  assert.equal(requests[1].body.key, 'generation-key');
 });
 
 test('PearAPI 非 200 业务码映射为 business_error', async () => {
@@ -133,7 +143,7 @@ test('PearAPI 非 200 业务码映射为 business_error', async () => {
     { body: { code: 401, msg: 'invalid key' } },
   ], []));
   await assert.rejects(
-    adapter.submitImage!({ config: config('image'), log: silentLogger }, {
+    adapter.submitImage!({ config: config('image', { generation_key: 'generation-key' }), log: silentLogger }, {
       prompt: 'test', model: 'test-model', referenceImages: [],
     }),
     (error: unknown) => error instanceof ProviderError
@@ -145,7 +155,7 @@ test('PearAPI 非 200 业务码映射为 business_error', async () => {
 test('PearAPI 非 JSON 和缺少媒体事实均明确失败', async () => {
   const nonJson = createPearApiAdapter(fetchQueue([{ body: '<html>bad gateway</html>' }], []));
   await assert.rejects(
-    nonJson.submitImage!({ config: config('image'), log: silentLogger }, {
+    nonJson.submitImage!({ config: config('image', { generation_key: 'generation-key' }), log: silentLogger }, {
       prompt: 'test', model: 'test-model', referenceImages: [],
     }),
     (error: unknown) => error instanceof ProviderError && error.code === 'invalid_response',
@@ -153,9 +163,22 @@ test('PearAPI 非 JSON 和缺少媒体事实均明确失败', async () => {
 
   const missing = createPearApiAdapter(fetchQueue([{ body: { code: 200, data: {} } }], []));
   await assert.rejects(
-    missing.submitVideo!({ config: config('video'), log: silentLogger }, {
+    missing.submitVideo!({ config: config('video', { generation_key: 'generation-key' }), log: silentLogger }, {
       prompt: 'test', model: 'test-model', referenceImages: [],
     }),
     /未返回视频地址或任务 ID/,
+  );
+});
+
+test('PearAPI 图片和视频缺少普通分发 Key 时不回退到 sk 令牌', async () => {
+  const adapter = createPearApiAdapter(fetchQueue([], []));
+  await assert.rejects(
+    adapter.submitImage!({ config: config('image'), log: silentLogger }, {
+      prompt: 'test', model: 'test-model', referenceImages: [],
+    }),
+    (error: unknown) => error instanceof ProviderError
+      && error.code === 'configuration'
+      && /普通分发 Key 未配置/.test(error.message)
+      && /不能使用 \/v1 的 sk- 令牌代替/.test(error.message),
   );
 });

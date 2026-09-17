@@ -3,9 +3,10 @@ import type { AppConfig } from '../types/core';
 import type { ServiceContainer } from '../services/container';
 import { aiConfigRoutes } from './aiConfigRoutes';
 import { entityRoutes } from './entityRoutes';
-import { generationRoutes } from './generationRoutes';
 import { mediaRoutes } from './mediaRoutes';
+import { productionRoutes } from './productionRoutes';
 import { projectRoutes } from './projectRoutes';
+import { storyboardRoutes } from './storyboardRoutes';
 import { taskRoutes } from './taskRoutes';
 
 export function createApiRouter(services: ServiceContainer, config: AppConfig): Router {
@@ -14,7 +15,8 @@ export function createApiRouter(services: ServiceContainer, config: AppConfig): 
   router.use(aiConfigRoutes(services));
   router.use(mediaRoutes(services, config));
   router.use(entityRoutes(services));
-  router.use(generationRoutes(services));
+  router.use(storyboardRoutes(services));
+  router.use(productionRoutes(services));
   router.use(taskRoutes(services));
   return router;
 }

@@ -10,7 +10,7 @@ import type {
   StoryboardRow,
 } from '../types/domain';
 import type { SQLiteDatabase } from '../types/core';
-import { NotFoundError, ValidationError } from '../errors';
+import { ConflictError, NotFoundError, ValidationError } from '../errors';
 
 export interface DramaListInput { page: number; pageSize: number; keyword?: string }
 
@@ -78,7 +78,9 @@ export class ProjectService {
   update(id: number, input: unknown): Drama {
     const current = this.require(id);
     const body = asRecord(input) ?? {};
-    const metadata = body.metadata === undefined ? current.metadata : jsonObject(body.metadata);
+    const metadata = body.metadata === undefined
+      ? current.metadata
+      : preserveCanvasMetadata(jsonObject(body.metadata), current.metadata);
     this.db.prepare(`
       UPDATE dramas SET title = ?, description = ?, genre = ?, style = ?, status = ?, thumbnail = ?, metadata = ?, updated_at = ?
       WHERE id = ?
@@ -138,12 +140,47 @@ export class ProjectService {
     return this.db.prepare('SELECT * FROM episodes WHERE drama_id = ? ORDER BY episode_number').all(dramaId) as EpisodeRow[];
   }
 
-  saveCanvas(dramaId: number, canvasLayout: unknown, workflowGroups: unknown): Drama {
-    const project = this.require(dramaId);
-    project.metadata.canvas_layout = toJsonValue(canvasLayout);
-    if (workflowGroups !== undefined) project.metadata.workflow_groups = toJsonValue(workflowGroups);
-    this.db.prepare('UPDATE dramas SET metadata = ?, updated_at = ? WHERE id = ?')
-      .run(JSON.stringify(project.metadata), new Date().toISOString(), dramaId);
+  saveCanvas(
+    dramaId: number,
+    canvasLayout: unknown,
+    expectedRevision: unknown,
+  ): Drama {
+    const revision = readNumber(expectedRevision);
+    if (revision === undefined || !Number.isInteger(revision) || revision < 0) {
+      throw new ValidationError('保存画布时必须提供有效的 expected_revision');
+    }
+    const layout = asRecord(canvasLayout);
+    if (
+      !layout
+      || !Array.isArray(layout.workspace_nodes)
+      || !Array.isArray(layout.edges)
+      || !Array.isArray(layout.workflow_groups)
+    ) {
+      throw new ValidationError('canvas_layout 必须包含 workspace_nodes、edges 和 workflow_groups 数组');
+    }
+
+    const save = this.db.transaction(() => {
+      const row = this.db.prepare('SELECT metadata, canvas_revision FROM dramas WHERE id = ?')
+        .get(dramaId) as Pick<DramaRow, 'metadata' | 'canvas_revision'> | undefined;
+      if (!row) throw new NotFoundError('项目不存在');
+      if (row.canvas_revision !== revision) {
+        throw new ConflictError(`画布已被其他页面更新，当前版本为 ${row.canvas_revision}，请重新加载后再编辑`);
+      }
+
+      const metadata = parseJson<JsonObject>(row.metadata, {});
+      metadata.canvas_layout = toJsonValue(layout);
+      const result = this.db.prepare(`
+        UPDATE dramas
+        SET metadata = ?, canvas_revision = canvas_revision + 1, updated_at = ?
+        WHERE id = ? AND canvas_revision = ?
+      `).run(JSON.stringify(metadata), new Date().toISOString(), dramaId, revision);
+      if (result.changes !== 1) {
+        const actual = this.db.prepare('SELECT canvas_revision FROM dramas WHERE id = ?')
+          .get(dramaId) as Pick<DramaRow, 'canvas_revision'> | undefined;
+        throw new ConflictError(`画布已被其他页面更新，当前版本为 ${actual?.canvas_revision ?? '未知'}，请重新加载后再编辑`);
+      }
+    });
+    save();
     return this.require(dramaId);
   }
 
@@ -165,6 +202,12 @@ function normalizeDrama(row: DramaRow): Drama {
 function jsonObject(value: unknown): JsonObject {
   const object = asRecord(value);
   return object ? JSON.parse(JSON.stringify(object)) as JsonObject : {};
+}
+
+function preserveCanvasMetadata(next: JsonObject, current: JsonObject): JsonObject {
+  const metadata = { ...next };
+  if (current.canvas_layout !== undefined) metadata.canvas_layout = current.canvas_layout;
+  return metadata;
 }
 
 function toJsonValue(value: unknown): import('../types/core').JsonValue {

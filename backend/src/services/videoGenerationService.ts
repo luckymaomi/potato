@@ -5,6 +5,7 @@ import { parseJson } from '../types/core';
 import { AiConfigService } from './aiConfigService';
 import { TaskService, type TaskReporter } from './taskService';
 import { NotFoundError, ValidationError } from '../errors';
+import { MediaReferenceService } from './mediaReferenceService';
 
 export interface VideoGenerationInput {
   dramaId: number;
@@ -50,6 +51,7 @@ export class VideoGenerationService {
   constructor(
     private readonly db: SQLiteDatabase,
     private readonly appConfig: AppConfig,
+    private readonly mediaReferences: MediaReferenceService,
     private readonly configs: AiConfigService,
     private readonly tasks: TaskService,
     private readonly registry: ProviderRegistry,
@@ -67,9 +69,17 @@ export class VideoGenerationService {
   }
 
   create(input: VideoGenerationInput): VideoGenerationRow {
-    const aiConfig = this.configs.select('video', input.provider, input.model);
+    const references = unique([input.image, input.firstFrame, input.lastFrame, ...input.referenceImages]);
+    const mode = references.length ? 'image-to-video' : 'text-to-video';
+    const aiConfig = this.configs.select('video', input.provider, input.model, {
+      mode,
+      referenceImageCount: references.length,
+      aspectRatio: input.aspectRatio,
+      requiresAspectRatio: true,
+    });
     const model = input.model || aiConfig.default_model || aiConfig.model[0];
     if (!model) throw new ValidationError('视频配置没有可用模型');
+    const aspectRatio = this.configs.resolveAspectRatio('video', aiConfig.provider, model, input.aspectRatio);
     const adapter = this.registry.require({ kind: 'video', config: aiConfig, model });
     const now = new Date().toISOString();
     const result = this.db.prepare(`
@@ -84,7 +94,7 @@ export class VideoGenerationService {
       input.prompt,
       model,
       input.duration ?? null,
-      input.aspectRatio ?? null,
+      aspectRatio,
       input.resolution ?? null,
       input.image ?? null,
       input.firstFrame ?? null,
@@ -95,7 +105,7 @@ export class VideoGenerationService {
     );
     const id = Number(result.lastInsertRowid);
     const taskId = this.tasks.run('video_generation', String(id), async (reporter) =>
-      this.execute(id, input, model, aiConfig, adapter, reporter));
+      this.execute(id, { ...input, aspectRatio }, model, aiConfig, adapter, reporter));
     this.db.prepare('UPDATE video_generations SET task_id = ?, updated_at = ? WHERE id = ?').run(taskId, new Date().toISOString(), id);
     return this.get(id) as VideoGenerationRow;
   }
@@ -109,9 +119,11 @@ export class VideoGenerationService {
     const taskId = this.tasks.run('video_generation', String(id), async (reporter) => {
       try {
         const result = await this.pollUntilDone(id, adapter, config, row.provider_task_id as string, row.model as string, reporter);
+        reporter.throwIfCancelled();
         return this.saveCompleted(id, result.videoUrl as string, row.storyboard_id);
       } catch (error) {
-        this.fail(id, error);
+        if (reporter.signal.aborted) this.mark(id, 'cancelled');
+        else this.fail(id, error);
         throw error;
       }
     });
@@ -135,7 +147,7 @@ export class VideoGenerationService {
         config,
         log: this.log,
         db: this.db,
-        resolveMediaReference: async (source) => this.publicReference(source),
+        resolveMediaReference: this.mediaReferences.resolve,
       }, {
         prompt: input.prompt,
         model,
@@ -146,6 +158,7 @@ export class VideoGenerationService {
         firstFrame: input.firstFrame,
         lastFrame: input.lastFrame,
         referenceImages: input.referenceImages,
+        signal: reporter.signal,
       });
       if (result.taskId) {
         this.db.prepare('UPDATE video_generations SET provider_task_id = ?, updated_at = ? WHERE id = ?')
@@ -155,10 +168,12 @@ export class VideoGenerationService {
         if (!result.taskId) throw new Error('视频供应商没有返回任务 ID');
         result = await this.pollUntilDone(id, adapter, config, result.taskId, model, reporter);
       }
+      reporter.throwIfCancelled();
       if (!result.videoUrl) throw new Error(result.error || '视频供应商没有返回视频地址');
       return this.saveCompleted(id, result.videoUrl, input.storyboardId ?? null);
     } catch (error) {
-      this.fail(id, error);
+      if (reporter.signal.aborted) this.mark(id, 'cancelled');
+      else this.fail(id, error);
       throw error;
     }
   }
@@ -174,8 +189,9 @@ export class VideoGenerationService {
     const timeoutMinutes = this.appConfig.video?.generation_timeout_minutes ?? 30;
     const maxAttempts = Math.max(1, Math.ceil(timeoutMinutes * 12));
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      if (attempt > 0) await wait(5_000);
-      const result = await pollVideoProvider(adapter, { config, log: this.log, db: this.db }, taskId, undefined, model);
+      reporter.throwIfCancelled();
+      if (attempt > 0) await wait(5_000, reporter.signal);
+      const result = await pollVideoProvider(adapter, { config, log: this.log, db: this.db }, taskId, reporter.signal, model);
       reporter.progress(Math.min(95, result.progress ?? 10 + Math.round((attempt / maxAttempts) * 80)), '正在生成视频');
       if (result.status === 'completed') return result;
       if (result.status === 'failed') throw new Error(result.error || '视频生成失败');
@@ -203,18 +219,28 @@ export class VideoGenerationService {
       .run(message, new Date().toISOString(), id);
   }
 
-  private publicReference(source: string): string | undefined {
-    if (/^https?:\/\//iu.test(source) || /^data:/iu.test(source)) return source;
-    if (!source.startsWith('/static/')) return undefined;
-    const base = this.appConfig.storage?.base_url?.replace(/\/+$/u, '') ?? 'http://localhost:5679/static';
-    return `${base}/${source.slice('/static/'.length)}`;
-  }
 }
 
 export function videoReferences(row: VideoGenerationRow): string[] {
   return parseJson<string[]>(row.reference_image_urls, []);
 }
 
-async function wait(milliseconds: number): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+async function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) throw signal.reason ?? new Error('任务已取消');
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      reject(signal.reason ?? new Error('任务已取消'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+function unique(values: Array<string | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }

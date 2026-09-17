@@ -1,4 +1,14 @@
-import type { ProviderAdapter, ProviderDescriptor, ProviderKind, ProviderModel, ProviderRegistry } from '../providers';
+import {
+  modelSupportsAspectRatio,
+  modelSupportsMode,
+  parseModelCapabilities,
+  type ProviderAdapter,
+  type ProviderDescriptor,
+  type ProviderKind,
+  type ProviderModel,
+  type ProviderModelMode,
+  type ProviderRegistry,
+} from '../providers';
 import type { AiServiceConfig, AiServiceType, ProviderCatalogStatus, ProviderModelSnapshot } from '../types/ai';
 import type { AppConfig, SQLiteDatabase } from '../types/core';
 import { readString } from '../types/core';
@@ -9,7 +19,15 @@ interface CatalogRow {
   model_id: string;
   label: string;
   kind: ProviderKind;
+  capabilities: string;
   synchronized_at: string;
+}
+
+interface ModelSelectionRequirements {
+  mode?: ProviderModelMode;
+  referenceImageCount?: number;
+  aspectRatio?: string;
+  requiresAspectRatio?: boolean;
 }
 
 export class AiConfigService {
@@ -47,6 +65,7 @@ export class AiConfigService {
       id: row.model_id,
       label: row.label,
       kind: row.kind,
+      capabilities: parseModelCapabilities(row.capabilities),
       synchronized_at: row.synchronized_at,
     }));
   }
@@ -67,7 +86,12 @@ export class AiConfigService {
     return this.models(adapter.descriptor.id, serviceType);
   }
 
-  select(serviceType: AiServiceType, provider?: string, model?: string): AiServiceConfig {
+  select(
+    serviceType: AiServiceType,
+    provider?: string,
+    model?: string,
+    requirements: ModelSelectionRequirements = {},
+  ): AiServiceConfig {
     const requestedProvider = provider ? this.requireAdapter(provider).descriptor.id : undefined;
     const descriptors = this.registry.list(serviceType)
       .filter((descriptor) => !requestedProvider || descriptor.id === requestedProvider)
@@ -79,20 +103,44 @@ export class AiConfigService {
     for (const descriptor of descriptors) {
       const available = this.models(descriptor.id, serviceType);
       const configuredDefault = readString(this.providerConfig(descriptor.id)?.default_models?.[serviceType]);
-      const selectedModel = model
-        ? available.find((entry) => entry.id === model)
-        : configuredDefault
-          ? available.find((entry) => entry.id === configuredDefault)
-          : available[0];
-      if (!model && configuredDefault && !selectedModel) {
+      const configuredModel = configuredDefault
+        ? available.find((entry) => entry.id === configuredDefault)
+        : undefined;
+      if (configuredDefault && !configuredModel) {
         throw new ValidationError(`${descriptor.label} 在 config.yaml 设置的默认${serviceLabel(serviceType)}模型不在实时目录：${configuredDefault}`);
       }
+      const compatible = available.filter((entry) => this.matchesRequirements(entry, requirements));
+      const selectedModel = model
+        ? available.find((entry) => entry.id === model)
+        : configuredModel && this.matchesRequirements(configuredModel, requirements)
+          ? configuredModel
+          : compatible[0];
       if (!selectedModel) continue;
+      this.assertRequirements(selectedModel, requirements);
       return this.executionConfig(descriptor, serviceType, available, selectedModel.id);
     }
 
     if (model) throw new ValidationError(`动态模型目录中没有可用的 ${model}`);
+    if (requirements.aspectRatio) throw new ValidationError(`动态模型目录中没有支持画幅比例 ${requirements.aspectRatio} 的模型`);
+    if (requirements.requiresAspectRatio) throw new ValidationError(`动态模型目录中没有已确认画幅比例能力的${serviceLabel(serviceType)}模型`);
+    if (requirements.mode) throw new ValidationError(`动态模型目录中没有支持${modeLabel(requirements.mode)}的模型`);
     throw new ValidationError(`尚未同步可用的${serviceLabel(serviceType)}模型，请先打开 AI 配置刷新模型目录`);
+  }
+
+  resolveAspectRatio(
+    serviceType: Extract<AiServiceType, 'image' | 'video'>,
+    provider: string,
+    modelId: string,
+    requested?: string,
+  ): string {
+    const model = this.models(provider, serviceType).find((entry) => entry.id === modelId);
+    if (!model) throw new ValidationError(`动态模型目录中没有可用的 ${modelId}`);
+    const aspectRatio = readString(requested) ?? model.capabilities.aspectRatios?.[0];
+    if (!aspectRatio) {
+      throw new ValidationError(`模型 ${model.label} 的画幅比例能力未知，请刷新模型目录或选择已标明比例的模型`);
+    }
+    this.assertRequirements(model, { aspectRatio });
+    return aspectRatio;
   }
 
   private executionConfig(
@@ -134,10 +182,12 @@ export class AiConfigService {
         this.db.prepare('DELETE FROM provider_model_catalog WHERE provider = ?').run(provider);
       }
       const insert = this.db.prepare(`
-        INSERT INTO provider_model_catalog (provider, model_id, label, kind, synchronized_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO provider_model_catalog (provider, model_id, label, kind, capabilities, synchronized_at)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
-      for (const model of models) insert.run(provider, model.id, model.label, model.kind, synchronizedAt);
+      for (const model of models) {
+        insert.run(provider, model.id, model.label, model.kind, JSON.stringify(model.capabilities), synchronizedAt);
+      }
     });
     replace();
   }
@@ -165,6 +215,45 @@ export class AiConfigService {
     return adapter;
   }
 
+  private assertRequirements(model: ProviderModelSnapshot, requirements: ModelSelectionRequirements): void {
+    if (requirements.mode && !modelSupportsMode(model.capabilities, requirements.mode)) {
+      const known = model.capabilities.source === 'unknown'
+        ? '能力信息未知，请先刷新模型目录'
+        : `不支持${modeLabel(requirements.mode)}`;
+      throw new ValidationError(`模型 ${model.label} ${known}`);
+    }
+    const referenceCount = Math.max(0, requirements.referenceImageCount ?? 0);
+    if (referenceCount > 0 && model.capabilities.maxReferenceImages === null) {
+      throw new ValidationError(`模型 ${model.label} 的参考图上限未知，请刷新模型目录或选择已标明上限的模型`);
+    }
+    if (model.capabilities.maxReferenceImages !== null && referenceCount > model.capabilities.maxReferenceImages) {
+      throw new ValidationError(`模型 ${model.label} 最多支持 ${model.capabilities.maxReferenceImages} 张参考图，当前为 ${referenceCount} 张`);
+    }
+    if (requirements.requiresAspectRatio
+      && (!model.capabilities.aspectRatios || model.capabilities.aspectRatios.length === 0)) {
+      throw new ValidationError(`模型 ${model.label} 的画幅比例能力未知，请刷新模型目录或选择已标明比例的模型`);
+    }
+    const aspectRatio = readString(requirements.aspectRatio);
+    if (aspectRatio && model.capabilities.aspectRatios === null) {
+      throw new ValidationError(`模型 ${model.label} 的画幅比例能力未知，请刷新模型目录或选择已标明比例的模型`);
+    }
+    if (aspectRatio && !modelSupportsAspectRatio(model.capabilities, aspectRatio)) {
+      throw new ValidationError(`模型 ${model.label} 不支持画幅比例 ${aspectRatio}，可用比例：${model.capabilities.aspectRatios?.join('、') || '未知'}`);
+    }
+  }
+
+  private matchesRequirements(model: ProviderModelSnapshot, requirements: ModelSelectionRequirements): boolean {
+    if (requirements.mode && !modelSupportsMode(model.capabilities, requirements.mode)) return false;
+    const referenceCount = Math.max(0, requirements.referenceImageCount ?? 0);
+    if (referenceCount > 0 && (model.capabilities.maxReferenceImages === null
+      || referenceCount > model.capabilities.maxReferenceImages)) return false;
+    if (requirements.requiresAspectRatio
+      && (!model.capabilities.aspectRatios || model.capabilities.aspectRatios.length === 0)) return false;
+    const aspectRatio = readString(requirements.aspectRatio);
+    if (aspectRatio && !modelSupportsAspectRatio(model.capabilities, aspectRatio)) return false;
+    return true;
+  }
+
   private providerConfig(provider: string) {
     return this.appConfig.ai?.providers?.[provider];
   }
@@ -187,4 +276,14 @@ function assertCapability(descriptor: ProviderDescriptor, serviceType: AiService
 
 function serviceLabel(serviceType: AiServiceType): string {
   return serviceType === 'text' ? '文本' : serviceType === 'image' ? '图片' : '视频';
+}
+
+function modeLabel(mode: ProviderModelMode): string {
+  const labels: Record<ProviderModelMode, string> = {
+    'text-to-image': '文生图',
+    'image-to-image': '图生图',
+    'text-to-video': '文生视频',
+    'image-to-video': '图生视频',
+  };
+  return labels[mode];
 }

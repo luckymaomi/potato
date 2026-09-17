@@ -4,10 +4,10 @@ import cors from 'cors';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { loadConfig } from './config/index';
 import { getDb } from './db/index';
-import { migrate } from './db/migrate';
-import { ApplicationError } from './errors';
+import { initializeDatabase } from './db/schema';
+import { resolveError } from './errorContract';
 import logger from './logger';
-import { ProviderError, providerRegistry } from './providers';
+import { providerRegistry } from './providers';
 import { failure } from './response';
 import { createApiRouter } from './routes/index';
 import { createServices } from './services/container';
@@ -16,7 +16,7 @@ import type { AppContext } from './types/core';
 export function createApp(): AppContext {
   const config = loadConfig();
   const db = getDb(config.database);
-  migrate(db);
+  initializeDatabase(db);
   const services = createServices(db, config, providerRegistry, logger);
   const interrupted = services.tasks.failInterrupted();
   if (interrupted) logger.warn('已将服务重启前未完成的任务标记为失败', { interrupted });
@@ -61,18 +61,17 @@ export function createApp(): AppContext {
     const err = error instanceof Error ? error : new Error(String(error));
     logger.error('请求失败', { path: req.path, message: err.message });
     if (res.headersSent) return;
-    const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
-    const tooLarge = code === 'LIMIT_FILE_SIZE';
-    const applicationError = error instanceof ApplicationError ? error : undefined;
-    const providerError = error instanceof ProviderError ? error : undefined;
-    const providerStatus = providerError?.code === 'configuration' || providerError?.code === 'unsupported_capability'
-      ? 400
-      : providerError?.code === 'timeout' ? 504 : 502;
+    const resolved = resolveError(error);
     failure(
       res,
-      tooLarge ? 413 : applicationError?.status ?? (providerError ? providerStatus : 500),
-      tooLarge ? 'FILE_TOO_LARGE' : applicationError?.code ?? providerError?.code ?? 'INTERNAL_ERROR',
-      tooLarge ? '上传文件过大' : err.message,
+      resolved.responseStatus,
+      resolved.error.code,
+      resolved.error.message,
+      {
+        status: resolved.error.status,
+        retryable: resolved.error.retryable,
+        provider: resolved.error.provider,
+      },
     );
   };
   app.use(errorHandler);

@@ -6,7 +6,7 @@ import { asyncRoute, bodyRecord } from './http';
 import { ValidationError } from '../errors';
 import { readString } from '../types/core';
 
-export function aiConfigRoutes(services: ServiceContainer): Router {
+export function aiConfigRoutes(services: Pick<ServiceContainer, 'aiConfigs'>): Router {
   const router = Router();
 
   router.get('/ai-configs/providers', (_req, res) => {

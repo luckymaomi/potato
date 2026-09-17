@@ -4,6 +4,7 @@ import type {
   ProviderAdapter,
   ProviderExecutionContext,
   ProviderModel,
+  ProviderModelCapabilities,
   ProviderModelDiscoveryInput,
   ProviderTaskStatus,
   TextProviderRequest,
@@ -11,6 +12,7 @@ import type {
   VideoProviderRequest,
   VideoProviderResult,
 } from '../contracts';
+import { modelCapabilities } from '../modelCapabilities';
 import { ProviderError } from '../errors';
 import { requestProviderJson, type ProviderFetch } from '../transport';
 
@@ -114,7 +116,33 @@ function normalizeAgnesModel(value: unknown): ProviderModel | undefined {
             ? 'video'
             : /(?:^|-)embedding(?:-|$)/iu.test(id) ? undefined : 'text';
   if (!kind) return undefined;
-  return { id, label: readString(item?.name) || readString(item?.model) || id, kind };
+  return {
+    id,
+    label: readString(item?.name) || readString(item?.model) || id,
+    kind,
+    capabilities: agnesModelCapabilities(id, kind),
+  };
+}
+
+function agnesModelCapabilities(id: string, kind: 'text' | 'image' | 'video'): ProviderModelCapabilities {
+  if (kind === 'image') {
+    return modelCapabilities(
+      ['text-to-image', 'image-to-image'],
+      8,
+      IMAGE_RATIOS.map(([ratio]) => ratio),
+      'adapter',
+    );
+  }
+  if (kind === 'video') {
+    const maxReferences = /agnes-video-2\.5-flash/iu.test(id)
+      ? 5
+      : /agnes-video-2\.5/iu.test(id) ? 9 : 10;
+    const aspectRatios = isVideo25(id)
+      ? VIDEO_25_RATIOS.map(([ratio]) => ratio)
+      : Object.keys(VIDEO_20_DIMENSIONS);
+    return modelCapabilities(['text-to-video', 'image-to-video'], maxReferences, aspectRatios, 'adapter');
+  }
+  return modelCapabilities([], null, [], 'adapter');
 }
 
 async function generateText(
@@ -149,7 +177,10 @@ async function submitImage(
   request: ImageProviderRequest,
   fetchImpl: ProviderFetch,
 ): Promise<ImageProviderResult> {
+  assertReferenceLimit(request.model, 'image', request.referenceImages);
   const size = mapAgnesImageSizeSpec(request.size);
+  const aspectRatio = requireAgnesAspectRatio(request.model, 'image', request.aspectRatio || size.ratio);
+  const references = await resolveImageReferences(context, request.referenceImages);
   const response = await requestProviderJson<Record<string, unknown>>({
     providerId: 'agnes',
     url: endpoint(context, '/images/generations'),
@@ -158,11 +189,11 @@ async function submitImage(
       model: required(request.model, '图片模型'),
       prompt: required(request.prompt, '图片提示词'),
       size: size.size,
-      ratio: size.ratio,
+      ratio: aspectRatio,
       ...(request.negativePrompt ? { negative_prompt: request.negativePrompt } : {}),
       extra_body: {
         response_format: 'url',
-        ...(request.referenceImages.length ? { image: request.referenceImages.slice(0, 8) } : {}),
+        ...(references.length ? { image: references } : {}),
       },
     },
     timeoutMs: 600_000,
@@ -184,9 +215,9 @@ async function submitVideo(
   fetchImpl: ProviderFetch,
 ): Promise<VideoProviderResult> {
   const references = unique(await Promise.all(request.referenceImages.map((source, index) =>
-    resolveMedia(context, source, true, `reference_${index}`))));
-  const firstFrame = await resolveMedia(context, readString(request.firstFrame) || readString(request.image), true, 'first_frame');
-  const lastFrame = await resolveMedia(context, readString(request.lastFrame), true, 'last_frame');
+    resolveMedia(context, source, 'public-url', `reference_${index}`))));
+  const firstFrame = await resolveMedia(context, readString(request.firstFrame) || readString(request.image), 'public-url', 'first_frame');
+  const lastFrame = await resolveMedia(context, readString(request.lastFrame), 'public-url', 'last_frame');
   if (request.referenceImages.length > 0 && references.length === 0) {
     throw new ProviderError({
       providerId: 'agnes',
@@ -208,6 +239,8 @@ async function submitVideo(
       message: 'Agnes 视频尾帧解析失败，需要可公网访问的图片地址',
     });
   }
+  assertReferenceLimit(request.model, 'video', unique([...references, firstFrame, lastFrame]));
+  requireAgnesAspectRatio(request.model, 'video', request.aspectRatio);
   const body = isVideo25(request.model)
     ? buildVideo25Body(request, references, firstFrame, lastFrame)
     : buildVideo20Body(request, references, firstFrame, lastFrame);
@@ -269,11 +302,11 @@ function buildVideo25Body(
     size: /agnes-video-2\.5-flash/iu.test(request.model)
       ? '720P'
       : /2K|1080|1440|2160|4K/iu.test(request.resolution || '') ? '2K' : '720P',
-    aspect_ratio: normalizeVideo25Ratio(request.aspectRatio),
+    aspect_ratio: request.aspectRatio || '16:9',
   };
   if (references.length) {
     body.mode = 'reference';
-    body.images = references.slice(0, /agnes-video-2\.5-flash/iu.test(request.model) ? 5 : 9);
+    body.images = references;
   } else if (firstFrame || lastFrame) {
     body.mode = 'keyframe';
     if (firstFrame) body.first_frame = firstFrame;
@@ -290,7 +323,7 @@ function buildVideo20Body(
   firstFrame: string | undefined,
   lastFrame: string | undefined,
 ): Record<string, unknown> {
-  const dimensions = VIDEO_20_DIMENSIONS[normalizeAspectRatio(request.aspectRatio)] || VIDEO_20_DIMENSIONS['16:9'];
+  const dimensions = VIDEO_20_DIMENSIONS[request.aspectRatio || '16:9'];
   const targetFrames = Math.round((request.duration || 5) * 24);
   const numFrames = VIDEO_20_FRAME_COUNTS.reduce((best, current) =>
     Math.abs(current - targetFrames) < Math.abs(best - targetFrames) ? current : best);
@@ -301,7 +334,7 @@ function buildVideo20Body(
     num_frames: numFrames,
     frame_rate: 24,
   };
-  if (references.length > 1) body.extra_body = { image: references.slice(0, 10) };
+  if (references.length > 1) body.extra_body = { image: references };
   else if (references.length === 1) body.image = references[0];
   else if (firstFrame && lastFrame && firstFrame !== lastFrame) {
     body.extra_body = { mode: 'keyframes', image: [firstFrame, lastFrame] };
@@ -404,19 +437,6 @@ function isVideo25(model: string): boolean {
   return /agnes-video-2\.5/iu.test(model);
 }
 
-function normalizeVideo25Ratio(value: string | undefined): string {
-  const raw = normalizeAspectRatio(value);
-  if (VIDEO_25_RATIOS.some(([label]) => label === raw)) return raw;
-  const match = raw.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/u);
-  return match
-    ? closestRatio(Number(match[1]) / Number(match[2]), VIDEO_25_RATIOS, '16:9')
-    : '16:9';
-}
-
-function normalizeAspectRatio(value: string | undefined): string {
-  return String(value || '16:9').trim().replace(/[：×xX＊*]/gu, ':');
-}
-
 function closestRatio(
   ratio: number,
   candidates: ReadonlyArray<readonly [string, number]>,
@@ -465,13 +485,29 @@ function unique(values: Array<string | undefined>): string[] {
 async function resolveMedia(
   context: ProviderExecutionContext,
   source: string | undefined,
-  publiclyAccessible: boolean,
+  format: 'inline' | 'public-url',
   label: string,
 ): Promise<string | undefined> {
   if (!source) return undefined;
   return context.resolveMediaReference
-    ? context.resolveMediaReference(source, { publiclyAccessible, label })
+    ? context.resolveMediaReference(source, { format, label })
     : source;
+}
+
+async function resolveImageReferences(
+  context: ProviderExecutionContext,
+  sources: string[],
+): Promise<string[]> {
+  const resolved = await Promise.all(sources.map((source, index) =>
+    resolveMedia(context, source, 'inline', `参考图 ${index + 1}`)));
+  if (resolved.some((item) => !item)) {
+    throw new ProviderError({
+      providerId: 'agnes',
+      code: 'configuration',
+      message: 'Agnes 图片参考图解析失败，请使用有效图片 URL 或重新上传本地图片',
+    });
+  }
+  return unique(resolved);
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -490,6 +526,34 @@ function readString(value: unknown): string | undefined {
 
 function compact<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
+}
+
+function assertReferenceLimit(model: string, kind: 'image' | 'video', sources: string[]): void {
+  const capabilities = agnesModelCapabilities(model, kind);
+  if (capabilities.maxReferenceImages !== null && sources.length > capabilities.maxReferenceImages) {
+    throw new ProviderError({
+      providerId: 'agnes',
+      code: 'configuration',
+      message: `Agnes 模型 ${model} 最多支持 ${capabilities.maxReferenceImages} 张参考图，当前为 ${sources.length} 张`,
+    });
+  }
+}
+
+function requireAgnesAspectRatio(
+  model: string,
+  kind: 'image' | 'video',
+  requested: string | undefined,
+): string {
+  const capabilities = agnesModelCapabilities(model, kind);
+  const aspectRatio = readString(requested) || capabilities.aspectRatios?.[0];
+  if (!aspectRatio || !capabilities.aspectRatios?.includes(aspectRatio)) {
+    throw new ProviderError({
+      providerId: 'agnes',
+      code: 'unsupported_capability',
+      message: `Agnes 模型 ${model} 不支持画幅比例 ${aspectRatio || '空值'}，可用比例：${capabilities.aspectRatios?.join('、') || '未知'}`,
+    });
+  }
+  return aspectRatio;
 }
 
 function invalid(message: string, details: unknown): ProviderError {

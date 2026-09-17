@@ -3,6 +3,15 @@ import type { Logger, SQLiteDatabase } from '../types/core';
 
 export type ProviderKind = 'text' | 'image' | 'video';
 export type ProviderTaskStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type ProviderModelMode = 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video';
+export type ProviderModelCapabilitySource = 'provider' | 'adapter' | 'unknown';
+
+export interface ProviderModelCapabilities {
+  modes: ProviderModelMode[];
+  maxReferenceImages: number | null;
+  aspectRatios: string[] | null;
+  source: ProviderModelCapabilitySource;
+}
 
 export interface ProviderCapabilities {
   text: boolean;
@@ -37,6 +46,7 @@ export interface ProviderModel {
   id: string;
   label: string;
   kind: ProviderKind;
+  capabilities: ProviderModelCapabilities;
 }
 
 export interface ProviderModelDiscoveryInput {
@@ -46,13 +56,18 @@ export interface ProviderModelDiscoveryInput {
   signal?: AbortSignal;
 }
 
+export interface MediaReferenceResolveOptions {
+  format?: 'inline' | 'public-url';
+  label?: string;
+}
+
 export interface ProviderExecutionContext {
   config: AiServiceConfig;
   log: Logger;
   db?: SQLiteDatabase;
   resolveMediaReference?: (
     source: string,
-    options?: { publiclyAccessible?: boolean; label?: string },
+    options?: MediaReferenceResolveOptions,
   ) => Promise<string | undefined>;
 }
 
@@ -69,6 +84,7 @@ export interface ImageProviderRequest {
   prompt: string;
   model: string;
   size?: string;
+  aspectRatio?: string;
   quality?: string;
   negativePrompt?: string;
   referenceImages: string[];

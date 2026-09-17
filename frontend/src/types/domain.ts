@@ -1,4 +1,5 @@
 export type ServiceType = 'text' | 'image' | 'video'
+export type ProviderModelMode = 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video'
 
 export interface Episode {
   id: number
@@ -32,7 +33,7 @@ export interface Character { id: number; drama_id: number; name: string; descrip
 export interface Scene { id: number; drama_id: number; episode_id?: number | null; location: string; prompt?: string | null; image_url?: string | null; local_path?: string | null }
 export interface Prop { id: number; drama_id: number; episode_id?: number | null; name: string; description?: string | null; prompt?: string | null; image_url?: string | null; local_path?: string | null }
 
-export interface ProjectMetadata { aspect_ratio?: string; canvas_layout?: unknown; workflow_groups?: unknown[]; [key: string]: unknown }
+export interface ProjectMetadata { aspect_ratio?: string; canvas_layout?: unknown; [key: string]: unknown }
 
 export interface Project {
   id: number
@@ -43,6 +44,7 @@ export interface Project {
   status?: string
   thumbnail?: string | null
   metadata: ProjectMetadata
+  canvas_revision: number
   episodes?: Episode[]
   characters?: Character[]
   scenes?: Scene[]
@@ -78,6 +80,12 @@ export interface ProviderModel {
   id: string
   label: string
   kind: ServiceType
+  capabilities: {
+    modes: ProviderModelMode[]
+    maxReferenceImages: number | null
+    aspectRatios: string[] | null
+    source: 'provider' | 'adapter' | 'unknown'
+  }
   synchronized_at: string
 }
 

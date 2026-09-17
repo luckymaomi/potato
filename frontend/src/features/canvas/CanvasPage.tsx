@@ -2,6 +2,7 @@ import {
   ApartmentOutlined,
   ArrowLeftOutlined,
   BranchesOutlined,
+  BulbOutlined,
   CopyOutlined,
   DeleteOutlined,
   DownOutlined,
@@ -15,6 +16,7 @@ import {
   ReloadOutlined,
   SaveOutlined,
   SettingOutlined,
+  StopOutlined,
   ToolOutlined,
   UserOutlined,
   VideoCameraOutlined,
@@ -51,51 +53,80 @@ import {
 } from 'antd'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { projectsApi } from '../../api/projects'
-import { createStarterWorkspace } from '../templates/starterWorkspace'
-import { useWorkbenchStore, type CanvasNode, type CanvasNodeKind, type WorkflowGroup } from '../../store/workbenchStore'
+import { productionApi } from '../../api/production'
+import { userErrorMessage } from '../../errors/appError'
+import { productionRoles, type ProductionRole, type ProductionRoleDefinition } from '../production/catalog'
+import { createStarterWorkspace } from '../production/starterWorkspace'
+import { waitForTask } from '../production/executor'
+import { useCanvasStore, type CanvasNode, type WorkflowGroup } from '../../store/canvasStore'
 import { CanvasInspector } from './CanvasInspector'
 import { CanvasNodeView } from './CanvasNode'
-import { downstreamNodeIds, executeCanvasNode, orderByConnections, prepareNodeForExecution, waitForTask } from './workflow'
+import type { CanvasSaveState } from './canvasSaveCoordinator'
+import { downstreamNodeIds } from './canvasGraph'
+import { CanvasRunSession, CanvasRunStoppedError } from './runSession'
+import { runWorkflow, WorkflowRunTerminatedError } from './workflowRunner'
 
 const nodeTypes = { canvas: CanvasNodeView }
 
-const nodeTools: Array<{ kind: CanvasNodeKind; label: string; icon: ReactNode }> = [
-  { kind: 'text', label: '添加文本节点', icon: <FileTextOutlined /> },
-  { kind: 'image', label: '添加图片节点', icon: <PictureOutlined /> },
-  { kind: 'video', label: '添加视频节点', icon: <VideoCameraOutlined /> },
-  { kind: 'character', label: '添加角色节点', icon: <UserOutlined /> },
-  { kind: 'scene', label: '添加场景节点', icon: <EnvironmentOutlined /> },
-  { kind: 'prop', label: '添加道具节点', icon: <ToolOutlined /> },
-  { kind: 'storyboard', label: '添加分镜节点', icon: <ApartmentOutlined /> },
-]
+function saveStateLabel(state: CanvasSaveState): string {
+  if (state === 'dirty') return '待保存'
+  if (state === 'saving') return '保存中'
+  if (state === 'error') return '保存失败'
+  if (state === 'conflict') return '保存冲突'
+  return '已保存'
+}
+
+function templateIcon(template: ProductionRoleDefinition): ReactNode {
+  if (template.stage === 'assets') {
+    if (template.assetKind === 'character') return <UserOutlined />
+    if (template.assetKind === 'scene') return <EnvironmentOutlined />
+    if (template.assetKind === 'prop') return <ToolOutlined />
+  }
+  if (template.stage === 'storyboard') return <ApartmentOutlined />
+  if (template.role === 'story') return <BulbOutlined />
+  if (template.material === 'image') return <PictureOutlined />
+  if (template.material === 'video') return <VideoCameraOutlined />
+  return <FileTextOutlined />
+}
+
+const nodeTools = productionRoles.map((template) => ({
+  key: template.role,
+  label: `添加${template.label}`,
+  description: template.description,
+  icon: templateIcon(template),
+}))
 
 export function CanvasPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const project = useWorkbenchStore((state) => state.project)
-  const nodes = useWorkbenchStore((state) => state.nodes)
-  const edges = useWorkbenchStore((state) => state.edges)
-  const workflowGroups = useWorkbenchStore((state) => state.workflowGroups)
-  const loading = useWorkbenchStore((state) => state.loading)
-  const saving = useWorkbenchStore((state) => state.saving)
-  const error = useWorkbenchStore((state) => state.error)
-  const load = useWorkbenchStore((state) => state.load)
-  const setNodes = useWorkbenchStore((state) => state.setNodes)
-  const setEdges = useWorkbenchStore((state) => state.setEdges)
-  const addNode = useWorkbenchStore((state) => state.addNode)
-  const addEdgeToStore = useWorkbenchStore((state) => state.addEdge)
-  const save = useWorkbenchStore((state) => state.save)
-  const setSelectedNode = useWorkbenchStore((state) => state.setSelectedNode)
-  const duplicateNodes = useWorkbenchStore((state) => state.duplicateNodes)
-  const removeNodes = useWorkbenchStore((state) => state.removeNodes)
-  const replaceWorkspace = useWorkbenchStore((state) => state.replaceWorkspace)
-  const createWorkflowGroup = useWorkbenchStore((state) => state.createWorkflowGroup)
-  const updateWorkflowGroup = useWorkbenchStore((state) => state.updateWorkflowGroup)
-  const removeWorkflowGroup = useWorkbenchStore((state) => state.removeWorkflowGroup)
-  const updateNodeData = useWorkbenchStore((state) => state.updateNodeData)
+  const project = useCanvasStore((state) => state.project)
+  const nodes = useCanvasStore((state) => state.nodes)
+  const edges = useCanvasStore((state) => state.edges)
+  const workflowGroups = useCanvasStore((state) => state.workflowGroups)
+  const loading = useCanvasStore((state) => state.loading)
+  const error = useCanvasStore((state) => state.error)
+  const saveState = useCanvasStore((state) => state.saveState)
+  const saveError = useCanvasStore((state) => state.saveError)
+  const load = useCanvasStore((state) => state.load)
+  const setNodes = useCanvasStore((state) => state.setNodes)
+  const setEdges = useCanvasStore((state) => state.setEdges)
+  const addNode = useCanvasStore((state) => state.addNode)
+  const addEdgeToStore = useCanvasStore((state) => state.addEdge)
+  const queueSave = useCanvasStore((state) => state.queueSave)
+  const save = useCanvasStore((state) => state.save)
+  const hasUnsavedChanges = useCanvasStore((state) => state.hasUnsavedChanges)
+  const disposeSaveCoordinator = useCanvasStore((state) => state.disposeSaveCoordinator)
+  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode)
+  const duplicateNodes = useCanvasStore((state) => state.duplicateNodes)
+  const removeNodes = useCanvasStore((state) => state.removeNodes)
+  const replaceWorkspace = useCanvasStore((state) => state.replaceWorkspace)
+  const createWorkflowGroup = useCanvasStore((state) => state.createWorkflowGroup)
+  const updateWorkflowGroup = useCanvasStore((state) => state.updateWorkflowGroup)
+  const removeWorkflowGroup = useCanvasStore((state) => state.removeWorkflowGroup)
+  const updateNodeData = useCanvasStore((state) => state.updateNodeData)
 
   const [running, setRunning] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [workflowDrawerOpen, setWorkflowDrawerOpen] = useState(false)
   const [groupModalOpen, setGroupModalOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<WorkflowGroup | null>(null)
@@ -104,21 +135,39 @@ export function CanvasPage() {
   const [finalizeOpen, setFinalizeOpen] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [finalizeEpisodeId, setFinalizeEpisodeId] = useState<number>()
-  const initialized = useRef(false)
+  const runSessionRef = useRef<CanvasRunSession | null>(null)
   const selection = nodes.filter((node) => node.selected).map((node) => node.id)
+  const projectId = project?.id
+  const activeRun = running || finalizing
 
   useEffect(() => {
     const projectId = Number(id)
     if (!Number.isFinite(projectId)) return
-    initialized.current = false
-    void load(projectId).then(() => { initialized.current = true })
+    void load(projectId)
   }, [id, load])
 
   useEffect(() => {
-    if (!initialized.current || !project) return
-    const timer = window.setTimeout(() => { void save().catch(() => undefined) }, 900)
-    return () => window.clearTimeout(timer)
-  }, [nodes, edges, workflowGroups, project, save])
+    if (loading || !projectId) return
+    queueSave()
+  }, [nodes, edges, workflowGroups, projectId, loading, queueSave])
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges()) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasUnsavedChanges])
+
+  useEffect(() => () => {
+    void disposeSaveCoordinator().catch(() => undefined)
+  }, [disposeSaveCoordinator])
+
+  useEffect(() => () => {
+    void runSessionRef.current?.stop().catch(() => undefined)
+  }, [])
 
   const onNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => setNodes(changes), [setNodes])
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges(changes), [setEdges])
@@ -138,61 +187,75 @@ export function CanvasPage() {
     setSelectedNode(ids.length === 1 ? ids[0] : null)
   }, [setSelectedNode])
 
-  const add = (kind: CanvasNodeKind) => {
-    addNode(kind, { x: 110 + (nodes.length % 5) * 290, y: 120 + Math.floor(nodes.length / 5) * 230 })
+  const add = (role: ProductionRole) => {
+    addNode(role, { x: 110 + (nodes.length % 5) * 290, y: 120 + Math.floor(nodes.length / 5) * 230 })
   }
 
   const runNodeIds = useCallback(async (ids: string[], label: string) => {
-    const state = useWorkbenchStore.getState()
+    if (runSessionRef.current) {
+      message.info('已有任务正在运行，请先停止或等待完成')
+      return
+    }
+    const state = useCanvasStore.getState()
     if (!state.project) return
     const uniqueIds = [...new Set(ids)].filter((nodeId) => state.nodes.some((node) => node.id === nodeId))
     if (!uniqueIds.length) {
       message.info('当前运行范围没有节点')
       return
     }
+    const session = new CanvasRunSession()
+    runSessionRef.current = session
     setRunning(true)
-    let completed = 0
-    let failed = 0
-    const failedIds = new Set<string>()
     try {
-      const ordered = orderByConnections(state.nodes, state.edges, uniqueIds)
-      for (const orderedNode of ordered) {
-        const current = useWorkbenchStore.getState()
-        const node = current.nodes.find((item) => item.id === orderedNode.id)
-        if (!node) continue
-        const blockedBy = current.edges.find((edge) => edge.target === node.id && failedIds.has(edge.source))
-        if (blockedBy) {
-          failedIds.add(node.id)
-          failed += 1
-          updateNodeData(node.id, { status: 'failed', error: '上游节点失败，本节点未运行' })
-          continue
-        }
-        const prepared = prepareNodeForExecution(node, current.nodes, current.edges)
-        updateNodeData(node.id, prepared.data)
-        try {
-          await executeCanvasNode(prepared, current.project as NonNullable<typeof current.project>, updateNodeData)
-          completed += 1
-        } catch (runError) {
-          failedIds.add(node.id)
-          failed += 1
-          updateNodeData(node.id, { status: 'failed', error: (runError as Error).message })
-        }
-      }
-      await useWorkbenchStore.getState().save()
-      if (failed) message.warning(`${label}完成：${completed} 个成功，${failed} 个失败`)
-      else message.success(`${label}完成：${completed} 个节点成功`)
+      await useCanvasStore.getState().save()
+      const result = await runWorkflow({
+        ids: uniqueIds,
+        label,
+        session,
+        getState: () => {
+          const current = useCanvasStore.getState()
+          if (!current.project) throw new Error('项目已经关闭')
+          return { project: current.project, nodes: current.nodes, edges: current.edges }
+        },
+        updateNode: updateNodeData,
+      })
+      message.success(`${label}完成：${result.completed} 个节点成功`)
     } catch (runError) {
-      message.error((runError as Error).message)
+      if (runError instanceof CanvasRunStoppedError || session.stopped) {
+        message.info(`${label}已停止，后续节点没有运行`)
+      } else if (runError instanceof WorkflowRunTerminatedError) {
+        message.error(runError.message)
+      } else {
+        message.error(userErrorMessage(runError))
+      }
     } finally {
+      try {
+        await useCanvasStore.getState().save()
+      } catch (saveError) {
+        message.error(`运行结果尚未保存：${userErrorMessage(saveError)}`)
+      }
+      if (runSessionRef.current === session) runSessionRef.current = null
       setRunning(false)
+      setStopping(false)
     }
   }, [updateNodeData])
+
+  const stopRunning = useCallback(async () => {
+    const session = runSessionRef.current
+    if (!session || session.stopped) return
+    setStopping(true)
+    try {
+      await session.stop()
+    } catch (stopError) {
+      message.warning(`本地编排已停止，但后端取消请求失败：${userErrorMessage(stopError)}`)
+    }
+  }, [])
 
   const runNode = useCallback(async (nodeId: string) => {
     await runNodeIds([nodeId], '当前节点')
   }, [runNodeIds])
   const runDownstream = useCallback(async (nodeId: string) => {
-    const state = useWorkbenchStore.getState()
+    const state = useCanvasStore.getState()
     await runNodeIds(downstreamNodeIds([nodeId], state.edges), '下游分支')
   }, [runNodeIds])
 
@@ -201,8 +264,29 @@ export function CanvasPage() {
       await save()
       message.success('画布已保存')
     } catch (saveError) {
-      message.error((saveError as Error).message)
+      message.error(userErrorMessage(saveError))
     }
+  }
+
+  const navigateAfterSave = async (target: string) => {
+    try {
+      await save()
+      navigate(target)
+    } catch (saveError) {
+      message.error(`尚未离开画布：${userErrorMessage(saveError)}`)
+    }
+  }
+
+  const reloadAfterConflict = async () => {
+    const nextProjectId = Number(id)
+    if (!Number.isFinite(nextProjectId)) return
+    await load(nextProjectId)
+    const loadError = useCanvasStore.getState().error
+    if (loadError) {
+      message.error(loadError)
+      return
+    }
+    message.success('已重新加载服务端画布')
   }
 
   const saveGroup = async () => {
@@ -216,7 +300,7 @@ export function CanvasPage() {
     setGroupModalOpen(false)
     setEditingGroup(null)
     setGroupName('')
-    await useWorkbenchStore.getState().save()
+    await useCanvasStore.getState().save()
     message.success(editingGroup ? '工作流已重命名' : '所选节点已保存为工作流')
   }
 
@@ -243,25 +327,32 @@ export function CanvasPage() {
   const restoreStarter = async () => {
     if (!project) return
     replaceWorkspace(createStarterWorkspace(project))
-    await useWorkbenchStore.getState().save()
+    await useCanvasStore.getState().save()
     setRestoreOpen(false)
     message.success('默认短剧工作流已恢复')
   }
 
   const finalize = async () => {
     if (!finalizeEpisodeId) { message.info('请选择要合成的剧集'); return }
+    if (runSessionRef.current) { message.info('已有任务正在运行，请先停止或等待完成'); return }
+    const session = new CanvasRunSession()
+    runSessionRef.current = session
     setFinalizing(true)
     try {
-      await useWorkbenchStore.getState().save()
-      const submitted = await projectsApi.finalizeEpisode(finalizeEpisodeId)
-      const task = await waitForTask(submitted.task_id, () => undefined)
-      if (task.status !== 'completed') throw new Error(task.error || task.message || '整集合成失败')
+      await useCanvasStore.getState().save()
+      if (!project) throw new Error('项目已经关闭')
+      const submitted = await productionApi.execute({ kind: 'finalize', project_id: project.id, episode_id: finalizeEpisodeId })
+      if (!submitted.task_id) throw new Error('后端没有返回整集合成任务 ID')
+      await waitForTask(submitted.task_id, () => undefined, session)
       message.success('整集合成完成')
       setFinalizeOpen(false)
     } catch (finalizeError) {
-      message.error((finalizeError as Error).message)
+      if (finalizeError instanceof CanvasRunStoppedError || session.stopped) message.info('整集合成已停止')
+      else message.error(userErrorMessage(finalizeError))
     } finally {
+      if (runSessionRef.current === session) runSessionRef.current = null
       setFinalizing(false)
+      setStopping(false)
     }
   }
 
@@ -278,30 +369,79 @@ export function CanvasPage() {
     },
   }
 
+  const addNodeMenu: MenuProps = {
+    items: [
+      {
+        type: 'group',
+        label: '短剧生产链',
+        children: nodeTools.filter((tool) => !tool.key.startsWith('generic-')).map((tool) => ({
+          key: tool.key,
+          icon: tool.icon,
+          label: tool.label.replace(/^添加/u, ''),
+          extra: tool.description,
+        })),
+      },
+      {
+        type: 'group',
+        label: '通用材料',
+        children: nodeTools.filter((tool) => tool.key.startsWith('generic-')).map((tool) => ({
+          key: tool.key,
+          icon: tool.icon,
+          label: tool.label.replace(/^添加/u, ''),
+          extra: tool.description,
+        })),
+      },
+    ],
+    onClick: ({ key }) => add(key as ProductionRole),
+  }
+
   return (
     <div className="canvas-page">
       <header className="canvas-topbar">
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>项目</Button>
+        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => void navigateAfterSave('/')}>项目</Button>
         <div className="canvas-project-title">
           <Typography.Text type="secondary">画布工作台</Typography.Text>
           <strong>{project?.title || '加载中…'}</strong>
         </div>
         <div className="canvas-top-actions">
-          <Tooltip title="AI 配置"><Button icon={<SettingOutlined />} onClick={() => navigate('/ai-config')} /></Tooltip>
+          <Tooltip title="AI 配置"><Button icon={<SettingOutlined />} onClick={() => void navigateAfterSave('/ai-config')} /></Tooltip>
           <Tooltip title="工作流管理"><Button icon={<BranchesOutlined />} onClick={() => setWorkflowDrawerOpen(true)} /></Tooltip>
           <Tooltip title="恢复默认模板"><Button icon={<ReloadOutlined />} onClick={() => setRestoreOpen(true)} /></Tooltip>
-          <Button icon={<SaveOutlined />} loading={saving} onClick={() => void saveNow()}>保存</Button>
-          <Space.Compact>
+          <Tooltip title={saveError || saveStateLabel(saveState)}>
+            <span className={`canvas-save-state is-${saveState}`}>{saveStateLabel(saveState)}</span>
+          </Tooltip>
+          {saveState === 'conflict' ? (
+            <Popconfirm
+              title="重新加载会放弃本页尚未保存的修改，是否继续？"
+              okText="重新加载"
+              cancelText="保留当前页"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void reloadAfterConflict()}
+            >
+              <Button danger icon={<ReloadOutlined />}>处理冲突</Button>
+            </Popconfirm>
+          ) : (
             <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              loading={running}
-              disabled={!nodes.length}
-              onClick={() => void runNodeIds(nodes.map((node) => node.id), '整个画布')}
-            >运行全部</Button>
-            <Dropdown menu={runMenu} disabled={running}><Button type="primary" icon={<DownOutlined />} aria-label="选择运行范围" /></Dropdown>
-          </Space.Compact>
-          <Button icon={<VideoCameraOutlined />} onClick={() => { setFinalizeEpisodeId(project?.episodes?.[0]?.id); setFinalizeOpen(true) }}>合成整集</Button>
+              danger={saveState === 'error'}
+              icon={<SaveOutlined />}
+              loading={saveState === 'saving'}
+              onClick={() => void saveNow()}
+            >{saveState === 'error' ? '重试保存' : '保存'}</Button>
+          )}
+          {activeRun ? (
+            <Button danger icon={<StopOutlined />} loading={stopping} onClick={() => void stopRunning()}>停止运行</Button>
+          ) : (
+            <Space.Compact>
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                disabled={!nodes.length}
+                onClick={() => void runNodeIds(nodes.map((node) => node.id), '整个画布')}
+              >运行全部</Button>
+              <Dropdown menu={runMenu}><Button type="primary" icon={<DownOutlined />} aria-label="选择运行范围" /></Dropdown>
+            </Space.Compact>
+          )}
+          <Button disabled={activeRun} icon={<VideoCameraOutlined />} onClick={() => { setFinalizeEpisodeId(project?.episodes?.[0]?.id); setFinalizeOpen(true) }}>合成整集</Button>
         </div>
       </header>
 
@@ -339,18 +479,19 @@ export function CanvasPage() {
                 <MiniMap position="bottom-right" nodeColor="#9ca8a2" maskColor="rgb(245 246 243 / 76%)" />
 
                 <Panel position="top-left" className="node-tool-palette">
-                  <Tooltip title="添加节点" placement="right"><div className="node-tool-palette-heading"><PlusOutlined /></div></Tooltip>
-                  {nodeTools.map((tool) => (
-                    <Tooltip title={tool.label} placement="right" key={tool.kind}>
-                      <Button type="text" icon={tool.icon} aria-label={tool.label} onClick={() => add(tool.kind)} />
-                    </Tooltip>
-                  ))}
+                  <Dropdown menu={addNodeMenu} trigger={['click']} placement="bottomLeft">
+                    <Tooltip title="添加节点"><Button type="text" icon={<PlusOutlined />} aria-label="添加节点" /></Tooltip>
+                  </Dropdown>
                 </Panel>
 
                 {selection.length > 0 && (
                   <Panel position="bottom-center" className="selection-command-bar">
                     <span className="selection-count">已选 {selection.length}</span>
-                    <Button type="primary" icon={<PlayCircleOutlined />} loading={running} onClick={() => void runNodeIds(selection, '所选节点')}>运行所选</Button>
+                    {running ? (
+                      <Button danger icon={<StopOutlined />} loading={stopping} onClick={() => void stopRunning()}>停止</Button>
+                    ) : (
+                      <Button type="primary" icon={<PlayCircleOutlined />} disabled={finalizing} onClick={() => void runNodeIds(selection, '所选节点')}>运行所选</Button>
+                    )}
                     <Tooltip title="保存为工作流"><Button icon={<FolderOpenOutlined />} aria-label="保存为工作流" disabled={selection.length < 2} onClick={openCreateGroup} /></Tooltip>
                     <Tooltip title="复制所选"><Button icon={<CopyOutlined />} aria-label="复制所选" onClick={() => duplicateNodes(selection)} /></Tooltip>
                     <Popconfirm
@@ -368,7 +509,13 @@ export function CanvasPage() {
             )}
           </Spin>
         </div>
-        <CanvasInspector running={running} onRunNode={runNode} onRunDownstream={runDownstream} />
+        <CanvasInspector
+          running={activeRun}
+          stopping={stopping}
+          onRunNode={runNode}
+          onRunDownstream={runDownstream}
+          onStop={stopRunning}
+        />
       </div>
 
       <Drawer title="工作流" width={380} open={workflowDrawerOpen} onClose={() => setWorkflowDrawerOpen(false)}>
@@ -386,7 +533,7 @@ export function CanvasPage() {
                 <span>{group.nodeIds.length} 个节点</span>
               </div>
               <Space size={2}>
-                <Tooltip title="运行这个工作流"><Button type="text" icon={<PlayCircleOutlined />} loading={running} onClick={() => void runNodeIds(group.nodeIds, group.name)} /></Tooltip>
+                <Tooltip title="运行这个工作流"><Button type="text" icon={<PlayCircleOutlined />} disabled={activeRun} onClick={() => void runNodeIds(group.nodeIds, group.name)} /></Tooltip>
                 <Tooltip title="重命名"><Button type="text" icon={<EditOutlined />} onClick={() => openEditGroup(group)} /></Tooltip>
                 <Popconfirm title="删除这个工作流？" onConfirm={() => removeWorkflowGroup(group.id)}>
                   <Tooltip title="删除"><Button type="text" danger icon={<DeleteOutlined />} /></Tooltip>
@@ -424,8 +571,9 @@ export function CanvasPage() {
         open={finalizeOpen}
         confirmLoading={finalizing}
         onOk={() => void finalize()}
-        onCancel={() => setFinalizeOpen(false)}
+        onCancel={() => { if (finalizing) void stopRunning(); else setFinalizeOpen(false) }}
         okText="提交合成"
+        cancelText={finalizing ? '停止合成' : '取消'}
       >
         <Select
           style={{ width: '100%' }}

@@ -12,8 +12,9 @@ import { Button, Card, Empty, Form, Input, message, Modal, Popconfirm, Space, Sp
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { projectsApi } from '../api/projects'
-import { createDemoProject } from '../features/demo/demoProject'
-import { createStarterWorkspace } from '../features/templates/starterWorkspace'
+import { userErrorMessage } from '../errors/appError'
+import { createDemoProject } from '../features/production/demoWorkspace'
+import { createStarterWorkspace } from '../features/production/starterWorkspace'
 import type { Project } from '../types/domain'
 
 interface ProjectFormValues {
@@ -53,7 +54,7 @@ export function ProjectsPage() {
       const result = await projectsApi.list({ page: 1, page_size: 100, keyword: keyword?.trim() || undefined })
       setProjects(result.items)
     } catch (error) {
-      message.error((error as Error).message)
+      message.error(userErrorMessage(error))
     } finally {
       setLoading(false)
     }
@@ -63,7 +64,7 @@ export function ProjectsPage() {
     let active = true
     void projectsApi.list({ page: 1, page_size: 100 })
       .then((result) => { if (active) setProjects(result.items) })
-      .catch((error: Error) => { if (active) message.error(error.message) })
+      .catch((error: unknown) => { if (active) message.error(userErrorMessage(error)) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
@@ -91,15 +92,15 @@ export function ProjectsPage() {
         setModalOpen(false)
         return
       }
-      const project = await projectsApi.create({ ...values, style: 'realistic', metadata: {} })
+      const project = await projectsApi.create({ ...values, style: 'realistic', metadata: { aspect_ratio: '9:16' } })
       const starter = createStarterWorkspace(project)
-      await projectsApi.saveCanvasLayout(project.id, starter, starter.workflow_groups)
+      await projectsApi.saveCanvasLayout(project.id, starter, project.canvas_revision)
       message.success('项目和默认工作流已创建')
       setModalOpen(false)
       form.resetFields()
       navigate(`/film/${project.id}/canvas`)
     } catch (error) {
-      message.error((error as Error).message)
+      message.error(userErrorMessage(error))
     } finally {
       setSaving(false)
     }
@@ -111,7 +112,7 @@ export function ProjectsPage() {
       setProjects((current) => current.filter((item) => item.id !== project.id))
       message.success('项目已删除')
     } catch (error) {
-      message.error((error as Error).message)
+      message.error(userErrorMessage(error))
     }
   }
 
@@ -121,7 +122,7 @@ export function ProjectsPage() {
       message.success('项目已导入')
       navigate(`/film/${project.id}/canvas`)
     } catch (error) {
-      message.error((error as Error).message)
+      message.error(userErrorMessage(error))
     }
     return false
   }
@@ -131,7 +132,7 @@ export function ProjectsPage() {
       const blob = await projectsApi.export(project.id)
       downloadBlob(blob, `${project.title || 'project'}.zip`)
     } catch (error) {
-      message.error((error as Error).message)
+      message.error(userErrorMessage(error))
     }
   }
 
@@ -141,7 +142,7 @@ export function ProjectsPage() {
       const id = await createDemoProject()
       navigate(`/film/${id}/canvas`)
     } catch (error) {
-      message.error((error as Error).message)
+      message.error(userErrorMessage(error))
     } finally {
       setCreatingDemo(false)
     }

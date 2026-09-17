@@ -23,3 +23,10 @@ export class NotFoundError extends ApplicationError {
     this.name = 'NotFoundError';
   }
 }
+
+export class ConflictError extends ApplicationError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, 409, 'CANVAS_REVISION_CONFLICT', options);
+    this.name = 'ConflictError';
+  }
+}

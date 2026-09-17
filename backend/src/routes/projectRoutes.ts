@@ -5,7 +5,7 @@ import { created, page, success } from '../response';
 import { asyncRoute, bodyRecord, idParam } from './http';
 import { NotFoundError, ValidationError } from '../errors';
 
-export function projectRoutes(services: ServiceContainer): Router {
+export function projectRoutes(services: Pick<ServiceContainer, 'projects' | 'projectArchives'>): Router {
   const router = Router();
   const archiveUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -41,12 +41,16 @@ export function projectRoutes(services: ServiceContainer): Router {
 
   router.put('/dramas/:id/canvas-layout', (req, res) => {
     const body = bodyRecord(req);
-    success(res, services.projects.saveCanvas(idParam(req), body.canvas_layout, body.workflow_groups));
+    success(res, services.projects.saveCanvas(
+      idParam(req),
+      body.canvas_layout,
+      body.expected_revision,
+    ));
   });
 
   router.get('/dramas/:id/export', (req, res) => {
     const buffer = services.projectArchives.export(idParam(req));
-    res.type('application/zip').attachment('mini-video-project.zip').send(buffer);
+    res.type('application/zip').attachment('tomato-ai-drama-project.zip').send(buffer);
   });
 
   router.post('/dramas/import', archiveUpload.single('file'), asyncRoute(async (req, res) => {

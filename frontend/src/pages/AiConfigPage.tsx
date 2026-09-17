@@ -2,8 +2,9 @@ import { ReloadOutlined } from '@ant-design/icons'
 import { Button, message, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { aiConfigsApi } from '../api/aiConfigs'
+import { userErrorMessage } from '../errors/appError'
 import type { ProviderCatalogStatus, ProviderModel, ServiceType } from '../types/domain'
-import { supportsService } from '../features/providers/catalog'
+import { modelCapabilityLabels, supportsService } from '../features/providers/catalog'
 
 const serviceLabels: Record<ServiceType, string> = { text: '文本', image: '图片', video: '视频' }
 
@@ -22,7 +23,7 @@ export function AiConfigPage() {
         setProviders(providerItems)
         setModels(modelItems)
       })
-      .catch((error: Error) => { if (active) message.error(error.message) })
+      .catch((error: unknown) => { if (active) message.error(userErrorMessage(error)) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
@@ -38,7 +39,7 @@ export function AiConfigPage() {
       setProviders(await aiConfigsApi.providers())
       message.success(`${provider.label} 已同步 ${refreshed.length} 个实时模型`)
     } catch (error) {
-      message.error((error as Error).message)
+      message.error(userErrorMessage(error))
     } finally {
       setRefreshing((current) => current.filter((id) => id !== provider.id))
     }
@@ -77,7 +78,14 @@ export function AiConfigPage() {
               const entries = models.filter((model) => model.provider === provider.id && model.kind === serviceType)
               return entries.length ? (
                 <div className="provider-model-list">
-                  {entries.map((model) => <Tag key={`${model.provider}-${model.kind}-${model.id}`}>{model.label}</Tag>)}
+                  {entries.map((model) => (
+                    <div className="provider-model-card" key={`${model.provider}-${model.kind}-${model.id}`}>
+                      <Typography.Text strong ellipsis={{ tooltip: model.label }}>{model.label}</Typography.Text>
+                      <Space size={[4, 4]} wrap>
+                        {modelCapabilityLabels(model).map((label) => <Tag key={label}>{label}</Tag>)}
+                      </Space>
+                    </div>
+                  ))}
                 </div>
               ) : <Typography.Text type="secondary">尚未同步此类型的模型</Typography.Text>
             },

@@ -33,10 +33,11 @@ export class CompositionService {
       fs.writeFileSync(manifest, rows.map((row) => `file '${escapeConcatPath(resolveVideoSource(row.video_url, root))}'`).join('\n'), 'utf8');
       try {
         reporter.progress(25, '正在合成整集');
-        await runFfmpeg(manifest, output);
+        await runFfmpeg(manifest, output, reporter.signal);
       } finally {
         fs.rmSync(manifest, { force: true });
       }
+      reporter.throwIfCancelled();
       const videoUrl = `/static/exports/${path.basename(output)}`;
       this.db.prepare(`UPDATE episodes SET video_url = ?, status = 'completed', updated_at = ? WHERE id = ?`)
         .run(videoUrl, new Date().toISOString(), episodeId);
@@ -60,10 +61,14 @@ function escapeConcatPath(value: string): string {
   return value.replace(/\\/gu, '/').replace(/'/gu, "'\\''");
 }
 
-async function runFfmpeg(manifest: string, output: string): Promise<void> {
+async function runFfmpeg(manifest: string, output: string, signal: AbortSignal): Promise<void> {
   const bundled = path.join(process.cwd(), 'tools', 'ffmpeg', 'ffmpeg.exe');
   const executable = process.env.FFMPEG_PATH || (fs.existsSync(bundled) ? bundled : 'ffmpeg');
   await new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new Error('整集合成已取消'));
+      return;
+    }
     const child = spawn(executable, [
       '-y',
       '-protocol_whitelist', 'file,http,https,tcp,tls,crypto,data',
@@ -77,10 +82,19 @@ async function runFfmpeg(manifest: string, output: string): Promise<void> {
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     let errorOutput = '';
+    const abort = () => {
+      child.kill();
+      reject(signal.reason ?? new Error('整集合成已取消'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => { errorOutput += chunk; });
-    child.once('error', (error) => reject(new Error(`无法启动 FFmpeg：${error.message}`)));
+    child.once('error', (error) => {
+      signal.removeEventListener('abort', abort);
+      reject(new Error(`无法启动 FFmpeg：${error.message}`));
+    });
     child.once('close', (code) => {
+      signal.removeEventListener('abort', abort);
       if (code === 0) resolve();
       else reject(new Error(`FFmpeg 合成失败（退出码 ${String(code)}）：${errorOutput.slice(-800)}`));
     });

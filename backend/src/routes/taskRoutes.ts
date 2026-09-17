@@ -4,7 +4,7 @@ import { success } from '../response';
 import { bodyRecord } from './http';
 import { NotFoundError } from '../errors';
 
-export function taskRoutes(services: ServiceContainer): Router {
+export function taskRoutes(services: Pick<ServiceContainer, 'tasks'>): Router {
   const router = Router();
   router.get('/tasks/:id', (req, res) => {
     const task = services.tasks.get(req.params.id);

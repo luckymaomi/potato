@@ -1,4 +1,4 @@
-# mini-video Agent 工作规约
+# tomato-ai-drama Agent 工作规约
 
 本文件是仓库地图和最高协作约束。当前产品事实见 `spec.md` 或 `spec/`，具体开发方法见 `.agents/skills/`，用户入口见 `README.md`，探索与取舍见 `history.md`。
 

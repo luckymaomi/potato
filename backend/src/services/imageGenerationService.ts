@@ -1,10 +1,11 @@
 import type { ProviderRegistry } from '../providers';
 import { runImageProvider } from '../providers';
-import type { AppConfig, Logger, SQLiteDatabase } from '../types/core';
+import type { Logger, SQLiteDatabase } from '../types/core';
 import { parseJson } from '../types/core';
 import { AiConfigService } from './aiConfigService';
 import { TaskService } from './taskService';
 import { ValidationError } from '../errors';
+import { MediaReferenceService } from './mediaReferenceService';
 
 export interface ImageGenerationInput {
   dramaId: number;
@@ -46,7 +47,7 @@ export interface ImageGenerationRow {
 export class ImageGenerationService {
   constructor(
     private readonly db: SQLiteDatabase,
-    private readonly config: AppConfig,
+    private readonly mediaReferences: MediaReferenceService,
     private readonly configs: AiConfigService,
     private readonly tasks: TaskService,
     private readonly registry: ProviderRegistry,
@@ -64,9 +65,17 @@ export class ImageGenerationService {
   }
 
   create(input: ImageGenerationInput): ImageGenerationRow {
-    const aiConfig = this.configs.select('image', input.provider, input.model);
+    const references = unique(input.referenceImages);
+    const mode = references.length ? 'image-to-image' : 'text-to-image';
+    const aiConfig = this.configs.select('image', input.provider, input.model, {
+      mode,
+      referenceImageCount: references.length,
+      aspectRatio: input.aspectRatio,
+      requiresAspectRatio: true,
+    });
     const model = input.model || aiConfig.default_model || aiConfig.model[0];
     if (!model) throw new ValidationError('图片配置没有可用模型');
+    const aspectRatio = this.configs.resolveAspectRatio('image', aiConfig.provider, model, input.aspectRatio);
     const adapter = this.registry.require({ kind: 'image', config: aiConfig, model });
     const now = new Date().toISOString();
     const insert = this.db.prepare(`
@@ -84,8 +93,8 @@ export class ImageGenerationService {
       input.prompt,
       model,
       input.size ?? null,
-      input.aspectRatio ?? null,
-      JSON.stringify(input.referenceImages),
+      aspectRatio,
+      JSON.stringify(references),
       now,
       now,
     );
@@ -98,20 +107,24 @@ export class ImageGenerationService {
           config: aiConfig,
           log: this.log,
           db: this.db,
-          resolveMediaReference: async (source) => this.publicReference(source),
+          resolveMediaReference: this.mediaReferences.resolve,
         }, {
           prompt: input.prompt,
           model,
-          size: input.size || input.aspectRatio,
-          referenceImages: input.referenceImages,
+          size: input.size,
+          aspectRatio,
+          referenceImages: references,
+          signal: reporter.signal,
         });
+        reporter.throwIfCancelled();
         if (result.status === 'failed') throw new Error(result.error || '图片生成失败');
         if (!result.imageUrl) throw new Error('图片供应商没有返回图片地址');
         this.complete(id, result.imageUrl, input);
         reporter.progress(100, '图片生成完成');
         return { image_url: result.imageUrl, generation_id: id };
       } catch (error) {
-        this.fail(id, error);
+        if (reporter.signal.aborted) this.mark(id, 'cancelled');
+        else this.fail(id, error);
         throw error;
       }
     });
@@ -140,12 +153,10 @@ export class ImageGenerationService {
       .run(message, new Date().toISOString(), id);
   }
 
-  private publicReference(source: string): string | undefined {
-    if (/^https?:\/\//iu.test(source) || /^data:/iu.test(source)) return source;
-    if (!source.startsWith('/static/')) return undefined;
-    const base = this.config.storage?.base_url?.replace(/\/+$/u, '') ?? 'http://localhost:5679/static';
-    return `${base}/${source.slice('/static/'.length)}`;
-  }
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 export function imageReferences(row: ImageGenerationRow): string[] {

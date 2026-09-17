@@ -1,5 +1,5 @@
-﻿#!/usr/bin/env python3
-"""Create project foundation files from the distributed skill document."""
+#!/usr/bin/env python3
+"""Create project foundation files from this repository's skill document."""
 from __future__ import annotations
 
 import argparse
@@ -15,6 +15,7 @@ TEMPLATE_PATTERN = re.compile(
     re.DOTALL,
 )
 
+
 def load_templates(document: Path) -> dict[str, str]:
     text = document.read_text(encoding="utf-8")
     templates = {
@@ -24,6 +25,7 @@ def load_templates(document: Path) -> dict[str, str]:
     if not templates:
         raise ValueError(f"未在单文件中找到项目模板：{document}")
     return templates
+
 
 def render_template(
     templates: dict[str, str],
@@ -35,12 +37,14 @@ def render_template(
         raise KeyError(f"单文件缺少模板：{name}")
     return templates[name].replace("项目名称", project_name).replace("{copyright}", copyright_holder)
 
+
 def write_missing(destination: Path, content: str) -> str:
     if destination.exists():
         return f"skipped {destination}"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(content.rstrip() + "\n", encoding="utf-8", newline="\n")
     return f"created {destination}"
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="从猫咪的开发 Skill 单文件创建项目底座")
@@ -85,6 +89,7 @@ def main() -> int:
     print("default branch: master")
     print("next: replace template placeholders with confirmed project facts")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

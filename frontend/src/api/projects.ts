@@ -8,12 +8,14 @@ export const projectsApi = {
   update: (id: number | string, data: Partial<Project>) => apiClient.put<never, Project>(`/dramas/${id}`, data),
   remove: (id: number | string) => apiClient.delete<never, { removed: boolean }>(`/dramas/${id}`),
   saveEpisodes: (id: number | string, episodes: Partial<Episode>[]) => apiClient.put<never, { episodes: Episode[] }>(`/dramas/${id}/episodes`, { episodes }),
-  saveCanvasLayout: (id: number | string, canvasLayout: object, workflowGroups?: unknown[]) => apiClient.put<never, Project>(`/dramas/${id}/canvas-layout`, { canvas_layout: canvasLayout, ...(workflowGroups !== undefined ? { workflow_groups: workflowGroups } : {}) }),
+  saveCanvasLayout: (id: number | string, canvasLayout: object, expectedRevision: number) => apiClient.put<never, Project>(`/dramas/${id}/canvas-layout`, {
+    canvas_layout: canvasLayout,
+    expected_revision: expectedRevision,
+  }),
   export: (id: number) => apiClient.get<never, Blob>(`/dramas/${id}/export`, { responseType: 'blob' }),
   import: (file: File) => {
     const form = new FormData()
     form.append('file', file)
     return apiClient.post<never, Project>('/dramas/import', form, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
-  finalizeEpisode: (episodeId: number, data: Record<string, unknown> = {}) => apiClient.post<never, { task_id: string; status: string }>(`/episodes/${episodeId}/finalize`, data),
 }

@@ -6,7 +6,7 @@ const { app, config } = createApp();
 const port = Number(process.env.PORT) || config.server.port || 5679;
 const host = config.server.host || '0.0.0.0';
 const server = app.listen(port, host, () => {
-  logger.info(`mini-video API 已启动：http://localhost:${port}/api/v1`);
+  logger.info(`tomato-ai-drama API 已启动：http://localhost:${port}/api/v1`);
 });
 
 function shutdown(): void {

@@ -74,13 +74,14 @@ export async function requestProviderJson<T = unknown>(
       if (response.ok) return { status: response.status, headers: response.headers, data };
       const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
       if (retryable && attempt + 1 < maxAttempts) {
-        await wait(retryDelay(response, attempt, request.retryDelayMs));
+        await wait(retryDelay(response, attempt, request.retryDelayMs), controller.signal);
         continue;
       }
+      const detail = providerErrorDetail(data);
       throw new ProviderError({
         providerId: request.providerId,
         code: 'http_error',
-        message: `供应商请求失败（HTTP ${response.status}）`,
+        message: `供应商请求失败（HTTP ${response.status}）${detail ? `：${detail}` : ''}`,
         httpStatus: response.status,
         retryable,
         details: data,
@@ -102,7 +103,47 @@ function retryDelay(response: Response, attempt: number, configured?: number): n
   return Math.min(30_000, Math.max(0, configured ?? 5_000) * (2 ** attempt));
 }
 
-async function wait(milliseconds: number): Promise<void> {
+async function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
   if (milliseconds <= 0) return;
-  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+  if (signal?.aborted) throw signal.reason ?? new Error('请求已取消');
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      reject(signal?.reason ?? new Error('请求已取消'));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+function providerErrorDetail(value: unknown): string | undefined {
+  const root = asRecord(value);
+  if (!root) return undefined;
+  const error = asRecord(root.error);
+  const data = asRecord(root.data);
+  const candidates = [
+    error?.message,
+    root.detail,
+    root.message,
+    root.msg,
+    typeof root.error === 'string' ? root.error : undefined,
+    data?.detail,
+    data?.message,
+    data?.msg,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || !candidate.trim()) continue;
+    return candidate.trim().replace(/\s+/gu, ' ').slice(0, 300);
+  }
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }

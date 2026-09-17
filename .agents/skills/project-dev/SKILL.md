@@ -1,9 +1,9 @@
 ---
 name: project-dev
-description: 维护mini-video时使用。适用于修改实现、接口、数据、测试、当前事实文档、依赖、构建和运行配置，要求从真实链路调查到验证、历史沉淀和完整模块交付。
+description: 维护 tomato-ai-drama 时使用。适用于修改实现、接口、数据、测试、当前事实文档、依赖、构建和运行配置，要求从真实链路调查到验证、历史沉淀和完整模块交付。
 ---
 
-# mini-video Development
+# tomato-ai-drama Development
 
 ## 开始前
 

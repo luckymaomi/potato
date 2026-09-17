@@ -6,16 +6,16 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
-import { migrate } from '../src/db/migrate';
+import { initializeDatabase } from '../src/db/schema';
 import { CompositionService } from '../src/services/compositionService';
 import { TaskService } from '../src/services/taskService';
 import type { AppConfig } from '../src/types/core';
 
 test('整集合成按分镜顺序生成本地 MP4', async () => {
-  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'mini-video-composition-'));
+  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-composition-'));
   const db = new Database(':memory:');
   try {
-    migrate(db);
+    initializeDatabase(db);
     const now = new Date().toISOString();
     const drama = db.prepare(`
       INSERT INTO dramas (title, metadata, created_at, updated_at) VALUES ('合成测试', '{}', ?, ?)
@@ -59,7 +59,7 @@ test('整集合成按分镜顺序生成本地 MP4', async () => {
 });
 
 test('整集合成允许读取供应商返回的 HTTP 视频地址', async () => {
-  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'mini-video-remote-composition-'));
+  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-remote-composition-'));
   const db = new Database(':memory:');
   const segment = path.join(storage, 'remote-segment.mp4');
   const ffmpeg = path.join(process.cwd(), 'tools', 'ffmpeg', 'ffmpeg.exe');
@@ -74,7 +74,7 @@ test('整集合成允许读取供应商返回的 HTTP 视频地址', async () =>
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
-    migrate(db);
+    initializeDatabase(db);
     const now = new Date().toISOString();
     const drama = db.prepare(`
       INSERT INTO dramas (title, metadata, created_at, updated_at) VALUES ('远程合成测试', '{}', ?, ?)

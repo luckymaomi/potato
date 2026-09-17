@@ -18,6 +18,7 @@ export function createProviderRegistry(extraAdapters: readonly ProviderAdapter[]
 export const providerRegistry = createProviderRegistry();
 
 export * from './contracts';
+export * from './modelCapabilities';
 export * from './errors';
 export * from './registry';
 export * from './runtime';
