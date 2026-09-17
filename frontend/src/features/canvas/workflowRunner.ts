@@ -34,6 +34,15 @@ interface WorkflowState {
   edges: Edge[]
 }
 
+export interface WorkflowRunProgress {
+  completed: number
+  total: number
+  currentIndex: number
+  currentNodeId: string
+  currentTitle: string
+  stage: 'running' | 'completed'
+}
+
 export async function runWorkflow(input: {
   ids: string[]
   label: string
@@ -41,29 +50,46 @@ export async function runWorkflow(input: {
   getState: () => WorkflowState
   updateNode: NodeUpdater
   executeNode?: typeof executeProductionNode
+  onProgress?: (progress: WorkflowRunProgress) => void
 }): Promise<{ completed: number }> {
   const initial = input.getState()
   const uniqueIds = [...new Set(input.ids)].filter((id) => initial.nodes.some((node) => node.id === id))
   const ordered = orderByConnections(initial.nodes, initial.edges, uniqueIds)
   let completed = 0
-  for (const orderedNode of ordered) {
+  for (const [index, orderedNode] of ordered.entries()) {
     input.session.throwIfStopped()
     const current = input.getState()
     const node = current.nodes.find((item) => item.id === orderedNode.id)
     if (!node) continue
     try {
+      input.onProgress?.({
+        completed,
+        total: ordered.length,
+        currentIndex: index + 1,
+        currentNodeId: node.id,
+        currentTitle: node.data.title || node.id,
+        stage: 'running',
+      })
       const prepared = prepareNodeForExecution(node, current.nodes, current.edges)
       input.updateNode(node.id, prepared.node.data)
       await (input.executeNode ?? executeProductionNode)(prepared.node, current.project, input.updateNode, input.session, prepared.context)
       completed += 1
+      input.onProgress?.({
+        completed,
+        total: ordered.length,
+        currentIndex: index + 1,
+        currentNodeId: node.id,
+        currentTitle: node.data.title || node.id,
+        stage: 'completed',
+      })
     } catch (error) {
       if (error instanceof CanvasRunStoppedError || input.session.stopped) {
-        input.updateNode(node.id, { status: 'cancelled', error: '' })
+        input.updateNode(node.id, { status: 'cancelled', execution: { message: '运行已停止' }, error: '' })
         throw new CanvasRunStoppedError()
       }
       const presentation = presentError(error)
       const terminated = new WorkflowRunTerminatedError(node.id, presentation, completed, input.label, { cause: error })
-      input.updateNode(node.id, { status: 'failed', error: terminated.message })
+      input.updateNode(node.id, { status: 'failed', execution: { message: presentation.displayMessage }, error: terminated.message })
       throw terminated
     }
   }

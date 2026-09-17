@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { requestProviderJson } from '../src/providers/transport';
+import { DEFAULT_PROVIDER_TIMEOUT_MS, requestProviderJson } from '../src/providers/transport';
+
+test('供应商生成请求默认等待十分钟', () => {
+  assert.equal(DEFAULT_PROVIDER_TIMEOUT_MS, 600_000);
+});
 
 test('Provider 传输层遇到 429 后按有界策略重试', async () => {
   let attempts = 0;

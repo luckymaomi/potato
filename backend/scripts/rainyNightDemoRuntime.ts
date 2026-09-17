@@ -83,5 +83,5 @@ export function rainyNightDemoComplete(project: Drama): boolean {
     && project.scenes?.length === RAINY_NIGHT_DEMO.scenes.length
     && project.props?.length === RAINY_NIGHT_DEMO.props.length
     && project.episodes?.[0]?.storyboards?.length === RAINY_NIGHT_DEMO.storyboards.length
-    && workspaceNodes?.length === 46;
+    && workspaceNodes?.length === 36;
 }

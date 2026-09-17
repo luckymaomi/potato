@@ -107,4 +107,25 @@ describe('画布运行编排', () => {
     expect(executeNode).toHaveBeenCalledOnce()
     expect(executeNode.mock.calls[0]?.[4]).toMatchObject({ texts: [], images: [], videos: [] })
   })
+
+  it('按真实运行范围报告当前节点和完成数量', async () => {
+    const nodes = [node('first'), node('second')]
+    const progress: Array<{ completed: number; total: number; currentNodeId: string }> = []
+    const project: Project = { id: 1, title: '测试', metadata: {}, canvas_revision: 0 }
+    await runWorkflow({
+      ids: nodes.map((item) => item.id),
+      label: '整个画布',
+      session: new CanvasRunSession(),
+      getState: () => ({ project, nodes, edges: [] }),
+      updateNode: () => undefined,
+      executeNode: vi.fn().mockResolvedValue(undefined),
+      onProgress: (value) => progress.push({ completed: value.completed, total: value.total, currentNodeId: value.currentNodeId }),
+    })
+    expect(progress).toEqual([
+      { completed: 0, total: 2, currentNodeId: 'first' },
+      { completed: 1, total: 2, currentNodeId: 'first' },
+      { completed: 1, total: 2, currentNodeId: 'second' },
+      { completed: 2, total: 2, currentNodeId: 'second' },
+    ])
+  })
 })

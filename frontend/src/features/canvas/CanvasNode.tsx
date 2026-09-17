@@ -9,6 +9,7 @@ import {
   VideoCameraOutlined,
 } from '@ant-design/icons'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Progress } from 'antd'
 import type { ReactNode } from 'react'
 import {
   assetKindOf,
@@ -61,6 +62,12 @@ export function CanvasNodeView({ data, selected }: NodeProps<CanvasNode>) {
         </div>
       )}
       {data.result.taskId && <div className="canvas-node-task">任务 {data.result.taskId.slice(0, 8)}…</div>}
+      {(data.status === 'pending' || data.status === 'running') && data.execution && (
+        <div className="canvas-node-progress">
+          <Progress percent={data.execution.progress} size="small" showInfo={typeof data.execution.progress === 'number'} />
+          <span>{data.execution.message}</span>
+        </div>
+      )}
     </div>
   )
 }

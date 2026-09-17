@@ -44,6 +44,7 @@ import {
   message,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Spin,
@@ -55,7 +56,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { productionApi } from '../../api/production'
 import { userErrorMessage } from '../../errors/appError'
-import { productionPlugins, type ProductionPlugin, type ProductionRole } from '../production/catalog'
+import { productionPlugin, productionPlugins, type AssetKind, type ProductionPlugin, type ProductionRole } from '../production/catalog'
 import { createStarterWorkspace } from '../production/starterWorkspace'
 import { waitForTask } from '../production/executor'
 import { useCanvasStore, type CanvasNode, type WorkflowGroup } from '../../store/canvasStore'
@@ -64,7 +65,8 @@ import { CanvasNodeView } from './CanvasNode'
 import type { CanvasSaveState } from './canvasSaveCoordinator'
 import { downstreamNodeIds, incompleteRunNodeIds } from './canvasGraph'
 import { CanvasRunSession, CanvasRunStoppedError } from './runSession'
-import { runWorkflow, WorkflowRunTerminatedError } from './workflowRunner'
+import { runWorkflow, WorkflowRunTerminatedError, type WorkflowRunProgress } from './workflowRunner'
+import { assetGroupCounts, visibleAssetGraph } from './assetGroupVisibility'
 
 const nodeTypes = { canvas: CanvasNodeView }
 
@@ -135,10 +137,19 @@ export function CanvasPage() {
   const [finalizeOpen, setFinalizeOpen] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [finalizeEpisodeId, setFinalizeEpisodeId] = useState<number>()
+  const [runProgress, setRunProgress] = useState<(WorkflowRunProgress & { taskProgress?: number; taskMessage?: string }) | null>(null)
+  const [collapsedAssetGroups, setCollapsedAssetGroups] = useState<Set<AssetKind>>(() => new Set(['character', 'scene', 'prop']))
   const runSessionRef = useRef<CanvasRunSession | null>(null)
   const selection = nodes.filter((node) => node.selected).map((node) => node.id)
   const projectId = project?.id
   const activeRun = running || finalizing
+  const visibleGraph = visibleAssetGraph(nodes, edges, collapsedAssetGroups)
+  const assetCounts = assetGroupCounts(nodes)
+  const activeProgressNode = runProgress ? nodes.find((node) => node.id === runProgress.currentNodeId) : undefined
+  const activeTaskProgress = runProgress?.taskProgress ?? activeProgressNode?.data.execution?.progress
+  const overallProgress = runProgress && runProgress.total > 0
+    ? Math.round(((runProgress.completed + (runProgress.stage === 'running' ? (activeTaskProgress ?? 0) / 100 : 0)) / runProgress.total) * 100)
+    : 0
 
   useEffect(() => {
     const projectId = Number(id)
@@ -188,7 +199,30 @@ export function CanvasPage() {
   }, [setSelectedNode])
 
   const add = (role: ProductionRole) => {
+    const targetAsset = productionPlugin(role).targetAsset
+    if (targetAsset && targetAsset !== 'storyboard') {
+      setCollapsedAssetGroups((current) => {
+        const next = new Set(current)
+        next.delete(targetAsset)
+        return next
+      })
+    }
     addNode(role, { x: 110 + (nodes.length % 5) * 290, y: 120 + Math.floor(nodes.length / 5) * 230 })
+  }
+
+  const toggleAssetGroup = (kind: AssetKind) => {
+    const collapsing = !collapsedAssetGroups.has(kind)
+    if (collapsing) {
+      const ids = nodes.filter((node) => productionPlugin(node.data.role).targetAsset === kind).map((node) => node.id)
+      if (ids.length) setNodes(ids.map((nodeId) => ({ id: nodeId, type: 'select' as const, selected: false })))
+      if (ids.includes(useCanvasStore.getState().selectedNodeId || '')) setSelectedNode(null)
+    }
+    setCollapsedAssetGroups((current) => {
+      const next = new Set(current)
+      if (next.has(kind)) next.delete(kind)
+      else next.add(kind)
+      return next
+    })
   }
 
   const runNodeIds = useCallback(async (ids: string[], label: string) => {
@@ -218,6 +252,7 @@ export function CanvasPage() {
           return { project: current.project, nodes: current.nodes, edges: current.edges }
         },
         updateNode: updateNodeData,
+        onProgress: setRunProgress,
       })
       message.success(`${label}完成：${result.completed} 个节点成功`)
     } catch (runError) {
@@ -237,6 +272,7 @@ export function CanvasPage() {
       if (runSessionRef.current === session) runSessionRef.current = null
       setRunning(false)
       setStopping(false)
+      setRunProgress(null)
     }
   }, [updateNodeData])
 
@@ -323,6 +359,7 @@ export function CanvasPage() {
 
   const selectGroup = (group: WorkflowGroup) => {
     const selectedIds = new Set(group.nodeIds)
+    setCollapsedAssetGroups(new Set())
     setNodes(nodes.map((node) => ({ id: node.id, type: 'select' as const, selected: selectedIds.has(node.id) })))
     setSelectedNode(group.nodeIds.length === 1 ? group.nodeIds[0] : null)
     setWorkflowDrawerOpen(false)
@@ -342,6 +379,7 @@ export function CanvasPage() {
     const session = new CanvasRunSession()
     runSessionRef.current = session
     setFinalizing(true)
+    setRunProgress({ completed: 0, total: 1, currentIndex: 1, currentNodeId: '', currentTitle: '整集合成', stage: 'running', taskProgress: 0, taskMessage: '正在提交合成任务' })
     try {
       await useCanvasStore.getState().save()
       if (!project) throw new Error('项目已经关闭')
@@ -352,7 +390,12 @@ export function CanvasPage() {
       if (!videoUrls.length) throw new Error('画布上没有已完成且已落盘的镜头视频')
       const submitted = await productionApi.execute({ kind: 'finalize', project_id: project.id, episode_id: finalizeEpisodeId, video_urls: videoUrls })
       if (!submitted.task_id) throw new Error('后端没有返回整集合成任务 ID')
-      await waitForTask(submitted.task_id, () => undefined, session)
+      await waitForTask(submitted.task_id, (task) => setRunProgress((current) => current ? {
+        ...current,
+        taskProgress: task.progress,
+        taskMessage: task.message || (task.status === 'pending' ? '合成任务排队中' : '正在合成整集'),
+      } : current), session)
+      setRunProgress({ completed: 1, total: 1, currentIndex: 1, currentNodeId: '', currentTitle: '整集合成', stage: 'completed', taskProgress: 100, taskMessage: '整集合成完成' })
       message.success('整集合成完成')
       setFinalizeOpen(false)
     } catch (finalizeError) {
@@ -362,6 +405,7 @@ export function CanvasPage() {
       if (runSessionRef.current === session) runSessionRef.current = null
       setFinalizing(false)
       setStopping(false)
+      setRunProgress(null)
     }
   }
 
@@ -454,6 +498,16 @@ export function CanvasPage() {
         </div>
       </header>
 
+      {runProgress && (
+        <div className="canvas-run-progress" aria-live="polite">
+          <div className="canvas-run-progress-copy">
+            <strong>进度 {runProgress.completed}/{runProgress.total}</strong>
+            <span>{runProgress.currentTitle} · {runProgress.taskMessage || activeProgressNode?.data.execution?.message || (runProgress.stage === 'completed' ? '已完成' : '准备运行')}</span>
+          </div>
+          <Progress percent={overallProgress} size="small" status="active" />
+        </div>
+      )}
+
       <div className="canvas-body">
         <div className="canvas-main">
           <Spin spinning={loading} tip="加载项目…" className="canvas-spin">
@@ -464,8 +518,8 @@ export function CanvasPage() {
               </div>
             ) : (
               <ReactFlow<CanvasNode, Edge>
-                nodes={nodes}
-                edges={edges}
+                nodes={visibleGraph.nodes}
+                edges={visibleGraph.edges}
                 nodeTypes={nodeTypes}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -491,6 +545,20 @@ export function CanvasPage() {
                   <Dropdown menu={addNodeMenu} trigger={['click']} placement="bottomLeft">
                     <Tooltip title="添加节点"><Button type="text" icon={<PlusOutlined />} aria-label="添加节点" /></Tooltip>
                   </Dropdown>
+                  {([
+                    ['character', '角色', <UserOutlined key="character" />],
+                    ['scene', '场景', <EnvironmentOutlined key="scene" />],
+                    ['prop', '道具', <ToolOutlined key="prop" />],
+                  ] as const).map(([kind, label, icon]) => (
+                    <Tooltip key={kind} title={`${collapsedAssetGroups.has(kind) ? '展开' : '折叠'}${label}资产节点`}>
+                      <Button
+                        type={collapsedAssetGroups.has(kind) ? 'default' : 'text'}
+                        size="small"
+                        icon={icon}
+                        onClick={() => toggleAssetGroup(kind)}
+                      >{label} {assetCounts[kind]}</Button>
+                    </Tooltip>
+                  ))}
                 </Panel>
 
                 {selection.length > 0 && (

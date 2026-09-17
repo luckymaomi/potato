@@ -210,6 +210,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
         assetRefs: Object.fromEntries(Object.entries(node.data.assetRefs).map(([key, values]) => [key, values ? [...values] : values])),
         result: {},
         history: [],
+        execution: undefined,
         status: 'idle' as const,
         error: '',
       },

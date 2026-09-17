@@ -27,7 +27,7 @@ test('同版本半成品 Demo 会原位补齐，重复初始化不创建第二�
       title: '半成品 Demo',
       metadata: {
         demo: true,
-        demo_version: 13,
+        demo_version: 14,
         canvas_layout: { workspace_nodes: [], edges: [], workflow_groups: [] },
       },
     });
@@ -37,8 +37,8 @@ test('同版本半成品 Demo 会原位补齐，重复初始化不创建第二�
     assert.equal(rainyNightDemoComplete(repaired), true);
     assert.equal(services.projects.list({ page: 1, pageSize: 20 }).total, 1);
     const snapshot = repaired.metadata.canvas_layout as { workspace_nodes: unknown[]; edges: unknown[]; workflow_groups: unknown[] };
-    assert.equal(snapshot.workspace_nodes.length, 46);
-    assert.equal(snapshot.edges.length, 66);
+    assert.equal(snapshot.workspace_nodes.length, 36);
+    assert.equal(snapshot.edges.length, 56);
     assert.equal(snapshot.workflow_groups.length, 1);
 
     const revision = repaired.canvas_revision;

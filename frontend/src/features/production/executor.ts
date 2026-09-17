@@ -18,7 +18,7 @@ export type NodeUpdater = (id: string, data: Partial<ProductionNodeData>) => voi
 
 export async function waitForTask(
   taskId: string,
-  onProgress: (status: GenerationTask['status']) => void,
+  onProgress: (task: GenerationTask) => void,
   session?: CanvasRunSession,
 ): Promise<GenerationTask> {
   await session?.registerTask(taskId)
@@ -26,7 +26,7 @@ export async function waitForTask(
     for (let attempt = 0; attempt < 600; attempt += 1) {
       session?.throwIfStopped()
       const task = await tasksApi.get(taskId)
-      onProgress(task.status)
+      onProgress(task)
       if (task.status === 'cancelled') throw new CanvasRunStoppedError(task.message || '任务已停止')
       if (task.status === 'completed') return task
       if (task.status === 'failed') throw taskFailure(task, '生产任务失败')
@@ -47,7 +47,7 @@ export async function executeProductionNode(
   context: ResolvedProductionContext = { values: {}, texts: [], images: [], videos: [], assetRefs: node.data.assetRefs },
 ): Promise<void> {
   session?.throwIfStopped()
-  update(node.id, { status: 'running', error: '' })
+  update(node.id, { status: 'running', execution: { progress: 0, message: '正在提交生成请求' }, error: '' })
   const plugin = productionPlugin(node.data.role)
   const command = plugin.buildCommand({ project, data: node.data, context })
   const submission = await productionApi.execute({
@@ -62,13 +62,23 @@ export async function executeProductionNode(
   let result = submission.result || {}
   if (submission.status === 'pending') {
     if (!submission.task_id) throw new Error('后端没有返回任务 ID')
-    update(node.id, { result: { ...node.data.result, taskId: submission.task_id }, status: 'pending' })
-    const task = await waitForTask(submission.task_id, (status) => update(node.id, { status: status === 'processing' ? 'running' : status }), session)
+    update(node.id, {
+      result: { ...node.data.result, taskId: submission.task_id },
+      status: 'pending',
+      execution: { progress: 0, message: '任务已提交，等待供应商处理' },
+    })
+    const task = await waitForTask(submission.task_id, (current) => update(node.id, {
+      status: current.status === 'processing' ? 'running' : current.status,
+      execution: {
+        progress: typeof current.progress === 'number' ? current.progress : undefined,
+        message: current.message || (current.status === 'pending' ? '任务排队中' : '供应商生成中'),
+      },
+    }), session)
     result = taskResult(task)
   }
   session?.throwIfStopped()
   applyResult(node, result, update)
-  update(node.id, { status: 'completed', error: '' })
+  update(node.id, { status: 'completed', execution: { progress: 100, message: '已完成并保存到本地' }, error: '' })
 }
 
 export function prepareNodeForExecution(

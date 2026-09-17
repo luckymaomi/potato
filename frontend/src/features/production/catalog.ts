@@ -26,7 +26,6 @@ export type ProductionRole =
   | 'storyboard-image'
   | 'shot-video'
   | 'episode-compose'
-  | 'generic-text'
   | 'generic-image'
   | 'generic-video'
 
@@ -76,6 +75,7 @@ export interface ProductionNodeData extends Record<string, unknown> {
   result: ProductionNodeResult
   history?: ProductionNodeResult[]
   status: ProductionNodeStatus
+  execution?: { progress?: number; message: string }
   error?: string
 }
 
@@ -262,14 +262,6 @@ export const productionPlugins: readonly ProductionPlugin[] = [
     parameters: [{ key: 'episodeId', label: '输出剧集', control: 'episode' }], defaultParameters: { method: 'compose' }, defaultMethod: 'compose', methods: ['compose'],
     buildCommand: ({ project, data, context }) => ({ kind: 'finalize', project_id: project.id, episode_id: requiredId(data.parameters.episodeId ?? episodeId(data, project), '请选择输出剧集'), video_urls: context.videos }),
   },
-  {
-    ...aiTextPlugin({ role: 'generic-text', label: '通用文本', description: '使用文本 API 生成或整理内容', purpose: '生成通用文本材料', stage: 'utility', promptKey: 'generate-text', inputKind: 'text', outputKind: 'text' }),
-    inputs: [{ kind: 'text', source: 'upstream', required: false }],
-    defaultParameters: { method: 'manual-text', text: '' }, methods: ['manual-text', 'ai-text'], defaultMethod: 'manual-text',
-    buildCommand: ({ project, data, context }) => data.parameters.method === 'ai-text'
-      ? { kind: 'ai-text', project_id: project.id, source_text: requiredText(data.parameters.text || context.values.text, '请填写文本或连接文本上游'), action: 'generate-text', system_prompt: data.parameters.systemPrompt, provider: data.parameters.provider, model: data.parameters.model }
-      : { kind: 'manual-text', project_id: project.id, text: requiredText(data.parameters.text, '请填写文本'), persist_as_script: false },
-  },
   genericMediaPlugin('generic-image', 'image'),
   genericMediaPlugin('generic-video', 'video'),
 ] as const
@@ -322,7 +314,7 @@ export function assetKindLabel(kind: AssetKind | undefined): string {
 }
 
 export function productionStatusLabel(status: ProductionNodeStatus | undefined): string {
-  return { idle: '未运行', pending: '等待依赖', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已停止' }[status ?? 'idle']
+  return { idle: '未运行', pending: '排队中', running: '生成中', completed: '已完成', failed: '失败', cancelled: '已停止' }[status ?? 'idle']
 }
 
 export function refsFor(kind: AssetReferenceKind, refs: AssetReferences): number[] {

@@ -2,10 +2,12 @@ import {
   BranchesOutlined,
   CopyOutlined,
   DeleteOutlined,
+  PictureOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
   SaveOutlined,
   StopOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons'
 import {
   Button,
@@ -16,6 +18,7 @@ import {
   InputNumber,
   message,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Tag,
@@ -33,7 +36,6 @@ import {
   aspectRatioLabel,
   aspectRatiosFor,
   modelCapabilityLabels,
-  modelCapabilitySummary,
   modelSupportsMode,
   preferredAspectRatio,
   providerSupportsMode,
@@ -50,6 +52,7 @@ import {
 } from '../production/catalog'
 import { GeneratedMediaPreview } from './GeneratedMediaPreview'
 import { ReferenceImageInput } from './ReferenceImageInput'
+import { historyVersionLabels, modelOptionLabel } from './inspectorPresentation'
 
 interface CanvasInspectorProps {
   running: boolean
@@ -73,6 +76,13 @@ export function CanvasInspector({ running, stopping, onRunNode, onRunDownstream,
   const [history, setHistory] = useState<MediaGenerationHistory[]>([])
   const [form] = Form.useForm<ProductionNodeData>()
   const plugin = node ? productionPlugin(node.data.role) : undefined
+  const selectedNodeId = node?.id
+  const selectedProjectId = project?.id
+  const selectedMaterial = plugin?.material
+  const historyGenerationKey = node ? [
+    node.data.result.generationId,
+    ...(node.data.history || []).map((item) => item.generationId),
+  ].filter((value): value is number => typeof value === 'number' && value > 0).join(',') : ''
   const method = Form.useWatch(['parameters', 'method'], form) ?? node?.data.parameters.method
   const provider = Form.useWatch(['parameters', 'provider'], form)
   const model = Form.useWatch(['parameters', 'model'], form)
@@ -91,17 +101,26 @@ export function CanvasInspector({ running, stopping, onRunNode, onRunDownstream,
   }, [])
 
   useEffect(() => {
-    if (!node) return form.resetFields()
-    const prompt = textPrompts.find((item) => item.key === productionPlugin(node.data.role).promptKey)
+    if (!selectedNodeId) return form.resetFields()
+    const selected = useCanvasStore.getState().nodes.find((item) => item.id === selectedNodeId)
+    if (!selected) return form.resetFields()
+    const currentProject = useCanvasStore.getState().project
+    form.resetFields()
     form.setFieldsValue({
-      ...node.data,
+      ...selected.data,
       parameters: {
-        ...node.data.parameters,
-        systemPrompt: node.data.parameters.systemPrompt ?? prompt?.system_prompt,
-        episodeId: node.data.parameters.episodeId ?? node.data.assetRefs.episodes?.[0] ?? project?.episodes?.[0]?.id,
+        ...selected.data.parameters,
+        systemPrompt: selected.data.parameters.systemPrompt,
+        episodeId: selected.data.parameters.episodeId ?? selected.data.assetRefs.episodes?.[0] ?? currentProject?.episodes?.[0]?.id,
       },
     })
-  }, [form, node, project, textPrompts])
+  }, [form, selectedNodeId])
+
+  useEffect(() => {
+    if (!node?.id || node.data.parameters.systemPrompt !== undefined) return
+    const prompt = textPrompts.find((item) => item.key === productionPlugin(node.data.role).promptKey)
+    if (prompt && !form.getFieldValue(['parameters', 'systemPrompt'])) form.setFieldValue(['parameters', 'systemPrompt'], prompt.system_prompt)
+  }, [form, node?.id, node?.data.parameters.systemPrompt, node?.data.role, textPrompts])
 
   useEffect(() => {
     if (!serviceType) {
@@ -119,26 +138,23 @@ export function CanvasInspector({ running, stopping, onRunNode, onRunDownstream,
   }, [serviceType])
 
   useEffect(() => {
-    if (!node || !project || (plugin?.material !== 'image' && plugin?.material !== 'video')) {
+    if (!selectedNodeId || !selectedProjectId || (selectedMaterial !== 'image' && selectedMaterial !== 'video')) {
       void Promise.resolve().then(() => setHistory([]))
       return
     }
-    const generationIds = new Set([
-      node.data.result.generationId,
-      ...(node.data.history || []).map((item) => item.generationId),
-    ].filter((value): value is number => typeof value === 'number' && value > 0))
+    const generationIds = new Set(historyGenerationKey.split(',').map(Number).filter((value) => Number.isInteger(value) && value > 0))
     if (!generationIds.size) {
       void Promise.resolve().then(() => setHistory([]))
       return
     }
     let active = true
-    const load = plugin.material === 'image' ? mediaHistoryApi.images(project.id) : mediaHistoryApi.videos(project.id)
+    const load = selectedMaterial === 'image' ? mediaHistoryApi.images(selectedProjectId) : mediaHistoryApi.videos(selectedProjectId)
     void load.then(({ items }) => {
       if (!active) return
       setHistory(items.filter((item) => generationIds.has(item.id)))
     }).catch(() => active && setHistory([]))
     return () => { active = false }
-  }, [node, plugin, project])
+  }, [historyGenerationKey, selectedMaterial, selectedNodeId, selectedProjectId])
 
   const availableModels = models.filter((item) => (!provider || item.provider === provider) && modelSupportsMode(item, mediaMode))
   const selectedModel = models.find((item) => item.id === model && (!provider || item.provider === provider))
@@ -148,9 +164,10 @@ export function CanvasInspector({ running, stopping, onRunNode, onRunDownstream,
     .map((item) => ({ value: item.id, label: item.label }))
   const modelOptions = availableModels.map((item) => ({
     value: item.id,
-    label: `${provider ? '' : `${providers.find((entry) => entry.id === item.provider)?.label || item.provider} · `}${item.label} · ${modelCapabilitySummary(item)}`,
+    label: modelOptionLabel(item),
   }))
   const defaultPrompt = textPrompts.find((item) => item.key === plugin?.promptKey)
+  const historyLabels = historyVersionLabels(history, plugin?.material === 'video' ? 'video' : 'image')
 
   useEffect(() => {
     if (!node || !serviceType || serviceType === 'text' || !aspectRatios.length) return
@@ -214,8 +231,14 @@ export function CanvasInspector({ running, stopping, onRunNode, onRunDownstream,
         <Tag>{plugin.label}</Tag><Tag>{productionStatusLabel(node.data.status)}</Tag>
         {node.data.result.taskId && <Typography.Text type="secondary" ellipsis>任务 {node.data.result.taskId}</Typography.Text>}
       </div>
+      {(node.data.status === 'pending' || node.data.status === 'running') && node.data.execution && (
+        <div className="inspector-execution-status">
+          <Typography.Text strong>{node.data.execution.message}</Typography.Text>
+          {typeof node.data.execution.progress === 'number' && <Progress percent={node.data.execution.progress} size="small" />}
+        </div>
+      )}
 
-      <Form form={form} layout="vertical" requiredMark={false} onValuesChange={onValuesChange}>
+      <Form form={form} layout="vertical" requiredMark={false} onValuesChange={onValuesChange} onSubmitCapture={(event) => event.preventDefault()}>
         <Form.Item name="title" label="名称" rules={[{ required: true, message: '请输入名称' }]}><Input maxLength={80} /></Form.Item>
         <Divider>插件参数</Divider>
         {plugin.parameters.some((item) => item.control === 'episode') && (
@@ -248,13 +271,29 @@ export function CanvasInspector({ running, stopping, onRunNode, onRunDownstream,
             <ProviderModelFields providerOptions={providerOptions} modelOptions={modelOptions} form={form} />
             {plugin.material === 'video' && <Form.Item name={['parameters', 'duration']} label="时长（秒）"><InputNumber min={3} max={5} /></Form.Item>}
             <Form.Item name={['parameters', 'aspectRatio']} label="生成画幅比例" rules={[{ required: true, message: '请选择画幅比例' }]}><Select disabled={!aspectRatios.length} options={aspectRatios.map((ratio) => ({ value: ratio, label: aspectRatioLabel(ratio) }))} /></Form.Item>
-            {selectedModel && <div className="model-capability-summary"><Typography.Text strong>{selectedModel.label}</Typography.Text><Space size={[4, 4]} wrap>{modelCapabilityLabels(selectedModel).map((label) => <Tag key={label}>{label}</Tag>)}</Space></div>}
+            {selectedModel && <div className="model-capability-summary"><Typography.Text strong>{modelOptionLabel(selectedModel)}</Typography.Text><div className="model-capability-labels">{modelCapabilityLabels(selectedModel).map((label) => <Tag key={label}>{label}</Tag>)}</div></div>}
           </>
         )}
         <GeneratedMediaPreview data={node.data} />
         {history.length > 0 && (
-          <Form.Item label="生成历史" extra="每次生成结果都保留；这里只有已成功落盘的版本可选用。">
-            <Select value={node.data.result.generationId} onChange={(value) => void selectHistory(value)} options={history.map((item) => ({ value: item.id, disabled: item.status !== 'completed' || !item.available, label: `#${item.id} · ${historyStatusLabel(item)} · ${new Date(item.created_at).toLocaleString()}` }))} />
+          <Form.Item label="生成历史" extra="按时间保留全部已落盘版本，可直接切换。">
+            <Select
+              value={node.data.result.generationId}
+              onChange={(value) => void selectHistory(value)}
+              popupMatchSelectWidth
+              options={history.map((item) => ({
+                value: item.id,
+                disabled: item.status !== 'completed' || !item.available,
+                label: (
+                  <span className="history-version-option">
+                    <span className="history-version-thumb">
+                      {item.image_url ? <img src={item.image_url} alt="" /> : item.video_url ? <VideoCameraOutlined /> : <PictureOutlined />}
+                    </span>
+                    <span>{historyLabels.get(item.id)}</span>
+                  </span>
+                ),
+              }))}
+            />
           </Form.Item>
         )}
       </Form>
@@ -270,15 +309,7 @@ export function CanvasInspector({ running, stopping, onRunNode, onRunDownstream,
 }
 
 function ProviderModelFields({ providerOptions, modelOptions, form }: { providerOptions: Array<{ value: string; label: string }>; modelOptions: Array<{ value: string; label: string }>; form: ReturnType<typeof Form.useForm<ProductionNodeData>>[0] }) {
-  return <Space align="start" className="inspector-inline-fields"><Form.Item name={['parameters', 'provider']} label="供应商"><Select allowClear options={providerOptions} placeholder="自动选择" onChange={() => form.setFieldValue(['parameters', 'model'], undefined)} /></Form.Item><Form.Item name={['parameters', 'model']} label="模型"><Select allowClear showSearch optionFilterProp="label" options={modelOptions} placeholder="自动选择" /></Form.Item></Space>
-}
-
-function historyStatusLabel(item: MediaGenerationHistory): string {
-  if (item.status === 'completed' && item.available) return '已落盘'
-  if (item.status === 'completed') return '本地文件缺失'
-  if (item.failure_stage === 'archive') return '本地保存失败'
-  if (item.failure_stage === 'composition') return '本地合成失败'
-  return '供应商失败'
+  return <div className="inspector-inline-fields"><Form.Item name={['parameters', 'provider']} label="供应商"><Select allowClear options={providerOptions} placeholder="自动选择" onChange={() => form.setFieldValue(['parameters', 'model'], undefined)} /></Form.Item><Form.Item name={['parameters', 'model']} label="模型"><Select allowClear showSearch optionFilterProp="label" options={modelOptions} placeholder="自动选择" /></Form.Item></div>
 }
 
 function isMediaMethod(method: ProductionMethod | undefined): method is MediaGenerationMode {

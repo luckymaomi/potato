@@ -14,7 +14,7 @@ import type {
 } from '../contracts';
 import { modelCapabilities } from '../modelCapabilities';
 import { ProviderError } from '../errors';
-import { requestProviderJson, type ProviderFetch } from '../transport';
+import { DEFAULT_PROVIDER_TIMEOUT_MS, requestProviderJson, type ProviderFetch } from '../transport';
 
 interface PearApiData {
   task_id?: unknown;
@@ -95,7 +95,7 @@ async function generateText(
       ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
       ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {}),
     },
-    timeoutMs: 600_000,
+    timeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
     signal: request.signal,
   }, fetchImpl);
   const choices = Array.isArray(response.data.choices) ? response.data.choices : [];
@@ -311,7 +311,7 @@ async function pearRequest(
     url: endpointUrl(context, kind),
     headers: { 'Content-Type': 'application/json' },
     body,
-    timeoutMs: 120_000,
+    timeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
     signal,
   }, fetchImpl);
   if (response.data.code !== 200) {

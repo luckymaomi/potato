@@ -50,7 +50,8 @@ function expectDagWorkspace(workspace: ReturnType<typeof createStarterWorkspace>
 describe('插件化短剧生产核心', () => {
   it('每个节点插件完整声明角色、用途、输入输出、参数、提示词、默认方式和命令构造', () => {
     const roles = productionPlugins.map((plugin) => plugin.role)
-    expect(roles).toHaveLength(15)
+    expect(roles).toHaveLength(14)
+    expect(roles).not.toContain('generic-text')
     expect(new Set(roles).size).toBe(roles.length)
     productionPlugins.forEach((plugin) => {
       expect(plugin.label).toBeTruthy()
@@ -141,9 +142,9 @@ describe('插件化短剧生产核心', () => {
     const starter = createStarterWorkspace(project)
     const demo = createDemoWorkspace(project)
     expectDagWorkspace(starter, 12)
-    expectDagWorkspace(demo, 46)
+    expectDagWorkspace(demo, 36)
     expect(starter.edges).toHaveLength(17)
-    expect(demo.edges).toHaveLength(66)
+    expect(demo.edges).toHaveLength(56)
     expect(demo.workspace_nodes.every((node) => productionPlugins.some((plugin) => plugin.role === node.data.role))).toBe(true)
     const compose = demo.workspace_nodes.find((node) => node.data.role === 'episode-compose')
     expect(demo.edges.filter((edge) => edge.target === compose?.id)).toHaveLength(10)
@@ -216,8 +217,9 @@ describe('插件化短剧生产核心', () => {
       .filter((edge) => edge.target === targetId)
       .map((edge) => workspace.workspace_nodes.find((node) => node.id === edge.source)?.data.title)
       .filter(Boolean)
-    expect(workspace.workspace_nodes.find((node) => node.id === 'rain-delivery-shot-6-text')?.data.parameters.text).toContain('办公室门口全景')
-    expect(workspace.workspace_nodes.find((node) => node.id === 'rain-delivery-shot-10-text')?.data.parameters.text).toContain('小林转身离开')
+    expect(workspace.workspace_nodes.some((node) => String(node.data.role) === 'generic-text')).toBe(false)
+    expect(workspace.workspace_nodes.find((node) => node.id === 'rain-delivery-shot-6-image')?.data.parameters.prompt).toContain('办公室门口全景')
+    expect(workspace.workspace_nodes.find((node) => node.id === 'rain-delivery-shot-10-image')?.data.parameters.prompt).toContain('小林转身离开')
     for (const index of [5, 6, 8, 9]) {
       const storyboardId = 100 + index
       const image = workspace.workspace_nodes.find((node) => node.id === `rain-delivery-shot-${index + 1}-image`)
@@ -230,15 +232,15 @@ describe('插件化短剧生产核心', () => {
     expect(hydrated.episodes?.[0]?.storyboards?.[8]).toMatchObject({ character_ids: [22], scene_ids: [33], prop_ids: [] })
     expect(hydrated.episodes?.[0]?.storyboards?.[9]).toMatchObject({ character_ids: [21, 22], scene_ids: [33], prop_ids: [41] })
     expect(incomingTitles('rain-delivery-shot-6-image')).toEqual(expect.arrayContaining([
-      '镜头6｜意外闯入｜镜头描述', '小林｜标准资产图', '苏晴｜标准资产图', '股东甲｜标准资产图', '总裁办公室｜标准资产图', '外卖箱｜标准资产图',
+      '小林｜标准资产图', '苏晴｜标准资产图', '股东甲｜标准资产图', '总裁办公室｜标准资产图', '外卖箱｜标准资产图',
     ]))
-    expect(incomingTitles('rain-delivery-shot-6-image')).toHaveLength(6)
-    expect(incomingTitles('rain-delivery-shot-7-image')).toEqual(expect.arrayContaining(['镜头7｜苏晴抬头｜镜头描述', '苏晴｜标准资产图', '总裁办公室｜标准资产图']))
-    expect(incomingTitles('rain-delivery-shot-7-image')).toHaveLength(3)
-    expect(incomingTitles('rain-delivery-shot-9-image')).toEqual(expect.arrayContaining(['镜头9｜突然一笑｜镜头描述', '苏晴｜标准资产图', '总裁办公室｜标准资产图']))
-    expect(incomingTitles('rain-delivery-shot-9-image')).toHaveLength(3)
-    expect(incomingTitles('rain-delivery-shot-10-image')).toEqual(expect.arrayContaining(['镜头10｜背影离开｜镜头描述', '小林｜标准资产图', '苏晴｜标准资产图', '总裁办公室｜标准资产图', '外卖箱｜标准资产图']))
-    expect(incomingTitles('rain-delivery-shot-10-image')).toHaveLength(5)
+    expect(incomingTitles('rain-delivery-shot-6-image')).toHaveLength(5)
+    expect(incomingTitles('rain-delivery-shot-7-image')).toEqual(expect.arrayContaining(['苏晴｜标准资产图', '总裁办公室｜标准资产图']))
+    expect(incomingTitles('rain-delivery-shot-7-image')).toHaveLength(2)
+    expect(incomingTitles('rain-delivery-shot-9-image')).toEqual(expect.arrayContaining(['苏晴｜标准资产图', '总裁办公室｜标准资产图']))
+    expect(incomingTitles('rain-delivery-shot-9-image')).toHaveLength(2)
+    expect(incomingTitles('rain-delivery-shot-10-image')).toEqual(expect.arrayContaining(['小林｜标准资产图', '苏晴｜标准资产图', '总裁办公室｜标准资产图', '外卖箱｜标准资产图']))
+    expect(incomingTitles('rain-delivery-shot-10-image')).toHaveLength(4)
     const xiaolin = workspace.workspace_nodes.find((node) => node.data.title === '小林｜标准资产图')
     expect(xiaolin?.data).toMatchObject({ status: 'completed', result: { generationId: 201 } })
     expect(workspace.workspace_nodes.find((node) => node.id === 'rain-delivery-shot-6-image')?.data.result.generationId).toBe(305)
@@ -260,7 +262,7 @@ describe('插件化短剧生产核心', () => {
       id: 19,
       title: '《雨夜外卖》· PearAPI 媒体生成 Demo',
       canvas_revision: 4,
-      metadata: { aspect_ratio: '9:16', demo: true, demo_provider: 'pearapi', demo_version: DEMO_VERSION, canvas_layout: { workspace_nodes: Array.from({ length: 46 }, () => ({})) } },
+      metadata: { aspect_ratio: '9:16', demo: true, demo_provider: 'pearapi', demo_version: DEMO_VERSION, canvas_layout: { workspace_nodes: Array.from({ length: 36 }, () => ({})) } },
       characters: Array.from({ length: 4 }, (_, index) => ({ id: index + 1, drama_id: 19, name: `角色${index + 1}` })),
       scenes: Array.from({ length: 3 }, (_, index) => ({ id: index + 1, drama_id: 19, location: `场景${index + 1}` })),
       props: Array.from({ length: 3 }, (_, index) => ({ id: index + 1, drama_id: 19, name: `道具${index + 1}` })),

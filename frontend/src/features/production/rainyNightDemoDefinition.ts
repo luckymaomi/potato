@@ -1,6 +1,6 @@
 export const RAINY_NIGHT_DEMO = {
   templateId: 'pearapi-rainy-night-delivery-demo',
-  version: 13,
+  version: 14,
   project: {
     title: '《雨夜外卖》· PearAPI 媒体生成 Demo',
     description: '暴雨夜，外卖员小林送错外卖，闯进女总裁苏晴的办公室，两人因此认识。',

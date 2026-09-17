@@ -21,12 +21,13 @@ export interface ProviderHttpResponse<T = unknown> {
 }
 
 const DEFAULT_MAX_ATTEMPTS = 6;
+export const DEFAULT_PROVIDER_TIMEOUT_MS = 600_000;
 
 export async function requestProviderJson<T = unknown>(
   request: ProviderHttpRequest,
   fetchImpl: ProviderFetch = fetch,
 ): Promise<ProviderHttpResponse<T>> {
-  const timeoutMs = request.timeoutMs ?? 120_000;
+  const timeoutMs = request.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error('provider request timeout')), timeoutMs);
   const abortFromCaller = () => controller.abort(request.signal?.reason);

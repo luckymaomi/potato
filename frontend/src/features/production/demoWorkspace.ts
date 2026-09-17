@@ -65,23 +65,17 @@ export function createDemoWorkspace(project: Project): CanvasWorkspaceSnapshot {
     const storyboardRefs = storyboard ? refs([storyboard.id]) : {}
     const imageMedia = mediaLifecycleState(project, 'image', storyboard?.current_image_generation_id)
     const videoMedia = mediaLifecycleState(project, 'video', storyboard?.current_video_generation_id)
-    const textId = `rain-delivery-shot-${index + 1}-text`
     const imageId = `rain-delivery-shot-${index + 1}-image`
     const videoId = `rain-delivery-shot-${index + 1}-video`
     const rowY = 40 + index * 210
     nodes.push({
-      id: textId, role: 'generic-text', x: 1320, y: rowY,
-      data: { title: `${shot.title}｜镜头描述`, parameters: { method: 'manual-text', text: shot.image_prompt }, result: { text: shot.image_prompt, assetRefs: storyboardRefs }, assetRefs: storyboardRefs, status: 'completed' },
-    })
-    nodes.push({
-      id: imageId, role: 'storyboard-image', x: 1640, y: rowY,
+      id: imageId, role: 'storyboard-image', x: 1320, y: rowY,
       data: { title: `分镜图 ${index + 1}｜${shot.title}`, parameters: { provider, model: imageModel, aspectRatio, assetIndex: index, prompt: storyboard?.image_prompt || shot.image_prompt }, assetRefs: storyboardRefs, result: { outputUrl: imageMedia?.url || undefined, generationId: imageMedia?.generation_id, localPath: imageMedia?.local_path || undefined, mediaAvailable: imageMedia?.available === true, assetRefs: storyboardRefs }, status: completed(imageMedia) },
     })
     nodes.push({
-      id: videoId, role: 'shot-video', x: 1960, y: rowY,
+      id: videoId, role: 'shot-video', x: 1640, y: rowY,
       data: { title: `镜头视频 ${index + 1}｜${shot.title}`, parameters: { provider, model: videoModel, aspectRatio, duration, assetIndex: index, prompt: storyboard?.video_prompt || shot.video_prompt }, assetRefs: storyboardRefs, result: { outputUrl: videoMedia?.url || undefined, generationId: videoMedia?.generation_id, localPath: videoMedia?.local_path || undefined, mediaAvailable: videoMedia?.available === true, assetRefs: storyboardRefs }, status: completed(videoMedia) },
     })
-    connections.push([textId, imageId])
     for (const [kind, names] of [
       ['characters', shot.characters],
       ['scenes', shot.scenes],
@@ -96,7 +90,7 @@ export function createDemoWorkspace(project: Project): CanvasWorkspaceSnapshot {
     connections.push([imageId, videoId], [videoId, 'rain-delivery-compose'])
   })
   const episodeMedia = mediaLifecycleState(project, 'video', episode?.current_video_generation_id)
-  nodes.push({ id: 'rain-delivery-compose', role: 'episode-compose', x: 2280, y: 950, data: { title: '合成《雨夜外卖》完整成片', parameters: { episodeId: episode?.id }, assetRefs: episodeRefs, result: { outputUrl: episodeMedia?.url || undefined, generationId: episodeMedia?.generation_id, localPath: episodeMedia?.local_path || undefined, mediaAvailable: episodeMedia?.available === true }, status: completed(episodeMedia) } })
+  nodes.push({ id: 'rain-delivery-compose', role: 'episode-compose', x: 1960, y: 950, data: { title: '合成《雨夜外卖》完整成片', parameters: { episodeId: episode?.id }, assetRefs: episodeRefs, result: { outputUrl: episodeMedia?.url || undefined, generationId: episodeMedia?.generation_id, localPath: episodeMedia?.local_path || undefined, mediaAvailable: episodeMedia?.available === true }, status: completed(episodeMedia) } })
 
   return createProductionWorkspace({
     nodes,
@@ -152,7 +146,7 @@ export async function createDemoProject(): Promise<number> {
     && hydrated.scenes?.length === RAINY_NIGHT_DEMO.scenes.length
     && hydrated.props?.length === RAINY_NIGHT_DEMO.props.length
     && hydrated.episodes?.[0]?.storyboards?.length === RAINY_NIGHT_DEMO.storyboards.length
-    && layout?.workspace_nodes?.length === 46
+    && layout?.workspace_nodes?.length === 36
   if (!complete) throw new Error('《雨夜外卖》Demo 尚未完整初始化，请重新运行 npm.cmd run init:rainy-night-demo')
   return demo.id
 }
