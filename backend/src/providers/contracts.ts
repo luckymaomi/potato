@@ -1,0 +1,137 @@
+import type { AiServiceConfig } from '../types/ai';
+import type { Logger, SQLiteDatabase } from '../types/core';
+
+export type ProviderKind = 'text' | 'image' | 'video';
+export type ProviderTaskStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+export interface ProviderCapabilities {
+  text: boolean;
+  textToImage: boolean;
+  imageToImage: boolean;
+  textToVideo: boolean;
+  imageToVideo: boolean;
+  asynchronous: boolean;
+  multipleImageReferences: boolean;
+  firstLastFrame: boolean;
+}
+
+export interface ProviderDescriptor {
+  id: string;
+  label: string;
+  aliases: readonly string[];
+  capabilities: ProviderCapabilities;
+  configuration?: ProviderConfiguration;
+}
+
+export interface ProviderEndpointConfiguration {
+  submit: string;
+  query?: string;
+}
+
+export interface ProviderConfiguration {
+  defaultBaseUrl?: string;
+  endpoints?: Partial<Record<ProviderKind, ProviderEndpointConfiguration>>;
+}
+
+export interface ProviderModel {
+  id: string;
+  label: string;
+  kind: ProviderKind;
+}
+
+export interface ProviderModelDiscoveryInput {
+  apiKey: string;
+  baseUrl?: string;
+  serviceType?: ProviderKind;
+  signal?: AbortSignal;
+}
+
+export interface ProviderExecutionContext {
+  config: AiServiceConfig;
+  log: Logger;
+  db?: SQLiteDatabase;
+  resolveMediaReference?: (
+    source: string,
+    options?: { publiclyAccessible?: boolean; label?: string },
+  ) => Promise<string | undefined>;
+}
+
+export interface TextProviderRequest {
+  model: string;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  temperature?: number;
+  maxTokens?: number;
+  jsonMode?: boolean;
+  signal?: AbortSignal;
+}
+
+export interface ImageProviderRequest {
+  prompt: string;
+  model: string;
+  size?: string;
+  quality?: string;
+  negativePrompt?: string;
+  referenceImages: string[];
+  signal?: AbortSignal;
+}
+
+export interface VideoProviderRequest {
+  prompt: string;
+  model: string;
+  duration?: number;
+  aspectRatio?: string;
+  resolution?: string;
+  seed?: number;
+  image?: string;
+  firstFrame?: string;
+  lastFrame?: string;
+  referenceImages: string[];
+  signal?: AbortSignal;
+}
+
+export interface TextProviderResult {
+  status: 'completed';
+  text: string;
+}
+
+export interface ImageProviderResult {
+  status: ProviderTaskStatus;
+  taskId?: string;
+  imageUrl?: string;
+  error?: string;
+  progress?: number;
+}
+
+export interface VideoProviderResult {
+  status: ProviderTaskStatus;
+  taskId?: string;
+  videoUrl?: string;
+  error?: string;
+  progress?: number;
+}
+
+export interface ProviderAdapter {
+  descriptor: ProviderDescriptor;
+  listModels?(input: ProviderModelDiscoveryInput): Promise<ProviderModel[]>;
+  generateText?(context: ProviderExecutionContext, request: TextProviderRequest): Promise<TextProviderResult>;
+  submitImage?(context: ProviderExecutionContext, request: ImageProviderRequest): Promise<ImageProviderResult>;
+  pollImage?(context: ProviderExecutionContext, taskId: string, signal?: AbortSignal): Promise<ImageProviderResult>;
+  submitVideo?(context: ProviderExecutionContext, request: VideoProviderRequest): Promise<VideoProviderResult>;
+  pollVideo?(
+    context: ProviderExecutionContext,
+    taskId: string,
+    signal?: AbortSignal,
+    model?: string,
+  ): Promise<VideoProviderResult>;
+}
+
+export const NO_PROVIDER_CAPABILITIES: ProviderCapabilities = Object.freeze({
+  text: false,
+  textToImage: false,
+  imageToImage: false,
+  textToVideo: false,
+  imageToVideo: false,
+  asynchronous: false,
+  multipleImageReferences: false,
+  firstLastFrame: false,
+});

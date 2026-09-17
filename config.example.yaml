@@ -1,0 +1,39 @@
+app:
+  name: mini-video API
+  version: 0.0.1
+  debug: true
+  language: zh
+
+server:
+  port: 5679
+  host: 0.0.0.0
+  cors_origins:
+    - http://localhost:3012
+  insecure_tls: false
+
+database:
+  type: sqlite
+  path: ./backend/data/mini_video.db
+
+storage:
+  type: local
+  local_path: ./backend/data/storage
+  base_url: http://localhost:5679/static
+
+video:
+  generation_timeout_minutes: 30
+
+ai:
+  providers:
+    agnes:
+      enabled: true
+      base_url: https://apihub.agnes-ai.com/v1
+      api_key: ""
+      # 可选；值必须来自供应商实时模型目录。节点未选模型时使用这里的默认值。
+      default_models: {}
+    pearapi:
+      enabled: true
+      base_url: https://api.pearapi.ai
+      api_key: ""
+      settings:
+        task_type: sync

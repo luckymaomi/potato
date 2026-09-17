@@ -1,0 +1,125 @@
+import { ReloadOutlined } from '@ant-design/icons'
+import { Button, message, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { aiConfigsApi } from '../api/aiConfigs'
+import type { ProviderCatalogStatus, ProviderModel, ServiceType } from '../types/domain'
+import { supportsService } from '../features/providers/catalog'
+
+const serviceLabels: Record<ServiceType, string> = { text: '文本', image: '图片', video: '视频' }
+
+export function AiConfigPage() {
+  const [serviceType, setServiceType] = useState<ServiceType>('text')
+  const [providers, setProviders] = useState<ProviderCatalogStatus[]>([])
+  const [models, setModels] = useState<ProviderModel[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState<string[]>([])
+
+  useEffect(() => {
+    let active = true
+    void Promise.all([aiConfigsApi.providers(), aiConfigsApi.models()])
+      .then(([providerItems, modelItems]) => {
+        if (!active) return
+        setProviders(providerItems)
+        setModels(modelItems)
+      })
+      .catch((error: Error) => { if (active) message.error(error.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [])
+
+  const refresh = async (provider: ProviderCatalogStatus) => {
+    setRefreshing((current) => [...current, provider.id])
+    try {
+      const refreshed = await aiConfigsApi.refreshModels(provider.id)
+      setModels((current) => [
+        ...current.filter((model) => model.provider !== provider.id),
+        ...refreshed,
+      ])
+      setProviders(await aiConfigsApi.providers())
+      message.success(`${provider.label} 已同步 ${refreshed.length} 个实时模型`)
+    } catch (error) {
+      message.error((error as Error).message)
+    } finally {
+      setRefreshing((current) => current.filter((id) => id !== provider.id))
+    }
+  }
+
+  const visibleProviders = useMemo(
+    () => providers.filter((provider) => supportsService(provider.capabilities, serviceType)),
+    [providers, serviceType],
+  )
+
+  return (
+    <>
+      <header className="page-heading">
+        <div>
+          <h1>AI 供应商</h1>
+          <p>密钥与接口地址统一读取根目录 config.yaml；这里负责查看状态并同步供应商实时模型目录。</p>
+        </div>
+      </header>
+      <section className="settings-surface">
+        <Tabs
+          activeKey={serviceType}
+          onChange={(key) => setServiceType(key as ServiceType)}
+          items={(Object.keys(serviceLabels) as ServiceType[]).map((key) => ({ key, label: `${serviceLabels[key]}模型` }))}
+        />
+        <div className="settings-toolbar">
+          <span>{visibleProviders.length} 个供应商支持{serviceLabels[serviceType]}能力</span>
+          <Typography.Text type="secondary">修改 config.yaml 后重启服务，再刷新模型目录</Typography.Text>
+        </div>
+        <Table<ProviderCatalogStatus>
+          rowKey="id"
+          loading={loading}
+          pagination={false}
+          dataSource={visibleProviders}
+          expandable={{
+            expandedRowRender: (provider) => {
+              const entries = models.filter((model) => model.provider === provider.id && model.kind === serviceType)
+              return entries.length ? (
+                <div className="provider-model-list">
+                  {entries.map((model) => <Tag key={`${model.provider}-${model.kind}-${model.id}`}>{model.label}</Tag>)}
+                </div>
+              ) : <Typography.Text type="secondary">尚未同步此类型的模型</Typography.Text>
+            },
+          }}
+          columns={[
+            { title: '供应商', dataIndex: 'label', render: (label) => <strong>{label}</strong> },
+            {
+              title: '根配置',
+              dataIndex: 'configured',
+              render: (configured, provider) => (
+                <Space size={6}>
+                  <Tag color={provider.enabled ? 'green' : 'default'}>{provider.enabled ? '已启用' : '已停用'}</Tag>
+                  <Tag color={configured ? 'blue' : 'default'}>{configured ? 'Key 已配置' : 'Key 未配置'}</Tag>
+                </Space>
+              ),
+            },
+            {
+              title: `${serviceLabels[serviceType]}模型`,
+              render: (_, provider) => `${provider.model_counts[serviceType]} 个`,
+            },
+            {
+              title: '最近同步',
+              dataIndex: 'synchronized_at',
+              render: (value) => value ? new Date(value).toLocaleString() : '尚未同步',
+            },
+            {
+              title: '操作',
+              width: 120,
+              render: (_, provider) => (
+                <Tooltip title="从供应商实时接口重新读取全部模型类型">
+                  <Button
+                    icon={<ReloadOutlined />}
+                    loading={refreshing.includes(provider.id)}
+                    disabled={!provider.enabled}
+                    onClick={() => void refresh(provider)}
+                  >刷新</Button>
+                </Tooltip>
+              ),
+            },
+          ]}
+        />
+      </section>
+    </>
+  )
+}

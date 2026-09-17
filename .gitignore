@@ -1,0 +1,26 @@
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+/config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# Local runtime and logs
+.tmp/
+*.log
+
+# Research outputs (maomi research stage)
+research-output/
+
+# Read-only third-party design references
+reference/*/
