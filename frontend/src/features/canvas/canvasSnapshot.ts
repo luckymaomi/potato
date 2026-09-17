@@ -7,6 +7,7 @@ import type {
   WorkflowGroup,
   WorkspaceTemplateInfo,
 } from './canvasTypes'
+import { restoreProductionNodeLifecycle } from '../production/lifecycle'
 
 export function readStoredCanvasSnapshot(metadata: Project['metadata'] | undefined): Partial<CanvasWorkspaceSnapshot> {
   const value = metadata?.canvas_layout
@@ -20,13 +21,22 @@ export function readStoredCanvasSnapshot(metadata: Project['metadata'] | undefin
   }
 }
 
-export function normalizeCanvasNodes(nodes: CanvasWorkspaceSnapshot['workspace_nodes']): CanvasNode[] {
+export function normalizeCanvasNodes(nodes: CanvasWorkspaceSnapshot['workspace_nodes'], project?: Project): CanvasNode[] {
   return nodes.map((node) => ({
     ...node,
     type: 'canvas',
-    data: {
+    data: project ? restoreProductionNodeLifecycle({
       ...node.data,
-      outputUrl: mediaUrl(String(node.data.outputUrl || '')) || node.data.outputUrl,
+      result: {
+        ...node.data.result,
+        outputUrl: mediaUrl(String(node.data.result.outputUrl || '')) || node.data.result.outputUrl,
+      },
+    }, project) : {
+      ...node.data,
+      result: {
+        ...node.data.result,
+        outputUrl: mediaUrl(String(node.data.result.outputUrl || '')) || node.data.result.outputUrl,
+      },
     },
   })) as CanvasNode[]
 }

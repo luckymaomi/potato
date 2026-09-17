@@ -4,14 +4,13 @@ import type {
   ProductionSubmission,
   ProductionTarget,
 } from '../production/commands';
-import type { SQLiteDatabase } from '../types/core';
+import type { Logger, SQLiteDatabase } from '../types/core';
 import { asRecord } from '../types/core';
 import type { EntityKind, EpisodeRow } from '../types/domain';
 import { CompositionService } from './compositionService';
-import { EntityService } from './entityService';
+import { AssetRepository } from './assetRepository';
 import { ImageGenerationService, type ImageGenerationInput } from './imageGenerationService';
 import { ProjectService } from './projectService';
-import { StoryboardService } from './storyboardService';
 import { TaskService } from './taskService';
 import { listTextPrompts, resolveSystemPrompt, type TextPromptKey } from './textPromptCatalog';
 import { TextGenerationService } from './textGenerationService';
@@ -21,13 +20,13 @@ export class ProductionWorkflowService {
   constructor(
     private readonly db: SQLiteDatabase,
     private readonly projects: ProjectService,
-    private readonly entities: EntityService,
-    private readonly storyboards: StoryboardService,
+    private readonly assets: AssetRepository,
     private readonly text: TextGenerationService,
     private readonly images: ImageGenerationService,
     private readonly videos: VideoGenerationService,
     private readonly composition: CompositionService,
     private readonly tasks: TaskService,
+    private readonly log?: Logger,
   ) {}
 
   textPrompts() {
@@ -35,12 +34,29 @@ export class ProductionWorkflowService {
   }
 
   execute(command: ProductionCommand): ProductionSubmission {
+    this.log?.audit?.('production.command.submitted', {
+      kind: command.kind,
+      projectId: command.projectId,
+      audit: command.audit,
+      command,
+    });
     this.projects.require(command.projectId);
-    if (command.kind === 'manual-text') return this.runManualText(command);
-    if (command.kind === 'ai-text') return pending(this.runAiText(command));
-    if (command.kind === 'image') return pending(this.runImage(command));
-    if (command.kind === 'video') return pending(this.runVideo(command));
-    return pending(this.runFinalize(command));
+    const submission = command.kind === 'manual-text'
+      ? this.runManualText(command)
+      : command.kind === 'ai-text'
+        ? pending(this.runAiText(command))
+        : command.kind === 'image'
+          ? pending(this.runImage(command))
+          : command.kind === 'video'
+            ? pending(this.runVideo(command))
+            : pending(this.runFinalize(command));
+    this.log?.audit?.('production.command.accepted', {
+      kind: command.kind,
+      projectId: command.projectId,
+      audit: command.audit,
+      submission,
+    });
+    return submission;
   }
 
   private runManualText(command: Extract<ProductionCommand, { kind: 'manual-text' }>): ProductionSubmission {
@@ -54,9 +70,6 @@ export class ProductionWorkflowService {
 
   private runAiText(command: Extract<ProductionCommand, { kind: 'ai-text' }>): string {
     const episode = command.episodeId ? this.requireEpisode(command.projectId, command.episodeId) : undefined;
-    if (requiresEpisode(command.action) && !episode) {
-      throw new ValidationError('这个生产步骤需要关联当前项目中的集数');
-    }
     return this.tasks.run(`production_${command.action}`, episode ? String(episode.id) : String(command.projectId), async (reporter) => {
       reporter.progress(10, textProgress(command.action));
       const project = this.projects.require(command.projectId);
@@ -90,23 +103,26 @@ export class ProductionWorkflowService {
         .run(generated, new Date().toISOString(), episode.id);
       return { text: generated, episode_id: episode?.id ?? null };
     }
-    if (!episode) throw new ValidationError('文本生产结果缺少关联集数');
     const items = parseItems(generated);
-    if (command.action === 'extract-characters') return { characters: this.entities.replaceCharacters(command.projectId, items) };
-    if (command.action === 'extract-scenes') return { scenes: this.entities.replaceScenes(command.projectId, episode.id, items) };
-    if (command.action === 'extract-props') return { props: this.entities.replaceProps(command.projectId, episode.id, items) };
+    if (command.action === 'extract-characters') return { characters: this.assets.syncCharacters(command.projectId, items) };
+    if (command.action === 'extract-scenes') return { scenes: this.assets.syncScenes(command.projectId, items) };
+    if (command.action === 'extract-props') return { props: this.assets.syncProps(command.projectId, items) };
     const selected = command.storyboardCount ? items.slice(0, command.storyboardCount) : items;
-    return { storyboards: this.storyboards.replace(episode.id, selected) };
+    return { storyboards: episode ? this.assets.syncStoryboards(episode.id, selected) : selected };
   }
 
   private runImage(command: Extract<ProductionCommand, { kind: 'image' }>): string {
+    const prompt = command.prompt.trim();
+    if (!prompt) throw new ValidationError('图片提示词不能为空');
+    const referenceImages = command.mode === 'image-to-image' ? unique(command.referenceImages) : [];
+    if (command.mode === 'image-to-image' && referenceImages.length === 0) throw new ValidationError('图生图至少需要一张显式参考图');
     const image = this.images.create({
       dramaId: command.projectId,
-      prompt: command.prompt,
+      prompt,
       provider: command.provider,
       model: command.model,
       aspectRatio: command.aspectRatio,
-      referenceImages: command.referenceImages,
+      referenceImages,
       ...this.validateImageTarget(command.projectId, command.target),
     });
     if (!image.task_id) throw new Error('图片服务没有返回任务 ID');
@@ -114,18 +130,21 @@ export class ProductionWorkflowService {
   }
 
   private runVideo(command: Extract<ProductionCommand, { kind: 'video' }>): string {
-    if (command.storyboardId) this.requireStoryboard(command.projectId, command.storyboardId);
+    const prompt = command.prompt.trim();
+    if (!prompt) throw new ValidationError('视频提示词不能为空');
+    const referenceImages = command.mode === 'image-to-video' ? unique(command.referenceImages) : [];
+    if (command.mode === 'image-to-video' && referenceImages.length === 0) throw new ValidationError('图生视频至少需要一张显式参考图');
     const video = this.videos.create({
       dramaId: command.projectId,
-      prompt: command.prompt,
+      prompt,
       provider: command.provider,
       model: command.model,
       duration: command.duration,
       aspectRatio: command.aspectRatio,
       storyboardId: command.storyboardId ?? null,
-      image: command.referenceImages[0],
-      firstFrame: command.referenceImages[0],
-      referenceImages: command.referenceImages,
+      image: referenceImages[0],
+      firstFrame: referenceImages[0],
+      referenceImages,
     });
     if (!video.task_id) throw new Error('视频服务没有返回任务 ID');
     return video.task_id;
@@ -133,7 +152,7 @@ export class ProductionWorkflowService {
 
   private runFinalize(command: Extract<ProductionCommand, { kind: 'finalize' }>): string {
     this.requireEpisode(command.projectId, command.episodeId);
-    return this.composition.finalize(command.episodeId);
+    return this.composition.finalize(command.episodeId, command.videoUrls);
   }
 
   private validateImageTarget(
@@ -146,10 +165,10 @@ export class ProductionWorkflowService {
       return { storyboardId: target.id };
     }
     const record = target.kind === 'character'
-      ? this.entities.getCharacter(target.id)
+      ? this.assets.getCharacter(target.id)
       : target.kind === 'scene'
-        ? this.entities.getScene(target.id)
-        : this.entities.getProp(target.id);
+        ? this.assets.getScene(target.id)
+        : this.assets.getProp(target.id);
     if (!record || record.drama_id !== projectId) throw new NotFoundError(`${entityLabel(target.kind)}不存在于当前项目`);
     if (target.kind === 'character') return { characterId: target.id };
     if (target.kind === 'scene') return { sceneId: target.id };
@@ -157,13 +176,13 @@ export class ProductionWorkflowService {
   }
 
   private requireEpisode(projectId: number, episodeId: number): EpisodeRow {
-    const episode = this.storyboards.episode(episodeId);
+    const episode = this.assets.episode(episodeId);
     if (!episode || episode.drama_id !== projectId) throw new NotFoundError('集数不存在于当前项目');
     return episode;
   }
 
   private requireStoryboard(projectId: number, storyboardId: number): void {
-    const storyboard = this.storyboards.get(storyboardId);
+    const storyboard = this.assets.getStoryboard(storyboardId);
     if (!storyboard) throw new NotFoundError('分镜不存在');
     this.requireEpisode(projectId, storyboard.episode_id);
   }
@@ -171,10 +190,6 @@ export class ProductionWorkflowService {
 
 function pending(taskId: string): ProductionSubmission {
   return { status: 'pending', task_id: taskId };
-}
-
-function requiresEpisode(action: TextPromptKey): boolean {
-  return action === 'extract-characters' || action === 'extract-scenes' || action === 'extract-props' || action === 'split-storyboards';
 }
 
 function extractionAction(action: TextPromptKey): boolean {
@@ -204,4 +219,8 @@ function parseItems(text: string): unknown[] {
 
 function entityLabel(kind: EntityKind): string {
   return { character: '角色', scene: '场景', prop: '道具' }[kind];
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }

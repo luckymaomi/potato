@@ -55,14 +55,14 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { productionApi } from '../../api/production'
 import { userErrorMessage } from '../../errors/appError'
-import { productionRoles, type ProductionRole, type ProductionRoleDefinition } from '../production/catalog'
+import { productionPlugins, type ProductionPlugin, type ProductionRole } from '../production/catalog'
 import { createStarterWorkspace } from '../production/starterWorkspace'
 import { waitForTask } from '../production/executor'
 import { useCanvasStore, type CanvasNode, type WorkflowGroup } from '../../store/canvasStore'
 import { CanvasInspector } from './CanvasInspector'
 import { CanvasNodeView } from './CanvasNode'
 import type { CanvasSaveState } from './canvasSaveCoordinator'
-import { downstreamNodeIds } from './canvasGraph'
+import { downstreamNodeIds, incompleteRunNodeIds } from './canvasGraph'
 import { CanvasRunSession, CanvasRunStoppedError } from './runSession'
 import { runWorkflow, WorkflowRunTerminatedError } from './workflowRunner'
 
@@ -76,11 +76,11 @@ function saveStateLabel(state: CanvasSaveState): string {
   return '已保存'
 }
 
-function templateIcon(template: ProductionRoleDefinition): ReactNode {
+function templateIcon(template: ProductionPlugin): ReactNode {
   if (template.stage === 'assets') {
-    if (template.assetKind === 'character') return <UserOutlined />
-    if (template.assetKind === 'scene') return <EnvironmentOutlined />
-    if (template.assetKind === 'prop') return <ToolOutlined />
+    if (template.targetAsset === 'character') return <UserOutlined />
+    if (template.targetAsset === 'scene') return <EnvironmentOutlined />
+    if (template.targetAsset === 'prop') return <ToolOutlined />
   }
   if (template.stage === 'storyboard') return <ApartmentOutlined />
   if (template.role === 'story') return <BulbOutlined />
@@ -89,7 +89,7 @@ function templateIcon(template: ProductionRoleDefinition): ReactNode {
   return <FileTextOutlined />
 }
 
-const nodeTools = productionRoles.map((template) => ({
+const nodeTools = productionPlugins.map((template) => ({
   key: template.role,
   label: `添加${template.label}`,
   description: template.description,
@@ -258,6 +258,10 @@ export function CanvasPage() {
     const state = useCanvasStore.getState()
     await runNodeIds(downstreamNodeIds([nodeId], state.edges), '下游分支')
   }, [runNodeIds])
+  const runIncomplete = useCallback(async (ids: string[], label: string) => {
+    const state = useCanvasStore.getState()
+    await runNodeIds(incompleteRunNodeIds(ids, state.nodes, state.edges), label)
+  }, [runNodeIds])
 
   const saveNow = async () => {
     try {
@@ -341,7 +345,12 @@ export function CanvasPage() {
     try {
       await useCanvasStore.getState().save()
       if (!project) throw new Error('项目已经关闭')
-      const submitted = await productionApi.execute({ kind: 'finalize', project_id: project.id, episode_id: finalizeEpisodeId })
+      const videoUrls = [...useCanvasStore.getState().nodes]
+        .filter((node) => node.data.role === 'shot-video' && node.data.status === 'completed' && node.data.result.outputUrl)
+        .sort((left, right) => left.position.y - right.position.y || left.position.x - right.position.x)
+        .flatMap((node) => node.data.result.outputUrl || [])
+      if (!videoUrls.length) throw new Error('画布上没有已完成且已落盘的镜头视频')
+      const submitted = await productionApi.execute({ kind: 'finalize', project_id: project.id, episode_id: finalizeEpisodeId, video_urls: videoUrls })
       if (!submitted.task_id) throw new Error('后端没有返回整集合成任务 ID')
       await waitForTask(submitted.task_id, () => undefined, session)
       message.success('整集合成完成')
@@ -365,7 +374,7 @@ export function CanvasPage() {
     onClick: ({ key }) => {
       if (key === 'selection') void runNodeIds(selection, '所选节点')
       if (key === 'downstream' && selection[0]) void runDownstream(selection[0])
-      if (key === 'all') void runNodeIds(nodes.map((node) => node.id), '整个画布')
+      if (key === 'all') void runIncomplete(nodes.map((node) => node.id), '未完成节点')
     },
   }
 
@@ -436,8 +445,8 @@ export function CanvasPage() {
                 type="primary"
                 icon={<PlayCircleOutlined />}
                 disabled={!nodes.length}
-                onClick={() => void runNodeIds(nodes.map((node) => node.id), '整个画布')}
-              >运行全部</Button>
+                onClick={() => void runIncomplete(nodes.map((node) => node.id), '未完成节点')}
+              >运行未完成</Button>
               <Dropdown menu={runMenu}><Button type="primary" icon={<DownOutlined />} aria-label="选择运行范围" /></Dropdown>
             </Space.Compact>
           )}
@@ -533,7 +542,7 @@ export function CanvasPage() {
                 <span>{group.nodeIds.length} 个节点</span>
               </div>
               <Space size={2}>
-                <Tooltip title="运行这个工作流"><Button type="text" icon={<PlayCircleOutlined />} disabled={activeRun} onClick={() => void runNodeIds(group.nodeIds, group.name)} /></Tooltip>
+                <Tooltip title="运行这个工作流中的未完成节点"><Button type="text" icon={<PlayCircleOutlined />} disabled={activeRun} onClick={() => void runIncomplete(group.nodeIds, group.name)} /></Tooltip>
                 <Tooltip title="重命名"><Button type="text" icon={<EditOutlined />} onClick={() => openEditGroup(group)} /></Tooltip>
                 <Popconfirm title="删除这个工作流？" onConfirm={() => removeWorkflowGroup(group.id)}>
                   <Tooltip title="删除"><Button type="text" danger icon={<DeleteOutlined />} /></Tooltip>

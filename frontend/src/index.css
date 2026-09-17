@@ -147,7 +147,7 @@ button, input, textarea { font: inherit; }
 .canvas-node-ratio + .canvas-node-status { margin-left: 0; }
 .status-completed { color: #286047; background: #edf7f1; border-color: #bfdec9; }
 .status-failed { color: #973e39; background: #fff0ee; border-color: #e9c0bc; }
-.status-pending, .status-processing { color: #805020; background: #fff6e9; border-color: #e9d0a8; }
+.status-pending, .status-running { color: #805020; background: #fff6e9; border-color: #e9d0a8; }
 .status-cancelled { color: #65512f; background: #fff9ee; border-color: #e1d2b7; }
 .canvas-node-title { padding: 0 12px 9px; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 750; }
 .canvas-node-empty { height: 68px; margin: 0 12px 12px; padding: 10px 11px; overflow: hidden; color: #747c83; background: #f4f5f6; border: 1px solid #e1e4e7; border-radius: 6px; font-size: 12px; line-height: 19px; white-space: pre-wrap; }

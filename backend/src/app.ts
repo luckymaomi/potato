@@ -6,14 +6,17 @@ import { loadConfig } from './config/index';
 import { getDb } from './db/index';
 import { initializeDatabase } from './db/schema';
 import { resolveError } from './errorContract';
-import logger from './logger';
+import logger, { configureAuditLog, currentAuditLogFile } from './logger';
 import { providerRegistry } from './providers';
+import { requestAudit } from './requestAudit';
 import { failure } from './response';
 import { createApiRouter } from './routes/index';
 import { createServices } from './services/container';
 import type { AppContext } from './types/core';
 
 export function createApp(): AppContext {
+  configureAuditLog(process.env.LOG_FILE?.trim() || undefined);
+  logger.audit('application.starting', { pid: process.pid, cwd: process.cwd(), logFile: currentAuditLogFile() });
   const config = loadConfig();
   const db = getDb(config.database);
   initializeDatabase(db);
@@ -26,6 +29,7 @@ export function createApp(): AppContext {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cors({ origin: config.server.cors_origins?.length ? config.server.cors_origins : '*' }));
+  app.use(requestAudit(logger));
   const requestLogger: RequestHandler = (req, _res, next) => {
     logger.info(`${req.method} ${req.path}`);
     next();

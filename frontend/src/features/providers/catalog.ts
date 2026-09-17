@@ -1,4 +1,4 @@
-import type { MediaGenerationMode, ProductionMaterial, TextMode } from '../production/catalog'
+import type { MediaGenerationMode, ProductionMaterial, ProductionMethod, TextMode } from '../production/catalog'
 import type { ProviderCapabilities, ProviderModel, ProviderModelMode, ServiceType } from '../../types/domain'
 
 const modelModeLabels: Record<ProviderModelMode, string> = {
@@ -16,14 +16,15 @@ export function supportsService(capabilities: ProviderCapabilities, serviceType:
 
 export function nodeServiceType(
   material: ProductionMaterial | undefined,
-  textMode: TextMode | undefined,
+  methodOrTextMode: ProductionMethod | TextMode | undefined,
   generationMode: MediaGenerationMode | undefined,
 ): ServiceType | undefined {
-  if (material === 'text') return textMode === 'ai' ? 'text' : undefined
+  if (material === 'text') return methodOrTextMode === 'ai' || methodOrTextMode === 'ai-text' ? 'text' : undefined
   if (material === 'image') return 'image'
   if (material === 'video') return 'video'
-  if (generationMode === 'text-to-video' || generationMode === 'image-to-video') return 'video'
-  if (generationMode === 'text-to-image' || generationMode === 'image-to-image') return 'image'
+  const mode = generationMode || methodOrTextMode
+  if (mode === 'text-to-video' || mode === 'image-to-video') return 'video'
+  if (mode === 'text-to-image' || mode === 'image-to-image') return 'image'
   return undefined
 }
 

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS episodes (
   script_content TEXT,
   description TEXT,
   video_url TEXT,
+  current_video_generation_id INTEGER,
   status TEXT NOT NULL DEFAULT 'draft',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -36,29 +37,30 @@ CREATE TABLE IF NOT EXISTS characters (
   appearance TEXT,
   image_url TEXT,
   local_path TEXT,
+  current_image_generation_id INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS scenes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   drama_id INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE,
-  episode_id INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
   location TEXT NOT NULL,
   prompt TEXT,
   image_url TEXT,
   local_path TEXT,
+  current_image_generation_id INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS props (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   drama_id INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE,
-  episode_id INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   description TEXT,
   prompt TEXT,
   image_url TEXT,
   local_path TEXT,
+  current_image_generation_id INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -74,10 +76,27 @@ CREATE TABLE IF NOT EXISTS storyboards (
   video_prompt TEXT,
   image_url TEXT,
   video_url TEXT,
+  current_image_generation_id INTEGER,
+  current_video_generation_id INTEGER,
   duration REAL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE(episode_id, storyboard_number)
+);
+CREATE TABLE IF NOT EXISTS storyboard_characters (
+  storyboard_id INTEGER NOT NULL REFERENCES storyboards(id) ON DELETE CASCADE,
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  PRIMARY KEY(storyboard_id, character_id)
+);
+CREATE TABLE IF NOT EXISTS storyboard_scenes (
+  storyboard_id INTEGER NOT NULL REFERENCES storyboards(id) ON DELETE CASCADE,
+  scene_id INTEGER NOT NULL REFERENCES scenes(id) ON DELETE CASCADE,
+  PRIMARY KEY(storyboard_id, scene_id)
+);
+CREATE TABLE IF NOT EXISTS storyboard_props (
+  storyboard_id INTEGER NOT NULL REFERENCES storyboards(id) ON DELETE CASCADE,
+  prop_id INTEGER NOT NULL REFERENCES props(id) ON DELETE CASCADE,
+  PRIMARY KEY(storyboard_id, prop_id)
 );
 CREATE TABLE IF NOT EXISTS provider_model_catalog (
   provider TEXT NOT NULL,
@@ -115,7 +134,11 @@ CREATE TABLE IF NOT EXISTS image_generations (
   aspect_ratio TEXT,
   reference_images TEXT NOT NULL DEFAULT '[]',
   image_url TEXT,
+  source_url TEXT,
   local_path TEXT,
+  media_type TEXT,
+  file_size INTEGER,
+  failure_stage TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   task_id TEXT,
   error_msg TEXT,
@@ -126,6 +149,7 @@ CREATE TABLE IF NOT EXISTS image_generations (
 CREATE TABLE IF NOT EXISTS video_generations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   drama_id INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE,
+  episode_id INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
   storyboard_id INTEGER REFERENCES storyboards(id) ON DELETE SET NULL,
   provider TEXT,
   prompt TEXT NOT NULL,
@@ -138,7 +162,11 @@ CREATE TABLE IF NOT EXISTS video_generations (
   last_frame_url TEXT,
   reference_image_urls TEXT NOT NULL DEFAULT '[]',
   video_url TEXT,
+  source_url TEXT,
   local_path TEXT,
+  media_type TEXT,
+  file_size INTEGER,
+  failure_stage TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   task_id TEXT,
   provider_task_id TEXT,
@@ -149,6 +177,11 @@ CREATE TABLE IF NOT EXISTS video_generations (
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_drama ON episodes(drama_id);
 CREATE INDEX IF NOT EXISTS idx_storyboards_episode ON storyboards(episode_id);
+CREATE INDEX IF NOT EXISTS idx_storyboard_characters_character ON storyboard_characters(character_id);
+CREATE INDEX IF NOT EXISTS idx_storyboard_scenes_scene ON storyboard_scenes(scene_id);
+CREATE INDEX IF NOT EXISTS idx_storyboard_props_prop ON storyboard_props(prop_id);
+CREATE INDEX IF NOT EXISTS idx_image_generations_target ON image_generations(drama_id, character_id, scene_id, prop_id, storyboard_id);
+CREATE INDEX IF NOT EXISTS idx_video_generations_target ON video_generations(drama_id, episode_id, storyboard_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON async_tasks(status);
 `;
 

@@ -14,7 +14,7 @@ import {
   assetKindOf,
   materialLabel,
   materialOf,
-  productionRole,
+  productionPlugin,
   productionStatusLabel,
   type ProductionNodeData,
 } from '../production/catalog'
@@ -37,30 +37,30 @@ export function CanvasNodeView({ data, selected }: NodeProps<CanvasNode>) {
   const material = materialOf(data)
   const isText = material === 'text'
   const isVideo = isVideoMedia(data)
-  const summary = isText ? data.text : data.prompt
+  const summary = isText ? (data.result.text || data.parameters.text) : data.parameters.prompt
   return (
     <div className={`canvas-node canvas-node-${material} ${selected ? 'is-selected' : ''}`}>
       <Handle type="target" position={Position.Left} id="input" className="canvas-handle" />
       <Handle type="source" position={Position.Right} id="output" className="canvas-handle" />
       <div className="canvas-node-header">
         <span className="canvas-node-icon">{nodeIcon(data)}</span>
-        <span className="canvas-node-kind">{productionRole(data.role).label}</span>
-        {!isText && data.aspectRatio && <span className="canvas-node-ratio">{data.aspectRatio}</span>}
+        <span className="canvas-node-kind">{productionPlugin(data.role).label}</span>
+        {!isText && data.parameters.aspectRatio && <span className="canvas-node-ratio">{data.parameters.aspectRatio}</span>}
         {data.status && data.status !== 'idle' && (
           <span className={`canvas-node-status status-${data.status}`}>{productionStatusLabel(data.status)}</span>
         )}
       </div>
-      <div className="canvas-node-title">{data.title || productionRole(data.role).label}</div>
-      {data.outputUrl ? (
+      <div className="canvas-node-title">{data.title || productionPlugin(data.role).label}</div>
+      {data.result.outputUrl ? (
         isVideo
-          ? <video className="canvas-node-media" src={data.outputUrl} muted preload="metadata" />
-          : <img className="canvas-node-media" src={data.outputUrl} alt={`${data.title || productionRole(data.role).label}生成结果`} />
+          ? <video className="canvas-node-media" src={data.result.outputUrl} muted preload="metadata" />
+          : <img className="canvas-node-media" src={data.result.outputUrl} alt={`${data.title || productionPlugin(data.role).label}生成结果`} />
       ) : (
         <div className="canvas-node-empty">
           {summary ? String(summary).slice(0, 112) : `${materialLabel(material)}，选择后在右侧编辑`}
         </div>
       )}
-      {data.taskId && <div className="canvas-node-task">任务 {data.taskId.slice(0, 8)}…</div>}
+      {data.result.taskId && <div className="canvas-node-task">任务 {data.result.taskId.slice(0, 8)}…</div>}
     </div>
   )
 }

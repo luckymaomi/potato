@@ -51,10 +51,10 @@ export async function runWorkflow(input: {
     const current = input.getState()
     const node = current.nodes.find((item) => item.id === orderedNode.id)
     if (!node) continue
-    const prepared = prepareNodeForExecution(node, current.nodes, current.edges)
-    input.updateNode(node.id, prepared.data)
     try {
-      await (input.executeNode ?? executeProductionNode)(prepared, current.project, input.updateNode, input.session)
+      const prepared = prepareNodeForExecution(node, current.nodes, current.edges)
+      input.updateNode(node.id, prepared.node.data)
+      await (input.executeNode ?? executeProductionNode)(prepared.node, current.project, input.updateNode, input.session, prepared.context)
       completed += 1
     } catch (error) {
       if (error instanceof CanvasRunStoppedError || input.session.stopped) {

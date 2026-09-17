@@ -20,6 +20,19 @@ export interface Drama extends Omit<DramaRow, 'metadata'> {
   characters?: CharacterRow[];
   scenes?: SceneRow[];
   props?: PropRow[];
+  media_lifecycle?: {
+    images: Record<string, MediaLifecycleState>;
+    videos: Record<string, MediaLifecycleState>;
+  };
+}
+
+export interface MediaLifecycleState {
+  generation_id: number;
+  status: string;
+  url: string | null;
+  local_path: string | null;
+  failure_stage: 'provider' | 'archive' | 'composition' | null;
+  available: boolean;
 }
 
 export interface EpisodeRow {
@@ -31,6 +44,7 @@ export interface EpisodeRow {
   script_content: string | null;
   description: string | null;
   video_url: string | null;
+  current_video_generation_id: number | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -45,6 +59,7 @@ export interface CharacterRow {
   appearance: string | null;
   image_url: string | null;
   local_path: string | null;
+  current_image_generation_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -52,11 +67,11 @@ export interface CharacterRow {
 export interface SceneRow {
   id: number;
   drama_id: number;
-  episode_id: number | null;
   location: string;
   prompt: string | null;
   image_url: string | null;
   local_path: string | null;
+  current_image_generation_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -64,12 +79,12 @@ export interface SceneRow {
 export interface PropRow {
   id: number;
   drama_id: number;
-  episode_id: number | null;
   name: string;
   description: string | null;
   prompt: string | null;
   image_url: string | null;
   local_path: string | null;
+  current_image_generation_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -86,6 +101,11 @@ export interface StoryboardRow {
   video_prompt: string | null;
   image_url: string | null;
   video_url: string | null;
+  current_image_generation_id: number | null;
+  current_video_generation_id: number | null;
+  character_ids: number[];
+  scene_ids: number[];
+  prop_ids: number[];
   duration: number | null;
   created_at: string;
   updated_at: string;

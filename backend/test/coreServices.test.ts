@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test, { after } from 'node:test';
 import Database from 'better-sqlite3';
+import * as unzipper from 'unzipper';
 import { initializeDatabase } from '../src/db/schema';
 import { modelCapabilities, ProviderRegistry, type ProviderAdapter } from '../src/providers';
 import { createServices } from '../src/services/container';
@@ -25,10 +29,22 @@ const config: AppConfig = {
   },
 };
 const log: Logger = { info() {}, warn() {}, error() {} };
+const temporaryStorageRoots: string[] = [];
+const TEST_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const TEST_MP4 = `data:video/mp4;base64,${Buffer.from('\u0000\u0000\u0000\u0018ftypisom\u0000\u0000\u0002\u0000isomiso2').toString('base64')}`;
 
-function setup(options: { generateText?: NonNullable<ProviderAdapter['generateText']> } = {}) {
+after(() => temporaryStorageRoots.forEach((root) => fs.rmSync(root, { recursive: true, force: true })));
+
+function setup(options: {
+  generateText?: NonNullable<ProviderAdapter['generateText']>;
+  submitImage?: NonNullable<ProviderAdapter['submitImage']>;
+  submitVideo?: NonNullable<ProviderAdapter['submitVideo']>;
+} = {}) {
   const db = new Database(':memory:');
   initializeDatabase(db);
+  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-test-'));
+  temporaryStorageRoots.push(storageRoot);
+  const testConfig: AppConfig = { ...config, storage: { ...config.storage, local_path: storageRoot } };
   const registry = new ProviderRegistry();
   registry.register({
     descriptor: {
@@ -64,21 +80,17 @@ function setup(options: { generateText?: NonNullable<ProviderAdapter['generateTe
           : '第一场：林夏走进车站。',
       };
     }),
-    submitImage: async (_context, request) => ({
+    submitImage: options.submitImage ?? (async (_context, request) => ({
       status: 'completed',
-      imageUrl: request.referenceImages.length
-        ? 'https://cdn.test/image-to-image.png'
-        : 'https://cdn.test/text-to-image.png',
-    }),
-    submitVideo: async (_context, request) => ({
+      imageUrl: TEST_PNG,
+    })),
+    submitVideo: options.submitVideo ?? (async (_context, request) => ({
       status: 'completed',
-      videoUrl: request.image || request.firstFrame
-        ? 'https://cdn.test/image-to-video.mp4'
-        : 'https://cdn.test/text-to-video.mp4',
-    }),
+      videoUrl: TEST_MP4,
+    })),
   });
-  const services = createServices(db, config, registry, log);
-  return { db, services };
+  const services = createServices(db, testConfig, registry, log);
+  return { db, services, storageRoot };
 }
 
 async function taskDone(get: () => { status: string; error: string | null } | undefined): Promise<void> {
@@ -150,13 +162,14 @@ test('新项目自动建立起步剧集并支持更新与级联删除', () => {
   } finally { db.close(); }
 });
 
-test('项目归档可由当前 schema 导出并重新导入', () => {
-  const { db, services } = setup();
+test('项目归档可由当前 schema 导出并重新导入', async () => {
+  const { db, services, storageRoot } = setup();
   try {
     const project = services.projects.create({ title: '归档测试', metadata: { source: 'test' } });
     services.projects.saveEpisodes(project.id, [{ episode_number: 1, title: '第一集', script_content: '归档剧本' }]);
-    const archive = services.projectArchives.export(project.id);
-    const imported = services.projectArchives.import(archive);
+    const archivePath = path.join(storageRoot, 'project-import.zip');
+    await services.projectArchives.export(project.id, archivePath);
+    const imported = await services.projectArchives.import(archivePath);
     assert.equal(imported.title, '归档测试');
     assert.equal(imported.episodes?.[0]?.script_content, '归档剧本');
     assert.deepEqual(imported.metadata, { source: 'test' });
@@ -201,7 +214,7 @@ test('文本、四种媒体模式通过统一任务主链完成', async () => {
       action: 'split-storyboards', sourceText: '雨夜车站剧本', storyboardCount: 3,
     }));
     await taskDone(() => services.tasks.get(storyboardTask));
-    assert.equal(services.storyboards.list(episode.id).length, 3);
+    assert.equal(services.assets.listStoryboards(episode.id).length, 3);
 
     const textImageTask = submittedTaskId(services.production.execute({
       kind: 'image', projectId: project.id, mode: 'text-to-image',
@@ -216,8 +229,8 @@ test('文本、四种媒体模式通过统一任务主链完成', async () => {
       taskDone(() => services.tasks.get(imageImageTask)),
     ]);
     const images = services.images.list(project.id);
-    assert.equal(images.find((item) => item.prompt === '雨夜车站')?.image_url, 'https://cdn.test/text-to-image.png');
-    assert.equal(images.find((item) => item.prompt === '保持人物一致')?.image_url, 'https://cdn.test/image-to-image.png');
+    assert.equal(images.find((item) => item.prompt === '雨夜车站')?.image_url, '/static/projects/1/images/1.png');
+    assert.equal(images.find((item) => item.prompt === '保持人物一致')?.image_url, '/static/projects/1/images/2.png');
 
     const textVideoTask = submittedTaskId(services.production.execute({
       kind: 'video', projectId: project.id, mode: 'text-to-video',
@@ -232,8 +245,179 @@ test('文本、四种媒体模式通过统一任务主链完成', async () => {
       taskDone(() => services.tasks.get(imageVideoTask)),
     ]);
     const videos = services.videos.list(project.id);
-    assert.equal(videos.find((item) => item.prompt === '镜头推进')?.video_url, 'https://cdn.test/text-to-video.mp4');
-    assert.equal(videos.find((item) => item.prompt === '人物转身')?.video_url, 'https://cdn.test/image-to-video.mp4');
+    assert.equal(videos.find((item) => item.prompt === '镜头推进')?.video_url, '/static/projects/1/videos/1.mp4');
+    assert.equal(videos.find((item) => item.prompt === '人物转身')?.video_url, '/static/projects/1/videos/2.mp4');
+  } finally { db.close(); }
+});
+
+test('供应商成功但本地媒体归档失败时明确失败且不更新资产', async () => {
+  const { db, services } = setup({
+    submitImage: async () => ({ status: 'completed', imageUrl: 'file:///not-a-provider-media.png' }),
+  });
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const project = services.projects.create({ title: '归档失败测试' });
+    const [character] = services.assets.syncCharacters(project.id, [{ name: '小林', appearance: '黄色外卖服' }]);
+    assert.ok(character);
+    const row = services.images.create({
+      dramaId: project.id,
+      characterId: character.id,
+      prompt: '角色标准照',
+      provider: 'agnes',
+      model: 'agnes-image',
+      aspectRatio: '9:16',
+      referenceImages: [],
+    });
+    assert.ok(row.task_id);
+    for (let attempt = 0; attempt < 100 && services.tasks.get(row.task_id)?.status !== 'failed'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    const failed = services.images.get(row.id);
+    assert.equal(failed?.status, 'failed');
+    assert.equal(failed?.failure_stage, 'archive');
+    assert.match(failed?.error_msg || '', /本地归档失败/u);
+    assert.equal(services.assets.getCharacter(character.id)?.image_url, null);
+    assert.equal(services.assets.getCharacter(character.id)?.current_image_generation_id, null);
+  } finally { db.close(); }
+});
+
+test('媒体生成历史全部保留并可重新选用旧版本', async () => {
+  const { db, services, storageRoot } = setup();
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const project = services.projects.create({ title: '历史版本测试' });
+    const [character] = services.assets.syncCharacters(project.id, [{ name: '苏晴', appearance: '白色西装' }]);
+    assert.ok(character);
+    const first = services.images.create({ dramaId: project.id, characterId: character.id, prompt: '版本一', provider: 'agnes', model: 'agnes-image', aspectRatio: '9:16', referenceImages: [] });
+    assert.ok(first.task_id);
+    await taskDone(() => services.tasks.get(first.task_id as string));
+    const second = services.images.create({ dramaId: project.id, characterId: character.id, prompt: '版本二', provider: 'agnes', model: 'agnes-image', aspectRatio: '9:16', referenceImages: [] });
+    assert.ok(second.task_id);
+    await taskDone(() => services.tasks.get(second.task_id as string));
+
+    const history = services.images.list(project.id);
+    const firstCompleted = services.images.get(first.id);
+    assert.equal(history.length, 2);
+    assert.ok(history.every((item) => item.status === 'completed' && item.source_url === TEST_PNG && item.local_path));
+    assert.ok(history.every((item) => fs.existsSync(path.join(storageRoot, item.local_path as string))));
+    assert.equal(services.assets.getCharacter(character.id)?.current_image_generation_id, second.id);
+    services.images.select(first.id);
+    assert.equal(services.assets.getCharacter(character.id)?.current_image_generation_id, first.id);
+    assert.equal(services.assets.getCharacter(character.id)?.image_url, firstCompleted?.image_url);
+
+    const regeneratedTask = submittedTaskId(services.production.execute({
+      kind: 'image', projectId: project.id, mode: 'image-to-image', prompt: '沿用已选历史版本继续生成',
+      referenceImages: [firstCompleted?.image_url as string], target: { kind: 'character', id: character.id },
+    }));
+    await taskDone(() => services.tasks.get(regeneratedTask));
+    const regenerated = services.images.list(project.id).find((item) => item.prompt === '沿用已选历史版本继续生成');
+    assert.deepEqual(JSON.parse(regenerated?.reference_images || '[]'), [firstCompleted?.image_url]);
+    assert.ok(regenerated?.local_path);
+    assert.equal(services.projects.require(project.id).media_lifecycle?.images[String(regenerated.id)]?.available, true);
+    fs.rmSync(path.join(storageRoot, regenerated.local_path));
+    assert.equal(services.projects.require(project.id).media_lifecycle?.images[String(regenerated.id)]?.available, false);
+    assert.throws(() => services.images.select(regenerated.id), /本地文件真实存在/u);
+  } finally { db.close(); }
+});
+
+test('整集合成历史可以重新选为剧集当前版本', () => {
+  const { db, services, storageRoot } = setup();
+  try {
+    const project = services.projects.create({ title: '成片版本测试' });
+    const episode = project.episodes?.[0];
+    assert.ok(episode);
+    const now = new Date().toISOString();
+    const insert = db.prepare(`
+      INSERT INTO video_generations (
+        drama_id, episode_id, provider, prompt, reference_image_urls, video_url, local_path,
+        media_type, file_size, status, created_at, updated_at, completed_at
+      ) VALUES (?, ?, 'local-composition', ?, '[]', ?, ?, 'video/mp4', 24, 'completed', ?, ?, ?)
+    `);
+    const first = Number(insert.run(project.id, episode.id, '版本一', '/static/projects/1/videos/101.mp4', 'projects/1/videos/101.mp4', now, now, now).lastInsertRowid);
+    const second = Number(insert.run(project.id, episode.id, '版本二', '/static/projects/1/videos/102.mp4', 'projects/1/videos/102.mp4', now, now, now).lastInsertRowid);
+    const bytes = Buffer.from(TEST_MP4.split(',')[1] as string, 'base64');
+    for (const relative of ['projects/1/videos/101.mp4', 'projects/1/videos/102.mp4']) {
+      const destination = path.join(storageRoot, relative);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.writeFileSync(destination, bytes);
+    }
+    services.videos.select(second);
+    services.videos.select(first);
+    const selected = services.projects.require(project.id).episodes?.[0];
+    assert.equal(selected?.current_video_generation_id, first);
+    assert.equal(selected?.video_url, '/static/projects/1/videos/101.mp4');
+    assert.equal(services.videos.list(project.id).length, 2);
+  } finally { db.close(); }
+});
+
+test('项目归档携带本地媒体和历史，导入后不依赖供应商链接', async () => {
+  const { db, services, storageRoot } = setup();
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const project = services.projects.create({ title: '带媒体归档测试' });
+    const [character] = services.assets.syncCharacters(project.id, [{ name: '小林', appearance: '黄色外卖服' }]);
+    assert.ok(character);
+    const generated = services.images.create({ dramaId: project.id, characterId: character.id, prompt: '本地标准照', provider: 'agnes', model: 'agnes-image', aspectRatio: '9:16', referenceImages: [] });
+    assert.ok(generated.task_id);
+    await taskDone(() => services.tasks.get(generated.task_id as string));
+    const episode = services.projects.require(project.id).episodes?.[0];
+    assert.ok(episode);
+    const now = new Date().toISOString();
+    const composed = db.prepare(`
+      INSERT INTO video_generations (
+        drama_id, episode_id, provider, prompt, model, reference_image_urls, status, created_at, updated_at, completed_at
+      ) VALUES (?, ?, 'local-composition', '整集合成', 'ffmpeg-concat-copy', '[]', 'completed', ?, ?, ?)
+    `).run(project.id, episode.id, now, now, now);
+    const composedId = Number(composed.lastInsertRowid);
+    const composedPath = `projects/${project.id}/videos/${composedId}.mp4`;
+    const composedUrl = `/static/${composedPath}`;
+    fs.mkdirSync(path.join(storageRoot, path.dirname(composedPath)), { recursive: true });
+    fs.writeFileSync(path.join(storageRoot, composedPath), Buffer.from(TEST_MP4.split(',')[1] as string, 'base64'));
+    db.prepare(`UPDATE video_generations SET video_url = ?, local_path = ?, media_type = 'video/mp4', file_size = ? WHERE id = ?`)
+      .run(composedUrl, composedPath, fs.statSync(path.join(storageRoot, composedPath)).size, composedId);
+    db.prepare('UPDATE episodes SET video_url = ?, current_video_generation_id = ? WHERE id = ?').run(composedUrl, composedId, episode.id);
+    services.projects.saveCanvas(project.id, {
+      workspace_nodes: [{
+        id: 'compose',
+        data: {
+          role: 'episode-compose',
+          assetRefs: { episodes: [episode.id] },
+          result: { outputUrl: composedUrl, generationId: composedId, assetRefs: { episodes: [episode.id] } },
+          history: [{ outputUrl: composedUrl, generationId: composedId, assetRefs: { episodes: [episode.id] } }],
+        },
+      }],
+      edges: [],
+      workflow_groups: [{ id: 'workflow', nodeIds: ['compose'] }],
+    }, project.canvas_revision);
+
+    const archivePath = path.join(storageRoot, 'project-with-media.zip');
+    await services.projectArchives.export(project.id, archivePath);
+    const exportedArchive = await unzipper.Open.file(archivePath);
+    const manifestEntry = exportedArchive.files.find((entry) => entry.path === 'project.json');
+    assert.ok(manifestEntry);
+    const manifest = JSON.parse((await manifestEntry.buffer()).toString('utf8')) as { project?: { media_lifecycle?: unknown } };
+    assert.equal(manifest.project?.media_lifecycle, undefined);
+    const imported = await services.projectArchives.import(archivePath);
+    const importedHistory = services.images.list(imported.id);
+    assert.equal(importedHistory.length, 1);
+    assert.match(importedHistory[0]?.image_url || '', /^\/static\/projects\//u);
+    assert.equal(importedHistory[0]?.source_url, TEST_PNG);
+    assert.ok(fs.existsSync(path.join(storageRoot, importedHistory[0]?.local_path as string)));
+    assert.equal(imported.characters?.[0]?.current_image_generation_id, importedHistory[0]?.id);
+    assert.equal(imported.characters?.[0]?.image_url, importedHistory[0]?.image_url);
+    const importedVideos = services.videos.list(imported.id);
+    const importedComposition = importedVideos.find((item) => item.episode_id === imported.episodes?.[0]?.id);
+    assert.ok(importedComposition?.local_path);
+    assert.ok(fs.existsSync(path.join(storageRoot, importedComposition.local_path)));
+    assert.equal(imported.episodes?.[0]?.current_video_generation_id, importedComposition.id);
+    assert.equal(imported.episodes?.[0]?.video_url, importedComposition.video_url);
+    const layout = imported.metadata.canvas_layout as { workspace_nodes: Array<{ data: { assetRefs: { episodes: number[] }; result: { outputUrl: string; generationId: number }; history: Array<{ outputUrl: string; generationId: number }> } }> };
+    const composeNode = layout.workspace_nodes[0]?.data;
+    assert.deepEqual(composeNode?.assetRefs.episodes, [imported.episodes?.[0]?.id]);
+    assert.equal(composeNode?.result.generationId, importedComposition.id);
+    assert.equal(composeNode?.result.outputUrl, importedComposition.video_url);
+    assert.equal(composeNode?.history[0]?.generationId, importedComposition.id);
+    assert.equal(composeNode?.history[0]?.outputUrl, importedComposition.video_url);
   } finally { db.close(); }
 });
 
@@ -287,7 +471,7 @@ test('分镜生成可直接消费画布传来的手动剧本', async () => {
     }));
     await taskDone(() => services.tasks.get(taskId));
 
-    assert.equal(services.storyboards.list(episode.id).length, 3);
+    assert.equal(services.assets.listStoryboards(episode.id).length, 3);
   } finally { db.close(); }
 });
 
@@ -376,6 +560,35 @@ test('媒体任务在创建前校验模型模式和参考图上限', async () =>
     );
     assert.equal(services.images.list(project.id).length, 0);
     assert.equal(services.videos.list(project.id).length, 0);
+  } finally { db.close(); }
+});
+
+test('分镜图以直接连线传入的参考图为准，不额外混入仓库中的其他资产图', async () => {
+  let receivedReferences: string[] = [];
+  const { db, services } = setup({
+    submitImage: async (_context, request) => {
+      receivedReferences = request.referenceImages;
+      return { status: 'completed', imageUrl: TEST_PNG };
+    },
+  });
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const project = services.projects.create({ title: '连线参考图测试' });
+    const episode = project.episodes?.[0];
+    assert.ok(episode);
+    const [character] = services.assets.syncCharacters(project.id, [{ name: '小林', appearance: '黄色外卖服' }]);
+    assert.ok(character);
+    db.prepare('UPDATE characters SET image_url = ? WHERE id = ?').run('data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', character.id);
+    const [storyboard] = services.assets.syncStoryboards(episode.id, [{
+      title: '镜头一', image_prompt: '雨夜骑行', character_ids: [character.id],
+    }]);
+    assert.ok(storyboard);
+    const taskId = submittedTaskId(services.production.execute({
+      kind: 'image', projectId: project.id, mode: 'image-to-image', prompt: '只使用连线参考图',
+      referenceImages: [TEST_PNG], target: { kind: 'storyboard', id: storyboard.id }, provider: 'agnes', model: 'agnes-image', aspectRatio: '9:16',
+    }));
+    await taskDone(() => services.tasks.get(taskId));
+    assert.deepEqual(receivedReferences, [TEST_PNG]);
   } finally { db.close(); }
 });
 

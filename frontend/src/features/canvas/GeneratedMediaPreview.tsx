@@ -9,7 +9,7 @@ interface GeneratedMediaPreviewProps {
 }
 
 export function GeneratedMediaPreview({ data }: GeneratedMediaPreviewProps) {
-  const source = mediaUrl(data.outputUrl)
+  const source = mediaUrl(data.result.outputUrl)
   if (!source) return null
   const isVideo = isVideoMedia(data)
 

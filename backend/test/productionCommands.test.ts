@@ -15,12 +15,24 @@ test('生产命令解析器把 HTTP 字段转换成内部领域命令', () => {
     projectId: 7,
     mode: 'image-to-image',
     prompt: '保持人物一致',
+    audit: undefined,
     aspectRatio: undefined,
     referenceImages: ['https://cdn.test/ref.png'],
     target: { kind: 'character', id: 11 },
     provider: undefined,
     model: undefined,
   });
+});
+
+test('整集合成命令只使用显式传入的视频列表', () => {
+  assert.deepEqual(parseProductionCommand({
+    kind: 'finalize', project_id: 7, episode_id: 12,
+    video_urls: ['/static/projects/7/videos/1.mp4', '/static/projects/7/videos/2.mp4'],
+  }), {
+    kind: 'finalize', projectId: 7, episodeId: 12, audit: undefined,
+    videoUrls: ['/static/projects/7/videos/1.mp4', '/static/projects/7/videos/2.mp4'],
+  });
+  assert.throws(() => parseProductionCommand({ kind: 'finalize', project_id: 7, episode_id: 12, video_urls: [] }), /至少需要一个/u);
 });
 
 test('生产命令解析器集中拒绝无参考图的图生媒体和未知命令', () => {

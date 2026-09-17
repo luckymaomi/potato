@@ -31,6 +31,7 @@ export function mediaRoutes(services: Pick<ServiceContainer, 'images' | 'videos'
     if (!row) throw new NotFoundError('图片生成记录不存在');
     success(res, row);
   });
+  router.post('/images/:id/select', (req, res) => success(res, services.images.select(idParam(req))));
 
   router.get('/videos', (req, res) => {
     success(res, { items: services.videos.list(optionalId(req.query.drama_id)) });
@@ -40,6 +41,7 @@ export function mediaRoutes(services: Pick<ServiceContainer, 'images' | 'videos'
     if (!row) throw new NotFoundError('视频生成记录不存在');
     success(res, row);
   });
+  router.post('/videos/:id/select', (req, res) => success(res, services.videos.select(idParam(req))));
   router.post('/videos/:id/resume-poll', (req, res) => {
     success(res, services.videos.resume(idParam(req)));
   });

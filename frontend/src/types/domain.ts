@@ -10,6 +10,11 @@ export interface Episode {
   script_content?: string | null
   description?: string | null
   video_url?: string | null
+  current_image_generation_id?: number | null
+  current_video_generation_id?: number | null
+  character_ids?: number[]
+  scene_ids?: number[]
+  prop_ids?: number[]
   status?: string
   storyboards?: Storyboard[]
 }
@@ -26,12 +31,14 @@ export interface Storyboard {
   video_prompt?: string | null
   image_url?: string | null
   video_url?: string | null
+  current_image_generation_id?: number | null
+  current_video_generation_id?: number | null
   duration?: number | null
 }
 
-export interface Character { id: number; drama_id: number; name: string; description?: string | null; appearance?: string | null; image_url?: string | null; local_path?: string | null }
-export interface Scene { id: number; drama_id: number; episode_id?: number | null; location: string; prompt?: string | null; image_url?: string | null; local_path?: string | null }
-export interface Prop { id: number; drama_id: number; episode_id?: number | null; name: string; description?: string | null; prompt?: string | null; image_url?: string | null; local_path?: string | null }
+export interface Character { id: number; drama_id: number; name: string; description?: string | null; appearance?: string | null; image_url?: string | null; local_path?: string | null; current_image_generation_id?: number | null }
+export interface Scene { id: number; drama_id: number; location: string; prompt?: string | null; image_url?: string | null; local_path?: string | null; current_image_generation_id?: number | null }
+export interface Prop { id: number; drama_id: number; name: string; description?: string | null; prompt?: string | null; image_url?: string | null; local_path?: string | null; current_image_generation_id?: number | null }
 
 export interface ProjectMetadata { aspect_ratio?: string; canvas_layout?: unknown; [key: string]: unknown }
 
@@ -49,8 +56,21 @@ export interface Project {
   characters?: Character[]
   scenes?: Scene[]
   props?: Prop[]
+  media_lifecycle?: {
+    images: Record<string, MediaLifecycleState>
+    videos: Record<string, MediaLifecycleState>
+  }
   created_at?: string
   updated_at?: string
+}
+
+export interface MediaLifecycleState {
+  generation_id: number
+  status: string
+  url?: string | null
+  local_path?: string | null
+  failure_stage?: 'provider' | 'archive' | 'composition' | null
+  available: boolean
 }
 
 export interface ProviderCapabilities {

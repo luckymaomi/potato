@@ -1,0 +1,27 @@
+import { loadConfig } from '../src/config';
+import { closeDb, getDb } from '../src/db';
+import { initializeDatabase } from '../src/db/schema';
+import logger, { configureAuditLog } from '../src/logger';
+import { providerRegistry } from '../src/providers';
+import { createServices } from '../src/services/container';
+import { initializeRainyNightDemo } from './rainyNightDemoRuntime';
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+  configureAuditLog(process.env.TOMATO_AUDIT_LOG_PATH?.trim() || undefined);
+  const db = getDb(config.database);
+  try {
+    initializeDatabase(db);
+    const services = createServices(db, config, providerRegistry, logger);
+    const project = initializeRainyNightDemo(db, services, logger);
+    console.log(`《雨夜外卖》Demo 已初始化：项目 ID ${project.id}`);
+    console.log('文本节点已预写完成；媒体节点使用 PearAPI / gpt-image-2 / grok-imagine-video。');
+  } finally {
+    closeDb();
+  }
+}
+
+void main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});

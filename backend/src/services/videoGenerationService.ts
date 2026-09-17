@@ -6,6 +6,7 @@ import { AiConfigService } from './aiConfigService';
 import { TaskService, type TaskReporter } from './taskService';
 import { NotFoundError, ValidationError } from '../errors';
 import { MediaReferenceService } from './mediaReferenceService';
+import { MediaArchiveError, MediaArchiveService } from './mediaArchiveService';
 
 export interface VideoGenerationInput {
   dramaId: number;
@@ -25,6 +26,7 @@ export interface VideoGenerationInput {
 export interface VideoGenerationRow {
   id: number;
   drama_id: number;
+  episode_id: number | null;
   storyboard_id: number | null;
   provider: string | null;
   prompt: string;
@@ -37,7 +39,11 @@ export interface VideoGenerationRow {
   last_frame_url: string | null;
   reference_image_urls: string;
   video_url: string | null;
+  source_url: string | null;
   local_path: string | null;
+  media_type: string | null;
+  file_size: number | null;
+  failure_stage: string | null;
   status: string;
   task_id: string | null;
   provider_task_id: string | null;
@@ -45,6 +51,7 @@ export interface VideoGenerationRow {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  available: boolean;
 }
 
 export class VideoGenerationService {
@@ -52,6 +59,7 @@ export class VideoGenerationService {
     private readonly db: SQLiteDatabase,
     private readonly appConfig: AppConfig,
     private readonly mediaReferences: MediaReferenceService,
+    private readonly mediaArchive: MediaArchiveService,
     private readonly configs: AiConfigService,
     private readonly tasks: TaskService,
     private readonly registry: ProviderRegistry,
@@ -59,13 +67,32 @@ export class VideoGenerationService {
   ) {}
 
   list(dramaId?: number): VideoGenerationRow[] {
-    return dramaId
+    const rows = dramaId
       ? this.db.prepare('SELECT * FROM video_generations WHERE drama_id = ? ORDER BY id DESC').all(dramaId) as VideoGenerationRow[]
       : this.db.prepare('SELECT * FROM video_generations ORDER BY id DESC').all() as VideoGenerationRow[];
+    return rows.map((row) => this.present(row));
   }
 
   get(id: number): VideoGenerationRow | undefined {
-    return this.db.prepare('SELECT * FROM video_generations WHERE id = ?').get(id) as VideoGenerationRow | undefined;
+    const row = this.db.prepare('SELECT * FROM video_generations WHERE id = ?').get(id) as VideoGenerationRow | undefined;
+    return row ? this.present(row) : undefined;
+  }
+
+  select(id: number): VideoGenerationRow {
+    const row = this.get(id);
+    if (!row) throw new ValidationError('视频生成记录不存在');
+    if (row.status !== 'completed' || !row.video_url || !row.local_path || !row.available) throw new ValidationError('只能选用本地文件真实存在的已完成视频');
+    const now = new Date().toISOString();
+    if (row.storyboard_id) {
+      this.db.prepare('UPDATE storyboards SET video_url = ?, current_video_generation_id = ?, updated_at = ? WHERE id = ?')
+        .run(row.video_url, row.id, now, row.storyboard_id);
+    } else if (row.episode_id) {
+      this.db.prepare('UPDATE episodes SET video_url = ?, current_video_generation_id = ?, updated_at = ? WHERE id = ?')
+        .run(row.video_url, row.id, now, row.episode_id);
+    } else {
+      throw new ValidationError('这条通用视频历史没有可切换的分镜或剧集');
+    }
+    return row;
   }
 
   create(input: VideoGenerationInput): VideoGenerationRow {
@@ -104,6 +131,18 @@ export class VideoGenerationService {
       now,
     );
     const id = Number(result.lastInsertRowid);
+    this.log.audit?.('video.generation.created', {
+      generationId: id,
+      projectId: input.dramaId,
+      storyboardId: input.storyboardId,
+      provider: aiConfig.provider,
+      model,
+      mode,
+      aspectRatio,
+      duration: input.duration,
+      referenceCount: references.length,
+      prompt: input.prompt,
+    });
     const taskId = this.tasks.run('video_generation', String(id), async (reporter) =>
       this.execute(id, { ...input, aspectRatio }, model, aiConfig, adapter, reporter));
     this.db.prepare('UPDATE video_generations SET task_id = ?, updated_at = ? WHERE id = ?').run(taskId, new Date().toISOString(), id);
@@ -120,10 +159,10 @@ export class VideoGenerationService {
       try {
         const result = await this.pollUntilDone(id, adapter, config, row.provider_task_id as string, row.model as string, reporter);
         reporter.throwIfCancelled();
-        return this.saveCompleted(id, result.videoUrl as string, row.storyboard_id);
+        return await this.saveCompleted(id, result.videoUrl as string, row.drama_id, row.storyboard_id, reporter);
       } catch (error) {
         if (reporter.signal.aborted) this.mark(id, 'cancelled');
-        else this.fail(id, error);
+        else this.fail(id, error, error instanceof MediaArchiveError ? 'archive' : 'provider');
         throw error;
       }
     });
@@ -143,6 +182,7 @@ export class VideoGenerationService {
     this.mark(id, 'processing');
     reporter.progress(5, '正在提交视频生成');
     try {
+      this.log.audit?.('video.provider.started', { generationId: id, provider: config.provider, model });
       let result = await submitVideoProvider(adapter, {
         config,
         log: this.log,
@@ -160,6 +200,7 @@ export class VideoGenerationService {
         referenceImages: input.referenceImages,
         signal: reporter.signal,
       });
+      this.log.audit?.('video.provider.submitted', { generationId: id, provider: config.provider, model, result });
       if (result.taskId) {
         this.db.prepare('UPDATE video_generations SET provider_task_id = ?, updated_at = ? WHERE id = ?')
           .run(result.taskId, new Date().toISOString(), id);
@@ -170,10 +211,18 @@ export class VideoGenerationService {
       }
       reporter.throwIfCancelled();
       if (!result.videoUrl) throw new Error(result.error || '视频供应商没有返回视频地址');
-      return this.saveCompleted(id, result.videoUrl, input.storyboardId ?? null);
+      this.log.audit?.('video.provider.completed', { generationId: id, provider: config.provider, model, result });
+      return await this.saveCompleted(id, result.videoUrl, input.dramaId, input.storyboardId ?? null, reporter);
     } catch (error) {
       if (reporter.signal.aborted) this.mark(id, 'cancelled');
-      else this.fail(id, error);
+      else this.fail(id, error, error instanceof MediaArchiveError ? 'archive' : 'provider');
+      this.log.audit?.('video.generation.failed', {
+        generationId: id,
+        projectId: input.dramaId,
+        storyboardId: input.storyboardId,
+        stage: error instanceof MediaArchiveError ? 'archive' : 'provider',
+        error,
+      });
       throw error;
     }
   }
@@ -200,23 +249,58 @@ export class VideoGenerationService {
     throw new Error(`视频生成超过 ${timeoutMinutes} 分钟，已停止轮询`);
   }
 
-  private saveCompleted(id: number, videoUrl: string, storyboardId: number | null): Record<string, unknown> {
-    const now = new Date().toISOString();
-    this.db.prepare(`
-      UPDATE video_generations SET status = 'completed', video_url = ?, error_msg = NULL, updated_at = ?, completed_at = ? WHERE id = ?
-    `).run(videoUrl, now, now, id);
-    if (storyboardId) this.db.prepare('UPDATE storyboards SET video_url = ?, updated_at = ? WHERE id = ?').run(videoUrl, now, storyboardId);
-    return { video_url: videoUrl, generation_id: id };
+  private async saveCompleted(
+    id: number,
+    sourceUrl: string,
+    projectId: number,
+    storyboardId: number | null,
+    reporter: TaskReporter,
+  ): Promise<Record<string, unknown>> {
+    reporter.progress(96, '供应商生成完成，正在保存视频到本地');
+    const archived = await this.mediaArchive.archiveRemote({
+      projectId,
+      generationId: id,
+      kind: 'video',
+      sourceUrl,
+      signal: reporter.signal,
+    });
+    try {
+      reporter.throwIfCancelled();
+      const now = new Date().toISOString();
+      const commit = this.db.transaction(() => {
+        this.db.prepare(`
+          UPDATE video_generations SET status = 'completed', video_url = ?, source_url = ?, local_path = ?, media_type = ?,
+            file_size = ?, failure_stage = NULL, error_msg = NULL, updated_at = ?, completed_at = ? WHERE id = ?
+        `).run(archived.publicUrl, sourceUrl, archived.relativePath, archived.mediaType, archived.fileSize, now, now, id);
+        if (storyboardId) this.db.prepare('UPDATE storyboards SET video_url = ?, current_video_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, id, now, storyboardId);
+      });
+      commit();
+      this.log.audit?.('video.generation.completed', {
+        generationId: id,
+        projectId,
+        storyboardId,
+        archived,
+      });
+      return { video_url: archived.publicUrl, source_url: sourceUrl, local_path: archived.relativePath, generation_id: id };
+    } catch (error) {
+      await this.mediaArchive.remove(archived.relativePath).catch(() => undefined);
+      if (reporter.signal.aborted) throw error;
+      throw new MediaArchiveError('本地归档失败：无法提交生成记录和当前版本指针', { cause: error });
+    }
   }
 
   private mark(id: number, status: string): void {
     this.db.prepare('UPDATE video_generations SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
   }
 
-  private fail(id: number, error: unknown): void {
+  private fail(id: number, error: unknown, stage: 'provider' | 'archive'): void {
     const message = error instanceof Error ? error.message : String(error);
-    this.db.prepare(`UPDATE video_generations SET status = 'failed', error_msg = ?, updated_at = ? WHERE id = ?`)
-      .run(message, new Date().toISOString(), id);
+    this.db.prepare(`UPDATE video_generations SET status = 'failed', failure_stage = ?, error_msg = ?, updated_at = ? WHERE id = ?`)
+      .run(stage, message, new Date().toISOString(), id);
+  }
+
+  private present(row: VideoGenerationRow): VideoGenerationRow {
+    return { ...row, available: row.status === 'completed' && this.mediaArchive.isAvailable(row.local_path) };
   }
 
 }

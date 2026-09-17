@@ -2,13 +2,13 @@ import type { ProviderRegistry } from '../providers';
 import type { AppConfig, Logger, SQLiteDatabase } from '../types/core';
 import { AiConfigService } from './aiConfigService';
 import { CompositionService } from './compositionService';
-import { EntityService } from './entityService';
+import { AssetRepository } from './assetRepository';
 import { ImageGenerationService } from './imageGenerationService';
 import { MediaReferenceService } from './mediaReferenceService';
+import { MediaArchiveService } from './mediaArchiveService';
 import { ProjectArchiveService } from './projectArchiveService';
 import { ProjectService } from './projectService';
 import { ProductionWorkflowService } from './productionWorkflowService';
-import { StoryboardService } from './storyboardService';
 import { TaskService } from './taskService';
 import { TextGenerationService } from './textGenerationService';
 import { VideoGenerationService } from './videoGenerationService';
@@ -16,12 +16,11 @@ import { VideoGenerationService } from './videoGenerationService';
 export interface ServiceContainer {
   aiConfigs: AiConfigService;
   composition: CompositionService;
-  entities: EntityService;
+  assets: AssetRepository;
   images: ImageGenerationService;
   projectArchives: ProjectArchiveService;
   projects: ProjectService;
   production: ProductionWorkflowService;
-  storyboards: StoryboardService;
   tasks: TaskService;
   text: TextGenerationService;
   videos: VideoGenerationService;
@@ -34,24 +33,23 @@ export function createServices(
   log: Logger,
 ): ServiceContainer {
   const aiConfigs = new AiConfigService(db, registry, config);
-  const tasks = new TaskService(db);
-  const projects = new ProjectService(db);
-  const entities = new EntityService(db);
-  const storyboards = new StoryboardService(db);
+  const tasks = new TaskService(db, log);
+  const mediaArchive = new MediaArchiveService(config, log);
+  const projects = new ProjectService(db, mediaArchive, log);
+  const assets = new AssetRepository(db, log);
   const text = new TextGenerationService(aiConfigs, registry, log);
   const mediaReferences = new MediaReferenceService(config);
-  const images = new ImageGenerationService(db, mediaReferences, aiConfigs, tasks, registry, log);
-  const videos = new VideoGenerationService(db, config, mediaReferences, aiConfigs, tasks, registry, log);
-  const composition = new CompositionService(db, config, tasks);
+  const images = new ImageGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);
+  const videos = new VideoGenerationService(db, config, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);
+  const composition = new CompositionService(db, config, tasks, log);
   return {
     aiConfigs,
     composition,
-    entities,
+    assets,
     images,
-    projectArchives: new ProjectArchiveService(db, projects),
+    projectArchives: new ProjectArchiveService(db, projects, assets, mediaArchive),
     projects,
-    production: new ProductionWorkflowService(db, projects, entities, storyboards, text, images, videos, composition, tasks),
-    storyboards,
+    production: new ProductionWorkflowService(db, projects, assets, text, images, videos, composition, tasks, log),
     tasks,
     text,
     videos,

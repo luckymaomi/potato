@@ -10,6 +10,7 @@ export class CanvasRunStoppedError extends Error {
 export class CanvasRunSession {
   private readonly controller = new AbortController()
   private activeTaskId: string | null = null
+  readonly runId = globalThis.crypto.randomUUID()
 
   get signal(): AbortSignal {
     return this.controller.signal

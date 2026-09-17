@@ -5,7 +5,7 @@ import {
   serializeStructuredError,
   type StructuredError,
 } from '../errorContract';
-import type { SQLiteDatabase } from '../types/core';
+import type { Logger, SQLiteDatabase } from '../types/core';
 import { parseJson } from '../types/core';
 
 export type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
@@ -36,7 +36,7 @@ export interface TaskReporter {
 export class TaskService {
   private readonly controllers = new Map<string, AbortController>();
 
-  constructor(private readonly db: SQLiteDatabase) {}
+  constructor(private readonly db: SQLiteDatabase, private readonly log?: Logger) {}
 
   failInterrupted(): number {
     const now = new Date().toISOString();
@@ -46,10 +46,12 @@ export class TaskService {
       status: 503,
       retryable: true,
     });
-    return this.db.prepare(`
+    const changed = this.db.prepare(`
       UPDATE async_tasks SET status = 'failed', error = ?, updated_at = ?, completed_at = ?
       WHERE status IN ('pending', 'processing')
     `).run(failure, now, now).changes;
+    if (changed) this.log?.audit?.('task.interrupted', { count: changed });
+    return changed;
   }
 
   run(
@@ -63,6 +65,7 @@ export class TaskService {
       INSERT INTO async_tasks (id, type, status, progress, resource_id, created_at, updated_at)
       VALUES (?, ?, 'pending', 0, ?, ?, ?)
     `).run(id, type, resourceId, now, now);
+    this.log?.audit?.('task.created', { taskId: id, type, resourceId });
     this.controllers.set(id, new AbortController());
     queueMicrotask(() => {
       void this.execute(id, work);
@@ -89,6 +92,7 @@ export class TaskService {
       WHERE id = ? AND status IN ('pending', 'processing')
     `).run(reason, now, now, id);
     this.controllers.get(id)?.abort(new Error(reason));
+    this.log?.audit?.('task.cancelled', { taskId: id, reason });
     return this.get(id);
   }
 
@@ -98,10 +102,15 @@ export class TaskService {
   ): Promise<void> {
     const controller = this.controllers.get(id) ?? new AbortController();
     this.update(id, 'processing', 1, '任务已开始');
+    this.log?.audit?.('task.started', { taskId: id });
     const reporter: TaskReporter = {
       signal: controller.signal,
       progress: (value, message) => {
-        if (!controller.signal.aborted) this.update(id, 'processing', clamp(value), message);
+        if (!controller.signal.aborted) {
+          const progress = clamp(value);
+          this.update(id, 'processing', progress, message);
+          this.log?.audit?.('task.progress', { taskId: id, progress, message });
+        }
       },
       throwIfCancelled: () => {
         if (controller.signal.aborted) throw controller.signal.reason ?? new Error('任务已取消');
@@ -116,12 +125,14 @@ export class TaskService {
         UPDATE async_tasks SET status = 'completed', progress = 100, message = ?, result = ?, updated_at = ?, completed_at = ?
         WHERE id = ?
       `).run('任务完成', JSON.stringify(result), now, now, id);
+      this.log?.audit?.('task.completed', { taskId: id, result });
     } catch (error) {
       if (this.get(id)?.status === 'cancelled' || controller.signal.aborted) return;
       const now = new Date().toISOString();
       this.db.prepare(`
         UPDATE async_tasks SET status = 'failed', error = ?, updated_at = ?, completed_at = ? WHERE id = ?
       `).run(serializeError(error), now, now, id);
+      this.log?.audit?.('task.failed', { taskId: id, error });
     } finally {
       this.controllers.delete(id);
     }

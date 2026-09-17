@@ -3,8 +3,16 @@ import { asRecord, readNumber, readString } from '../types/core';
 import type { EntityKind } from '../types/domain';
 import type { TextPromptKey } from '../services/textPromptCatalog';
 
+export interface ProductionAuditContext {
+  runId?: string;
+  nodeId?: string;
+  nodeTitle?: string;
+  nodeRole?: string;
+}
+
 interface CommandBase {
   projectId: number;
+  audit?: ProductionAuditContext;
 }
 
 interface AiCommandBase extends CommandBase {
@@ -22,7 +30,7 @@ export type ProductionCommand =
   | (AiCommandBase & { kind: 'ai-text'; action: TextPromptKey; episodeId?: number; sourceText: string; systemPrompt?: string; storyboardCount?: number })
   | (AiCommandBase & { kind: 'image'; mode: 'text-to-image' | 'image-to-image'; prompt: string; aspectRatio?: string; referenceImages: string[]; target?: ProductionTarget })
   | (AiCommandBase & { kind: 'video'; mode: 'text-to-video' | 'image-to-video'; prompt: string; aspectRatio?: string; duration?: number; referenceImages: string[]; storyboardId?: number })
-  | (CommandBase & { kind: 'finalize'; episodeId: number });
+  | (CommandBase & { kind: 'finalize'; episodeId: number; videoUrls: string[] });
 
 export interface ProductionSubmission {
   status: 'pending' | 'completed';
@@ -34,10 +42,12 @@ export function parseProductionCommand(input: unknown): ProductionCommand {
   const body = asRecord(input) ?? {};
   const kind = readString(body.kind);
   const projectId = requiredId(body.project_id, '项目');
+  const audit = auditContext(body.audit);
   if (kind === 'manual-text') {
     return {
       kind,
       projectId,
+      audit,
       episodeId: optionalId(body.episode_id),
       text: requiredText(body.text, '文本内容'),
       persistAsScript: body.persist_as_script === true,
@@ -47,6 +57,7 @@ export function parseProductionCommand(input: unknown): ProductionCommand {
     return {
       kind,
       projectId,
+      audit,
       episodeId: optionalId(body.episode_id),
       action: textAction(body.action),
       sourceText: requiredText(body.source_text, '上游文本'),
@@ -59,15 +70,17 @@ export function parseProductionCommand(input: unknown): ProductionCommand {
   if (kind === 'image') {
     const mode = imageMode(body.mode);
     const referenceImages = stringArray(body.reference_images);
+    const target = targetRecord(body.target);
     validateReferences(mode, referenceImages);
     return {
       kind,
       projectId,
+      audit,
       mode,
-      prompt: requiredText(body.prompt, '图片提示词'),
+      prompt: readString(body.prompt) ?? '',
       aspectRatio: readString(body.aspect_ratio),
       referenceImages,
-      target: targetRecord(body.target),
+      target,
       provider: readString(body.provider),
       model: readString(body.model),
     };
@@ -75,22 +88,40 @@ export function parseProductionCommand(input: unknown): ProductionCommand {
   if (kind === 'video') {
     const mode = videoMode(body.mode);
     const referenceImages = stringArray(body.reference_images);
+    const storyboardId = optionalId(body.storyboard_id);
     validateReferences(mode, referenceImages);
     return {
       kind,
       projectId,
+      audit,
       mode,
-      prompt: requiredText(body.prompt, '视频提示词'),
+      prompt: readString(body.prompt) ?? '',
       aspectRatio: readString(body.aspect_ratio),
       duration: readNumber(body.duration),
       referenceImages,
-      storyboardId: optionalId(body.storyboard_id),
+      storyboardId,
       provider: readString(body.provider),
       model: readString(body.model),
     };
   }
-  if (kind === 'finalize') return { kind, projectId, episodeId: requiredId(body.episode_id, '集数') };
+  if (kind === 'finalize') {
+    const videoUrls = stringArray(body.video_urls);
+    if (!videoUrls.length) throw new ValidationError('整集合成至少需要一个显式连入的本地视频');
+    return { kind, projectId, audit, episodeId: requiredId(body.episode_id, '集数'), videoUrls };
+  }
   throw new ValidationError('未知生产命令');
+}
+
+function auditContext(value: unknown): ProductionAuditContext | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const audit: ProductionAuditContext = {
+    runId: readString(record.run_id),
+    nodeId: readString(record.node_id),
+    nodeTitle: readString(record.node_title),
+    nodeRole: readString(record.node_role),
+  };
+  return Object.values(audit).some(Boolean) ? audit : undefined;
 }
 
 function textAction(value: unknown): TextPromptKey {

@@ -7,6 +7,8 @@
     "start": "tsx src/server.ts",
     "start:dist": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
+    "init:rainy-night-demo": "tsx scripts/initializeRainyNightDemo.ts",
+    "accept:rainy-night-demo": "tsx scripts/acceptRainyNightDemo.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.build.json",
@@ -17,21 +19,23 @@
     "node": ">=20.9"
   },
   "dependencies": {
-    "adm-zip": "0.6.1",
+    "archiver": "^7.0.1",
     "better-sqlite3": "^11.6.0",
     "cors": "^2.8.5",
     "express": "4.22.3",
     "js-yaml": "5.4.2",
     "multer": "^1.4.5-lts.1",
-    "sharp": "0.35.4"
+    "sharp": "0.35.4",
+    "unzipper": "^0.12.3"
   },
   "devDependencies": {
-    "@types/adm-zip": "^0.5.8",
+    "@types/archiver": "^6.0.3",
     "@types/better-sqlite3": "^9.6.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.2.0",
     "@types/node": "^24.7.2",
+    "@types/unzipper": "^0.10.11",
     "tsx": "^4.20.5",
     "typescript": "^5.9.3"
   }

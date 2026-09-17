@@ -140,7 +140,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
         if (generation !== loadGeneration) return
         set({
           project,
-          nodes: normalizeCanvasNodes(snapshot.workspace_nodes),
+          nodes: normalizeCanvasNodes(snapshot.workspace_nodes, project),
           edges: normalizeCanvasEdges(snapshot.edges),
           workflowGroups: snapshot.workflow_groups,
           workspaceTemplate: snapshot.template,
@@ -178,7 +178,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
   },
 
   updateNodeData: (id, data) => set((state) => ({
-    nodes: state.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...data } } : node),
+    nodes: state.nodes.map((node) => node.id === id ? {
+      ...node,
+      data: {
+        ...node.data,
+        ...data,
+        parameters: data.parameters ? { ...node.data.parameters, ...data.parameters } : node.data.parameters,
+        assetRefs: data.assetRefs ? { ...node.data.assetRefs, ...data.assetRefs } : node.data.assetRefs,
+        result: data.result ? { ...node.data.result, ...data.result } : node.data.result,
+      },
+    } : node),
   })),
 
   duplicateNodes: (ids) => {
@@ -194,9 +203,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       data: {
         ...node.data,
         title: `${node.data.title || '节点'} 副本`,
-        referenceImages: node.data.referenceImages ? [...node.data.referenceImages] : undefined,
+        parameters: {
+          ...node.data.parameters,
+          referenceImages: node.data.parameters.referenceImages ? [...node.data.parameters.referenceImages] : undefined,
+        },
+        assetRefs: Object.fromEntries(Object.entries(node.data.assetRefs).map(([key, values]) => [key, values ? [...values] : values])),
+        result: {},
+        history: [],
         status: 'idle' as const,
-        taskId: undefined,
         error: '',
       },
     }))
@@ -238,7 +252,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
   }),
 
   replaceWorkspace: (snapshot) => set({
-    nodes: normalizeCanvasNodes(snapshot.workspace_nodes),
+    nodes: normalizeCanvasNodes(snapshot.workspace_nodes, get().project || undefined),
     edges: normalizeCanvasEdges(snapshot.edges),
     workflowGroups: snapshot.workflow_groups,
     workspaceTemplate: snapshot.template,

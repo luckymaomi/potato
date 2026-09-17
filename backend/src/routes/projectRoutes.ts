@@ -1,13 +1,27 @@
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
 import type { ServiceContainer } from '../services/container';
+import type { AppConfig } from '../types/core';
 import { created, page, success } from '../response';
 import { asyncRoute, bodyRecord, idParam } from './http';
 import { NotFoundError, ValidationError } from '../errors';
 
-export function projectRoutes(services: Pick<ServiceContainer, 'projects' | 'projectArchives'>): Router {
+export function projectRoutes(
+  services: Pick<ServiceContainer, 'projects' | 'projectArchives'>,
+  config: AppConfig,
+): Router {
   const router = Router();
-  const archiveUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+  const archiveDirectory = path.join(storageRoot(config), 'archive-transfers');
+  fs.mkdirSync(archiveDirectory, { recursive: true });
+  const archiveUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, callback) => callback(null, archiveDirectory),
+      filename: (_req, _file, callback) => callback(null, `${randomUUID()}.zip`),
+    }),
+  });
 
   router.get('/dramas', (req, res) => {
     const current = positiveInt(req.query.page, 1);
@@ -48,17 +62,32 @@ export function projectRoutes(services: Pick<ServiceContainer, 'projects' | 'pro
     ));
   });
 
-  router.get('/dramas/:id/export', (req, res) => {
-    const buffer = services.projectArchives.export(idParam(req));
-    res.type('application/zip').attachment('tomato-ai-drama-project.zip').send(buffer);
-  });
+  router.get('/dramas/:id/export', asyncRoute(async (req, res) => {
+    const temporary = path.join(archiveDirectory, `${randomUUID()}.zip`);
+    try {
+      await services.projectArchives.export(idParam(req), temporary);
+      await new Promise<void>((resolve, reject) => {
+        res.download(temporary, 'tomato-ai-drama-project.zip', (error) => error ? reject(error) : resolve());
+      });
+    } finally {
+      await fs.promises.rm(temporary, { force: true });
+    }
+  }));
 
   router.post('/dramas/import', archiveUpload.single('file'), asyncRoute(async (req, res) => {
     if (!req.file) throw new ValidationError('请选择项目归档');
-    created(res, services.projectArchives.import(req.file.buffer));
+    try {
+      created(res, await services.projectArchives.import(req.file.path));
+    } finally {
+      await fs.promises.rm(req.file.path, { force: true });
+    }
   }));
 
   return router;
+}
+
+function storageRoot(config: AppConfig): string {
+  return path.resolve(config.storage?.local_path ?? './data/storage');
 }
 
 function positiveInt(value: unknown, fallback: number): number {

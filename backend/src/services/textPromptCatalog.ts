@@ -56,7 +56,7 @@ const promptCatalog: readonly TextPromptDefinition[] = [
     key: 'split-storyboards',
     label: '拆分分镜清单',
     description: '把一集剧本拆成连续、可拍摄的镜头清单。',
-    system_prompt: '把剧本拆成连续可拍摄分镜。{{storyboard_count_instruction}}只输出 JSON：{"items":[{"title":"镜头标题","description":"画面内容","action":"动作","dialogue":"对白","image_prompt":"静态画面提示词","video_prompt":"运动与镜头提示词","duration":5}]}。',
+    system_prompt: '把剧本拆成连续可拍摄分镜。{{storyboard_count_instruction}}每个分镜必须只列出该画面实际出现的角色、场景和道具名称，不要把未入画资产加入。只输出 JSON：{"items":[{"title":"镜头标题","description":"画面内容","action":"动作","dialogue":"对白","image_prompt":"静态画面提示词","video_prompt":"运动与镜头提示词","duration":4,"characters":["角色名"],"scenes":["场景名"],"props":["道具名"]}]}。',
     placeholders: ['storyboard_count_instruction'],
   },
 ] as const;

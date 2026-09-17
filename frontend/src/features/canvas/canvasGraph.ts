@@ -1,5 +1,6 @@
 import type { Edge } from '@xyflow/react'
 import type { CanvasNode } from './canvasTypes'
+import { isReusableProductionNode } from '../production/lifecycle'
 
 export function downstreamNodeIds(startIds: string[], edges: Array<Pick<Edge, 'source' | 'target'>>): string[] {
   const visited = new Set(startIds)
@@ -13,6 +14,41 @@ export function downstreamNodeIds(startIds: string[], edges: Array<Pick<Edge, 's
     }
   }
   return [...visited]
+}
+
+export function upstreamNodeIds(startIds: string[], edges: Array<Pick<Edge, 'source' | 'target'>>): string[] {
+  const visited = new Set(startIds)
+  const queue = [...startIds]
+  while (queue.length) {
+    const target = queue.shift() as string
+    for (const edge of edges) {
+      if (edge.target !== target || visited.has(edge.source)) continue
+      visited.add(edge.source)
+      queue.push(edge.source)
+    }
+  }
+  return [...visited]
+}
+
+export function dependencyRunNodeIds(
+  targetIds: string[],
+  _nodes: CanvasNode[],
+  _edges: Array<Pick<Edge, 'source' | 'target'>>,
+): string[] {
+  return [...new Set(targetIds)]
+}
+
+export function incompleteRunNodeIds(
+  candidateIds: string[],
+  nodes: CanvasNode[],
+  edges: Array<Pick<Edge, 'source' | 'target'>>,
+): string[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const incomplete = [...new Set(candidateIds)].filter((id) => {
+    const node = nodesById.get(id)
+    return node && !isReusableProductionNode(node.data)
+  })
+  return dependencyRunNodeIds(incomplete, nodes, edges)
 }
 
 export function orderByConnections(

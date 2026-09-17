@@ -1,4 +1,4 @@
-import type { JsonObject } from '../types/core';
+import type { JsonObject, Logger } from '../types/core';
 import { asRecord, parseJson, readNumber, readString } from '../types/core';
 import type {
   CharacterRow,
@@ -8,14 +8,20 @@ import type {
   PropRow,
   SceneRow,
   StoryboardRow,
+  MediaLifecycleState,
 } from '../types/domain';
 import type { SQLiteDatabase } from '../types/core';
 import { ConflictError, NotFoundError, ValidationError } from '../errors';
+import { MediaArchiveService } from './mediaArchiveService';
 
 export interface DramaListInput { page: number; pageSize: number; keyword?: string }
 
 export class ProjectService {
-  constructor(private readonly db: SQLiteDatabase) {}
+  constructor(
+    private readonly db: SQLiteDatabase,
+    private readonly mediaArchive: MediaArchiveService,
+    private readonly log?: Logger,
+  ) {}
 
   list(input: DramaListInput): { items: Drama[]; total: number } {
     const pattern = `%${input.keyword ?? ''}%`;
@@ -36,11 +42,20 @@ export class ProjectService {
     const storyboardStatement = this.db.prepare('SELECT * FROM storyboards WHERE episode_id = ? ORDER BY storyboard_number');
     drama.episodes = episodes.map((episode) => ({
       ...episode,
-      storyboards: storyboardStatement.all(episode.id) as StoryboardRow[],
+      storyboards: (storyboardStatement.all(episode.id) as StoryboardRow[]).map((storyboard) => ({
+        ...storyboard,
+        character_ids: relationIds(this.db, 'storyboard_characters', 'character_id', storyboard.id),
+        scene_ids: relationIds(this.db, 'storyboard_scenes', 'scene_id', storyboard.id),
+        prop_ids: relationIds(this.db, 'storyboard_props', 'prop_id', storyboard.id),
+      })),
     }));
     drama.characters = this.db.prepare('SELECT * FROM characters WHERE drama_id = ? ORDER BY id').all(id) as CharacterRow[];
     drama.scenes = this.db.prepare('SELECT * FROM scenes WHERE drama_id = ? ORDER BY id').all(id) as SceneRow[];
     drama.props = this.db.prepare('SELECT * FROM props WHERE drama_id = ? ORDER BY id').all(id) as PropRow[];
+    drama.media_lifecycle = {
+      images: this.mediaLifecycle('image_generations', 'image_url', id),
+      videos: this.mediaLifecycle('video_generations', 'video_url', id),
+    };
     return drama;
   }
 
@@ -72,7 +87,9 @@ export class ProjectService {
       `).run(projectId, now, now);
       return projectId;
     });
-    return this.require(createProject());
+    const project = this.require(createProject());
+    this.log?.audit?.('project.created', { projectId: project.id, title: project.title, metadata: project.metadata });
+    return project;
   }
 
   update(id: number, input: unknown): Drama {
@@ -95,11 +112,16 @@ export class ProjectService {
       new Date().toISOString(),
       id,
     );
-    return this.require(id);
+    const updated = this.require(id);
+    this.log?.audit?.('project.updated', { projectId: id, input: body, title: updated.title });
+    return updated;
   }
 
   remove(id: number): boolean {
-    return this.db.prepare('DELETE FROM dramas WHERE id = ?').run(id).changes > 0;
+    const current = this.get(id);
+    const removed = this.db.prepare('DELETE FROM dramas WHERE id = ?').run(id).changes > 0;
+    if (removed) this.log?.audit?.('project.deleted', { projectId: id, title: current?.title });
+    return removed;
   }
 
   saveEpisodes(dramaId: number, input: unknown): EpisodeRow[] {
@@ -137,7 +159,9 @@ export class ProjectService {
     });
     save();
     this.touch(dramaId);
-    return this.db.prepare('SELECT * FROM episodes WHERE drama_id = ? ORDER BY episode_number').all(dramaId) as EpisodeRow[];
+    const episodes = this.db.prepare('SELECT * FROM episodes WHERE drama_id = ? ORDER BY episode_number').all(dramaId) as EpisodeRow[];
+    this.log?.audit?.('project.episodes.saved', { projectId: dramaId, episodes });
+    return episodes;
   }
 
   saveCanvas(
@@ -181,7 +205,16 @@ export class ProjectService {
       }
     });
     save();
-    return this.require(dramaId);
+    const project = this.require(dramaId);
+    this.log?.audit?.('project.canvas.saved', {
+      projectId: dramaId,
+      previousRevision: revision,
+      revision: project.canvas_revision,
+      nodes: layout.workspace_nodes.length,
+      edges: layout.edges.length,
+      workflowGroups: layout.workflow_groups.length,
+    });
+    return project;
   }
 
   require(id: number): Drama {
@@ -192,6 +225,23 @@ export class ProjectService {
 
   private touch(id: number): void {
     this.db.prepare('UPDATE dramas SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+  }
+
+  private mediaLifecycle(table: 'image_generations' | 'video_generations', urlColumn: 'image_url' | 'video_url', dramaId: number): Record<string, MediaLifecycleState> {
+    const rows = this.db.prepare(`
+      SELECT id, status, ${urlColumn} AS url, local_path, failure_stage
+      FROM ${table} WHERE drama_id = ? ORDER BY id
+    `).all(dramaId) as Array<Omit<MediaLifecycleState, 'generation_id' | 'available'> & { id: number }>;
+    return Object.fromEntries(rows.map((row) => [String(row.id), {
+      generation_id: row.id,
+      status: row.status,
+      url: row.url,
+      local_path: row.local_path,
+      failure_stage: row.failure_stage,
+      available: row.status === 'completed'
+        && Boolean(row.url?.startsWith('/static/'))
+        && this.mediaArchive.isAvailable(row.local_path),
+    }]));
   }
 }
 
@@ -213,4 +263,9 @@ function preserveCanvasMetadata(next: JsonObject, current: JsonObject): JsonObje
 function toJsonValue(value: unknown): import('../types/core').JsonValue {
   if (value === undefined) return null;
   return JSON.parse(JSON.stringify(value)) as import('../types/core').JsonValue;
+}
+
+function relationIds(db: SQLiteDatabase, table: string, column: string, storyboardId: number): number[] {
+  return (db.prepare(`SELECT ${column} AS id FROM ${table} WHERE storyboard_id = ? ORDER BY ${column}`)
+    .all(storyboardId) as Array<{ id: number }>).map((item) => item.id);
 }

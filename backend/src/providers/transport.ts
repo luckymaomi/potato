@@ -20,6 +20,8 @@ export interface ProviderHttpResponse<T = unknown> {
   data: T;
 }
 
+const DEFAULT_MAX_ATTEMPTS = 6;
+
 export async function requestProviderJson<T = unknown>(
   request: ProviderHttpRequest,
   fetchImpl: ProviderFetch = fetch,
@@ -31,7 +33,7 @@ export async function requestProviderJson<T = unknown>(
   request.signal?.addEventListener('abort', abortFromCaller, { once: true });
 
   try {
-    const maxAttempts = Math.max(1, request.maxAttempts ?? 4);
+    const maxAttempts = Math.max(1, request.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       let response: Response;
       try {
