@@ -1,5 +1,5 @@
 import { ReloadOutlined } from '@ant-design/icons'
-import { Button, message, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { App as AntdApp, Button, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { aiConfigsApi } from '../api/aiConfigs'
 import { userErrorMessage } from '../errors/appError'
@@ -9,6 +9,7 @@ import { modelCapabilityLabels, supportsService } from '../features/providers/ca
 const serviceLabels: Record<ServiceType, string> = { text: '文本', image: '图片', video: '视频' }
 
 export function AiConfigPage() {
+  const { message } = AntdApp.useApp()
   const [serviceType, setServiceType] = useState<ServiceType>('text')
   const [providers, setProviders] = useState<ProviderCatalogStatus[]>([])
   const [models, setModels] = useState<ProviderModel[]>([])
@@ -26,7 +27,7 @@ export function AiConfigPage() {
       .catch((error: unknown) => { if (active) message.error(userErrorMessage(error)) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [message])
 
   const refresh = async (provider: ProviderCatalogStatus) => {
     setRefreshing((current) => [...current, provider.id])
@@ -80,7 +81,7 @@ export function AiConfigPage() {
                 <div className="provider-model-list">
                   {entries.map((model) => (
                     <div className="provider-model-card" key={`${model.provider}-${model.kind}-${model.id}`}>
-                      <Typography.Text strong ellipsis={{ tooltip: model.label }}>{model.label}</Typography.Text>
+                      <strong className="provider-model-label" title={model.label}>{model.label}</strong>
                       <Space size={[4, 4]} wrap>
                         {modelCapabilityLabels(model).map((label) => <Tag key={label}>{label}</Tag>)}
                       </Space>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasNode } from './canvasTypes'
-import { createCanvasSnapshot, normalizeCanvasNodes } from './canvasSnapshot'
+import { createCanvasSnapshot, normalizeCanvasEdges, normalizeCanvasNodes } from './canvasSnapshot'
 import { createProductionNodeData } from '../production/catalog'
 import type { Project } from '../../types/domain'
 
@@ -16,7 +16,7 @@ describe('createCanvasSnapshot', () => {
     }
     const snapshot = createCanvasSnapshot(
       [node],
-      [{ id: 'edge-1', source: 'text-1', target: 'image-1', type: 'bezier', selected: true }],
+      [{ id: 'edge-1', source: 'text-1', target: 'image-1', type: 'default', selected: true }],
       [],
     )
 
@@ -27,6 +27,14 @@ describe('createCanvasSnapshot', () => {
       data: createProductionNodeData('script', { parameters: { text: '内容' } }),
     })
     expect(snapshot.edges[0]).not.toHaveProperty('selected')
+  })
+
+  it('把旧快照中的未知边类型统一恢复为 React Flow 内置默认边', () => {
+    expect(normalizeCanvasEdges([
+      { id: 'edge-1', source: 'a', target: 'b', type: 'legacy-curve' },
+    ])).toEqual([
+      { id: 'edge-1', source: 'a', target: 'b', type: 'default', selected: false },
+    ])
   })
 
   it('重新打开时只有当前 generation 与本地文件都有效的媒体节点恢复为完成', () => {

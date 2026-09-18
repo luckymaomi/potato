@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import Database from 'better-sqlite3';
 import { MediaReferenceService } from '../src/services/mediaReferenceService';
 import type { AppConfig } from '../src/types/core';
 
@@ -11,7 +12,7 @@ const ONE_PIXEL_PNG = Buffer.from(
   'base64',
 );
 
-function createFixture(): { root: string; service: MediaReferenceService } {
+function createFixture(database?: Database.Database): { root: string; service: MediaReferenceService } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-media-'));
   fs.mkdirSync(path.join(root, 'uploads'));
   const config: AppConfig = {
@@ -20,7 +21,7 @@ function createFixture(): { root: string; service: MediaReferenceService } {
     database: { path: ':memory:' },
     storage: { local_path: root, base_url: 'http://localhost:5679/static' },
   };
-  return { root, service: new MediaReferenceService(config) };
+  return { root, service: new MediaReferenceService(config, database) };
 }
 
 test('本地静态参考图会转换为带正确 MIME 的内联图片', async (t) => {
@@ -56,6 +57,36 @@ test('本地参考图不会伪装成远端可访问 URL', async (t) => {
   t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
   fs.writeFileSync(path.join(fixture.root, 'uploads', 'reference.png'), ONE_PIXEL_PNG);
 
+  assert.equal(
+    await fixture.service.resolve('/static/uploads/reference.png', { format: 'public-url' }),
+    undefined,
+  );
+});
+
+test('已落盘图片可按 generation 来源记录提供 Agnes 视频所需公网引用', async (t) => {
+  const database = new Database(':memory:');
+  database.exec(`
+    CREATE TABLE image_generations (
+      id INTEGER PRIMARY KEY,
+      local_path TEXT,
+      source_url TEXT,
+      status TEXT
+    )
+  `);
+  database.prepare(`
+    INSERT INTO image_generations (id, local_path, source_url, status)
+    VALUES (?, ?, ?, ?)
+  `).run(7, 'projects/1/images/7.png', 'https://cdn.test/generated-7.png', 'completed');
+  const fixture = createFixture(database);
+  t.after(() => {
+    database.close();
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  });
+
+  assert.equal(
+    await fixture.service.resolve('/static/projects/1/images/7.png', { format: 'public-url' }),
+    'https://cdn.test/generated-7.png',
+  );
   assert.equal(
     await fixture.service.resolve('/static/uploads/reference.png', { format: 'public-url' }),
     undefined,

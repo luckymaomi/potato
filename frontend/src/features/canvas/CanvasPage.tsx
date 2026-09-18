@@ -35,13 +35,13 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  App as AntdApp,
   Button,
   Drawer,
   Dropdown,
   Empty,
   Input,
   List,
-  message,
   Modal,
   Popconfirm,
   Progress,
@@ -55,20 +55,23 @@ import {
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { productionApi } from '../../api/production'
+import { UiErrorBoundary } from '../../components/UiErrorBoundary'
 import { userErrorMessage } from '../../errors/appError'
-import { productionPlugin, productionPlugins, type AssetKind, type ProductionPlugin, type ProductionRole } from '../production/catalog'
+import { productionPlugins, type ProductionPlugin, type ProductionRole } from '../production/catalog'
 import { createStarterWorkspace } from '../production/starterWorkspace'
 import { waitForTask } from '../production/executor'
 import { useCanvasStore, type CanvasNode, type WorkflowGroup } from '../../store/canvasStore'
 import { CanvasInspector } from './CanvasInspector'
 import { CanvasNodeView } from './CanvasNode'
+import { CanvasEdgeView } from './CanvasEdge'
+import { ConnectionHighlightProvider } from './ConnectionHighlightProvider'
 import type { CanvasSaveState } from './canvasSaveCoordinator'
 import { downstreamNodeIds, incompleteRunNodeIds } from './canvasGraph'
 import { CanvasRunSession, CanvasRunStoppedError } from './runSession'
 import { runWorkflow, WorkflowRunTerminatedError, type WorkflowRunProgress } from './workflowRunner'
-import { assetGroupCounts, visibleAssetGraph } from './assetGroupVisibility'
 
 const nodeTypes = { canvas: CanvasNodeView }
+const edgeTypes = { default: CanvasEdgeView }
 
 function saveStateLabel(state: CanvasSaveState): string {
   if (state === 'dirty') return '待保存'
@@ -99,6 +102,7 @@ const nodeTools = productionPlugins.map((template) => ({
 }))
 
 export function CanvasPage() {
+  const { message } = AntdApp.useApp()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const project = useCanvasStore((state) => state.project)
@@ -119,6 +123,7 @@ export function CanvasPage() {
   const hasUnsavedChanges = useCanvasStore((state) => state.hasUnsavedChanges)
   const disposeSaveCoordinator = useCanvasStore((state) => state.disposeSaveCoordinator)
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode)
+  const selectedNodeId = useCanvasStore((state) => state.selectedNodeId)
   const duplicateNodes = useCanvasStore((state) => state.duplicateNodes)
   const removeNodes = useCanvasStore((state) => state.removeNodes)
   const replaceWorkspace = useCanvasStore((state) => state.replaceWorkspace)
@@ -138,18 +143,12 @@ export function CanvasPage() {
   const [finalizing, setFinalizing] = useState(false)
   const [finalizeEpisodeId, setFinalizeEpisodeId] = useState<number>()
   const [runProgress, setRunProgress] = useState<(WorkflowRunProgress & { taskProgress?: number; taskMessage?: string }) | null>(null)
-  const [collapsedAssetGroups, setCollapsedAssetGroups] = useState<Set<AssetKind>>(() => new Set(['character', 'scene', 'prop']))
   const runSessionRef = useRef<CanvasRunSession | null>(null)
   const selection = nodes.filter((node) => node.selected).map((node) => node.id)
   const projectId = project?.id
   const activeRun = running || finalizing
-  const visibleGraph = visibleAssetGraph(nodes, edges, collapsedAssetGroups)
-  const assetCounts = assetGroupCounts(nodes)
   const activeProgressNode = runProgress ? nodes.find((node) => node.id === runProgress.currentNodeId) : undefined
   const activeTaskProgress = runProgress?.taskProgress ?? activeProgressNode?.data.execution?.progress
-  const overallProgress = runProgress && runProgress.total > 0
-    ? Math.round(((runProgress.completed + (runProgress.stage === 'running' ? (activeTaskProgress ?? 0) / 100 : 0)) / runProgress.total) * 100)
-    : 0
 
   useEffect(() => {
     const projectId = Number(id)
@@ -176,10 +175,6 @@ export function CanvasPage() {
     void disposeSaveCoordinator().catch(() => undefined)
   }, [disposeSaveCoordinator])
 
-  useEffect(() => () => {
-    void runSessionRef.current?.stop().catch(() => undefined)
-  }, [])
-
   const onNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => setNodes(changes), [setNodes])
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges(changes), [setEdges])
   const onConnect = useCallback((connection: Connection) => {
@@ -189,40 +184,18 @@ export function CanvasPage() {
       source: connection.source,
       target: connection.target,
       id: `edge-${connection.source}-${connection.target}-${Date.now()}`,
-      type: 'bezier',
+      type: 'default',
     }
     addEdgeToStore(next)
   }, [addEdgeToStore])
   const onSelectionChange = useCallback(({ nodes: selectedNodes }: OnSelectionChangeParams) => {
     const ids = selectedNodes.map((node) => node.id)
-    setSelectedNode(ids.length === 1 ? ids[0] : null)
+    const nextSelectedNodeId = ids.length === 1 ? ids[0] : null
+    if (useCanvasStore.getState().selectedNodeId !== nextSelectedNodeId) setSelectedNode(nextSelectedNodeId)
   }, [setSelectedNode])
 
   const add = (role: ProductionRole) => {
-    const targetAsset = productionPlugin(role).targetAsset
-    if (targetAsset && targetAsset !== 'storyboard') {
-      setCollapsedAssetGroups((current) => {
-        const next = new Set(current)
-        next.delete(targetAsset)
-        return next
-      })
-    }
     addNode(role, { x: 110 + (nodes.length % 5) * 290, y: 120 + Math.floor(nodes.length / 5) * 230 })
-  }
-
-  const toggleAssetGroup = (kind: AssetKind) => {
-    const collapsing = !collapsedAssetGroups.has(kind)
-    if (collapsing) {
-      const ids = nodes.filter((node) => productionPlugin(node.data.role).targetAsset === kind).map((node) => node.id)
-      if (ids.length) setNodes(ids.map((nodeId) => ({ id: nodeId, type: 'select' as const, selected: false })))
-      if (ids.includes(useCanvasStore.getState().selectedNodeId || '')) setSelectedNode(null)
-    }
-    setCollapsedAssetGroups((current) => {
-      const next = new Set(current)
-      if (next.has(kind)) next.delete(kind)
-      else next.add(kind)
-      return next
-    })
   }
 
   const runNodeIds = useCallback(async (ids: string[], label: string) => {
@@ -274,7 +247,7 @@ export function CanvasPage() {
       setStopping(false)
       setRunProgress(null)
     }
-  }, [updateNodeData])
+  }, [message, updateNodeData])
 
   const stopRunning = useCallback(async () => {
     const session = runSessionRef.current
@@ -285,7 +258,7 @@ export function CanvasPage() {
     } catch (stopError) {
       message.warning(`本地编排已停止，但后端取消请求失败：${userErrorMessage(stopError)}`)
     }
-  }, [])
+  }, [message])
 
   const runNode = useCallback(async (nodeId: string) => {
     await runNodeIds([nodeId], '当前节点')
@@ -359,7 +332,6 @@ export function CanvasPage() {
 
   const selectGroup = (group: WorkflowGroup) => {
     const selectedIds = new Set(group.nodeIds)
-    setCollapsedAssetGroups(new Set())
     setNodes(nodes.map((node) => ({ id: node.id, type: 'select' as const, selected: selectedIds.has(node.id) })))
     setSelectedNode(group.nodeIds.length === 1 ? group.nodeIds[0] : null)
     setWorkflowDrawerOpen(false)
@@ -379,7 +351,7 @@ export function CanvasPage() {
     const session = new CanvasRunSession()
     runSessionRef.current = session
     setFinalizing(true)
-    setRunProgress({ completed: 0, total: 1, currentIndex: 1, currentNodeId: '', currentTitle: '整集合成', stage: 'running', taskProgress: 0, taskMessage: '正在提交合成任务' })
+    setRunProgress({ completed: 0, total: 1, currentIndex: 1, currentNodeId: '', currentTitle: '整集合成', stage: 'running', taskMessage: '正在提交合成任务' })
     try {
       await useCanvasStore.getState().save()
       if (!project) throw new Error('项目已经关闭')
@@ -418,7 +390,7 @@ export function CanvasPage() {
     onClick: ({ key }) => {
       if (key === 'selection') void runNodeIds(selection, '所选节点')
       if (key === 'downstream' && selection[0]) void runDownstream(selection[0])
-      if (key === 'all') void runIncomplete(nodes.map((node) => node.id), '未完成节点')
+      if (key === 'all') void runNodeIds(nodes.map((node) => node.id), '整个画布')
     },
   }
 
@@ -504,7 +476,7 @@ export function CanvasPage() {
             <strong>进度 {runProgress.completed}/{runProgress.total}</strong>
             <span>{runProgress.currentTitle} · {runProgress.taskMessage || activeProgressNode?.data.execution?.message || (runProgress.stage === 'completed' ? '已完成' : '准备运行')}</span>
           </div>
-          <Progress percent={overallProgress} size="small" status="active" />
+          {typeof activeTaskProgress === 'number' && <Progress percent={activeTaskProgress} size="small" status="active" />}
         </div>
       )}
 
@@ -517,26 +489,27 @@ export function CanvasPage() {
                 <Button icon={<ReloadOutlined />} onClick={() => void load(Number(id))}>重新加载</Button>
               </div>
             ) : (
-              <ReactFlow<CanvasNode, Edge>
-                nodes={visibleGraph.nodes}
-                edges={visibleGraph.edges}
-                nodeTypes={nodeTypes}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
-                onSelectionChange={onSelectionChange}
-                fitView
-                minZoom={0.15}
-                maxZoom={2}
-                selectionOnDrag
-                selectNodesOnDrag
-                panOnDrag
-                nodesConnectable
-                nodesDraggable
-                elementsSelectable
-                proOptions={{ hideAttribution: true }}
-                defaultEdgeOptions={{ type: 'bezier' }}
-              >
+              <UiErrorBoundary title="画布显示失败">
+                <ConnectionHighlightProvider nodes={nodes} edges={edges} selectedNodeId={selectedNodeId}>
+                  <ReactFlow<CanvasNode, Edge>
+                  nodes={nodes}
+                  edges={edges}
+                  nodeTypes={nodeTypes}
+                  edgeTypes={edgeTypes}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  onConnect={onConnect}
+                  onSelectionChange={onSelectionChange}
+                  fitView
+                  minZoom={0.15}
+                  maxZoom={2}
+                  selectionOnDrag
+                  selectNodesOnDrag
+                  panOnDrag
+                  nodesConnectable
+                  nodesDraggable
+                    elementsSelectable
+                  >
                 <Background color="#d8ddd9" gap={24} size={1} />
                 <Controls position="bottom-left" />
                 <MiniMap position="bottom-right" nodeColor="#9ca8a2" maskColor="rgb(245 246 243 / 76%)" />
@@ -545,20 +518,6 @@ export function CanvasPage() {
                   <Dropdown menu={addNodeMenu} trigger={['click']} placement="bottomLeft">
                     <Tooltip title="添加节点"><Button type="text" icon={<PlusOutlined />} aria-label="添加节点" /></Tooltip>
                   </Dropdown>
-                  {([
-                    ['character', '角色', <UserOutlined key="character" />],
-                    ['scene', '场景', <EnvironmentOutlined key="scene" />],
-                    ['prop', '道具', <ToolOutlined key="prop" />],
-                  ] as const).map(([kind, label, icon]) => (
-                    <Tooltip key={kind} title={`${collapsedAssetGroups.has(kind) ? '展开' : '折叠'}${label}资产节点`}>
-                      <Button
-                        type={collapsedAssetGroups.has(kind) ? 'default' : 'text'}
-                        size="small"
-                        icon={icon}
-                        onClick={() => toggleAssetGroup(kind)}
-                      >{label} {assetCounts[kind]}</Button>
-                    </Tooltip>
-                  ))}
                 </Panel>
 
                 {selection.length > 0 && (
@@ -582,17 +541,21 @@ export function CanvasPage() {
                     </Popconfirm>
                   </Panel>
                 )}
-              </ReactFlow>
+                  </ReactFlow>
+                </ConnectionHighlightProvider>
+              </UiErrorBoundary>
             )}
           </Spin>
         </div>
-        <CanvasInspector
-          running={activeRun}
-          stopping={stopping}
-          onRunNode={runNode}
-          onRunDownstream={runDownstream}
-          onStop={stopRunning}
-        />
+        <UiErrorBoundary key={`inspector-${selectedNodeId || 'empty'}`} title="节点面板显示失败">
+          <CanvasInspector
+            running={activeRun}
+            stopping={stopping}
+            onRunNode={runNode}
+            onRunDownstream={runDownstream}
+            onStop={stopRunning}
+          />
+        </UiErrorBoundary>
       </div>
 
       <Drawer title="工作流" width={380} open={workflowDrawerOpen} onClose={() => setWorkflowDrawerOpen(false)}>

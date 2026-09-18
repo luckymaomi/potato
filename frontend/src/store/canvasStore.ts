@@ -183,7 +183,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       data: {
         ...node.data,
         ...data,
-        parameters: data.parameters ? { ...node.data.parameters, ...data.parameters } : node.data.parameters,
+        parameters: data.parameters ? {
+          ...node.data.parameters,
+          ...data.parameters,
+          ...(data.parameters.referenceImages !== undefined
+            ? { referenceImages: [...data.parameters.referenceImages] }
+            : {}),
+        } : node.data.parameters,
         assetRefs: data.assetRefs ? { ...node.data.assetRefs, ...data.assetRefs } : node.data.assetRefs,
         result: data.result ? { ...node.data.result, ...data.result } : node.data.result,
       },
@@ -245,7 +251,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       selectedNodeId: state.selectedNodeId && removed.has(state.selectedNodeId) ? null : state.selectedNodeId,
     }
   }),
-  setSelectedNode: (id) => set({ selectedNodeId: id }),
+  setSelectedNode: (id) => {
+    if (get().selectedNodeId === id) return
+    set({ selectedNodeId: id })
+  },
 
   addEdge: (edge) => set((state) => {
     if (state.edges.some((current) => current.source === edge.source && current.target === edge.target)) return {}

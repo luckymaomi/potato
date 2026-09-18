@@ -8,7 +8,7 @@ import {
   SearchOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons'
-import { Button, Card, Empty, Form, Input, message, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Upload } from 'antd'
+import { App as AntdApp, Button, Card, Empty, Form, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Upload } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { projectsApi } from '../api/projects'
@@ -40,6 +40,7 @@ function nodeCount(project: Project): number {
 }
 
 export function ProjectsPage() {
+  const { message } = AntdApp.useApp()
   const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,7 +59,7 @@ export function ProjectsPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [message])
 
   useEffect(() => {
     let active = true
@@ -67,7 +68,7 @@ export function ProjectsPage() {
       .catch((error: unknown) => { if (active) message.error(userErrorMessage(error)) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [message])
 
   const openCreate = () => {
     setEditing(null)

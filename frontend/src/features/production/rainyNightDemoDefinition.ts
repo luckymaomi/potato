@@ -1,16 +1,16 @@
 export const RAINY_NIGHT_DEMO = {
-  templateId: 'pearapi-rainy-night-delivery-demo',
-  version: 14,
+  templateId: 'agnes-rainy-night-delivery-demo',
+  version: 15,
   project: {
-    title: '《雨夜外卖》· PearAPI 媒体生成 Demo',
+    title: '《雨夜外卖》· Agnes 媒体生成 Demo',
     description: '暴雨夜，外卖员小林送错外卖，闯进女总裁苏晴的办公室，两人因此认识。',
     genre: '都市偶遇微短剧',
     style: 'realistic',
   },
   media: {
-    provider: 'pearapi',
-    imageModel: 'gpt-image-2',
-    videoModel: 'grok-imagine-video',
+    provider: 'agnes',
+    imageModel: 'agnes-image-2.5-flash',
+    videoModel: 'agnes-video-2.5-flash',
     aspectRatio: '9:16',
     duration: 4,
   },

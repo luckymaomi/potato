@@ -138,7 +138,7 @@ describe('插件化短剧生产核心', () => {
     expect(productionPlugin(nodes[4]?.data.role ?? 'scene-extraction').inputs.map((item) => item.kind)).toContain('script')
   })
 
-  it('起步模板和 PearAPI 预写 Demo 都投影为分层有向无环图', () => {
+  it('起步模板和 Agnes 预写 Demo 都投影为分层有向无环图', () => {
     const starter = createStarterWorkspace(project)
     const demo = createDemoWorkspace(project)
     expectDagWorkspace(starter, 12)
@@ -154,11 +154,11 @@ describe('插件化短剧生产核心', () => {
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'character-asset').map((node) => node.data.parameters.assetIndex)).toEqual([0, 1, 2, 3])
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'scene-asset').map((node) => node.data.parameters.assetIndex)).toEqual([0, 1, 2])
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'prop-asset').map((node) => node.data.parameters.assetIndex)).toEqual([0, 1, 2])
-    expect(demo.workspace_nodes.filter((node) => node.data.role === 'character-asset').every((node) => (
-      node.data.parameters.provider === 'pearapi' && node.data.parameters.model === 'gpt-image-2'
+    expect(demo.workspace_nodes.filter((node) => ['character-asset', 'scene-asset', 'prop-asset', 'storyboard-image'].includes(node.data.role)).every((node) => (
+      node.data.parameters.provider === 'agnes' && node.data.parameters.model === 'agnes-image-2.5-flash'
     ))).toBe(true)
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'shot-video').every((node) => (
-      node.data.parameters.provider === 'pearapi' && node.data.parameters.model === 'grok-imagine-video'
+      node.data.parameters.provider === 'agnes' && node.data.parameters.model === 'agnes-video-2.5-flash'
     ))).toBe(true)
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'story' || node.data.role === 'script').every((node) => (
       node.data.status === 'completed' && Boolean(node.data.result.text)
@@ -260,9 +260,9 @@ describe('插件化短剧生产核心', () => {
     const initialized: Project = {
       ...project,
       id: 19,
-      title: '《雨夜外卖》· PearAPI 媒体生成 Demo',
+      title: '《雨夜外卖》· Agnes 媒体生成 Demo',
       canvas_revision: 4,
-      metadata: { aspect_ratio: '9:16', demo: true, demo_provider: 'pearapi', demo_version: DEMO_VERSION, canvas_layout: { workspace_nodes: Array.from({ length: 36 }, () => ({})) } },
+      metadata: { aspect_ratio: '9:16', demo: true, demo_provider: 'agnes', demo_version: DEMO_VERSION, canvas_layout: { workspace_nodes: Array.from({ length: 36 }, () => ({})) } },
       characters: Array.from({ length: 4 }, (_, index) => ({ id: index + 1, drama_id: 19, name: `角色${index + 1}` })),
       scenes: Array.from({ length: 3 }, (_, index) => ({ id: index + 1, drama_id: 19, location: `场景${index + 1}` })),
       props: Array.from({ length: 3 }, (_, index) => ({ id: index + 1, drama_id: 19, name: `道具${index + 1}` })),

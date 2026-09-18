@@ -47,7 +47,7 @@ export async function executeProductionNode(
   context: ResolvedProductionContext = { values: {}, texts: [], images: [], videos: [], assetRefs: node.data.assetRefs },
 ): Promise<void> {
   session?.throwIfStopped()
-  update(node.id, { status: 'running', execution: { progress: 0, message: '正在提交生成请求' }, error: '' })
+  update(node.id, { status: 'running', execution: { message: '正在提交生成请求' }, error: '' })
   const plugin = productionPlugin(node.data.role)
   const command = plugin.buildCommand({ project, data: node.data, context })
   const submission = await productionApi.execute({
@@ -65,7 +65,7 @@ export async function executeProductionNode(
     update(node.id, {
       result: { ...node.data.result, taskId: submission.task_id },
       status: 'pending',
-      execution: { progress: 0, message: '任务已提交，等待供应商处理' },
+      execution: { message: '任务已提交，等待供应商处理' },
     })
     const task = await waitForTask(submission.task_id, (current) => update(node.id, {
       status: current.status === 'processing' ? 'running' : current.status,

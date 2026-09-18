@@ -71,7 +71,7 @@ export class ProductionWorkflowService {
   private runAiText(command: Extract<ProductionCommand, { kind: 'ai-text' }>): string {
     const episode = command.episodeId ? this.requireEpisode(command.projectId, command.episodeId) : undefined;
     return this.tasks.run(`production_${command.action}`, episode ? String(episode.id) : String(command.projectId), async (reporter) => {
-      reporter.progress(10, textProgress(command.action));
+      reporter.stage(textProgress(command.action));
       const project = this.projects.require(command.projectId);
       const prompt = command.action === 'write-script'
         ? `项目：${project.title}\n类型：${project.genre ?? '未指定'}\n创作要求：${command.sourceText}`
@@ -87,7 +87,6 @@ export class ProductionWorkflowService {
       });
       reporter.throwIfCancelled();
       const result = this.persistTextResult(command, episode, generated);
-      reporter.progress(100, '文本生产完成');
       return result;
     });
   }

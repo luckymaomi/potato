@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ValidationError } from '../errors';
 import type { MediaReferenceResolveOptions } from '../providers/contracts';
-import type { AppConfig } from '../types/core';
+import type { AppConfig, SQLiteDatabase } from '../types/core';
 
 const MAX_INLINE_IMAGE_BYTES = 16 * 1024 * 1024;
 
@@ -10,7 +10,7 @@ export class MediaReferenceService {
   private readonly storageRoot: string;
   private readonly staticBaseUrl?: string;
 
-  constructor(config: AppConfig) {
+  constructor(config: AppConfig, private readonly database?: SQLiteDatabase) {
     this.storageRoot = path.resolve(config.storage?.local_path ?? './data/storage');
     this.staticBaseUrl = config.storage?.base_url?.replace(/\/+$/u, '');
   }
@@ -24,13 +24,26 @@ export class MediaReferenceService {
     const format = options.format ?? 'inline';
     const localRelativePath = this.localRelativePath(value);
     if (localRelativePath !== undefined) {
-      if (format === 'public-url') return undefined;
+      if (format === 'public-url') return this.providerSourceUrl(localRelativePath);
       return this.localImageDataUrl(localRelativePath, options.label);
     }
     if (/^https?:\/\//iu.test(value)) return value;
     if (/^data:image\//iu.test(value)) return format === 'inline' ? value : undefined;
     return undefined;
   };
+
+  private providerSourceUrl(relativePath: string): string | undefined {
+    if (!this.database) return undefined;
+    const row = this.database.prepare(`
+      SELECT source_url
+      FROM image_generations
+      WHERE local_path = ? AND status = 'completed' AND source_url IS NOT NULL
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(relativePath) as { source_url?: string | null } | undefined;
+    const sourceUrl = row?.source_url?.trim();
+    return sourceUrl && /^https?:\/\//iu.test(sourceUrl) ? sourceUrl : undefined;
+  }
 
   private localRelativePath(source: string): string | undefined {
     const withoutQuery = source.split(/[?#]/u, 1)[0] ?? '';

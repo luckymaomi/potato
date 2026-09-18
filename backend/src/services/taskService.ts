@@ -14,7 +14,7 @@ export interface TaskRecord {
   id: string;
   type: string;
   status: TaskStatus;
-  progress: number;
+  progress?: number;
   message: string | null;
   error: string | null;
   failure: StructuredError | null;
@@ -25,10 +25,14 @@ export interface TaskRecord {
   completed_at: string | null;
 }
 
-interface TaskRow extends Omit<TaskRecord, 'result' | 'failure'> { result: string | null }
+interface TaskRow extends Omit<TaskRecord, 'result' | 'failure' | 'progress'> {
+  progress: number;
+  result: string | null;
+}
 
 export interface TaskReporter {
   signal: AbortSignal;
+  stage(message: string): void;
   progress(value: number, message?: string): void;
   throwIfCancelled(): void;
 }
@@ -63,7 +67,7 @@ export class TaskService {
     const now = new Date().toISOString();
     this.db.prepare(`
       INSERT INTO async_tasks (id, type, status, progress, resource_id, created_at, updated_at)
-      VALUES (?, ?, 'pending', 0, ?, ?, ?)
+      VALUES (?, ?, 'pending', -1, ?, ?, ?)
     `).run(id, type, resourceId, now, now);
     this.log?.audit?.('task.created', { taskId: id, type, resourceId });
     this.controllers.set(id, new AbortController());
@@ -77,8 +81,10 @@ export class TaskService {
     const row = this.db.prepare('SELECT * FROM async_tasks WHERE id = ?').get(id) as TaskRow | undefined;
     if (!row) return undefined;
     const failure = parseStoredError(row.error);
+    const { progress, ...stored } = row;
     return {
-      ...row,
+      ...stored,
+      ...(progress >= 0 ? { progress } : {}),
       error: failure?.message ?? null,
       failure,
       result: parseJson<Record<string, unknown> | null>(row.result, null),
@@ -101,14 +107,20 @@ export class TaskService {
     work: (reporter: TaskReporter) => Promise<Record<string, unknown>>,
   ): Promise<void> {
     const controller = this.controllers.get(id) ?? new AbortController();
-    this.update(id, 'processing', 1, '任务已开始');
+    this.updateStage(id, '任务已开始');
     this.log?.audit?.('task.started', { taskId: id });
     const reporter: TaskReporter = {
       signal: controller.signal,
+      stage: (message) => {
+        if (!controller.signal.aborted) {
+          this.updateStage(id, message);
+          this.log?.audit?.('task.stage', { taskId: id, message });
+        }
+      },
       progress: (value, message) => {
         if (!controller.signal.aborted) {
           const progress = clamp(value);
-          this.update(id, 'processing', progress, message);
+          this.updateProgress(id, progress, message);
           this.log?.audit?.('task.progress', { taskId: id, progress, message });
         }
       },
@@ -138,14 +150,22 @@ export class TaskService {
     }
   }
 
-  private update(id: string, status: TaskStatus, progress: number, message?: string): void {
+  private updateStage(id: string, message: string): void {
     this.db.prepare(`
-      UPDATE async_tasks SET status = ?, progress = ?, message = COALESCE(?, message), updated_at = ?
+      UPDATE async_tasks SET status = 'processing', progress = -1, message = ?, updated_at = ?
       WHERE id = ? AND status <> 'cancelled'
-    `).run(status, progress, message ?? null, new Date().toISOString(), id);
+    `).run(message, new Date().toISOString(), id);
+  }
+
+  private updateProgress(id: string, progress: number, message?: string): void {
+    this.db.prepare(`
+      UPDATE async_tasks SET status = 'processing', progress = ?, message = COALESCE(?, message), updated_at = ?
+      WHERE id = ? AND status <> 'cancelled'
+    `).run(progress, message ?? null, new Date().toISOString(), id);
   }
 }
 
 function clamp(value: number): number {
+  if (!Number.isFinite(value)) throw new Error('任务进度必须是有限数字');
   return Math.max(0, Math.min(100, Math.round(value)));
 }

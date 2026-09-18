@@ -21,6 +21,7 @@ import {
 } from '../production/catalog'
 import type { CanvasNode } from './canvasTypes'
 import { isVideoMedia } from './mediaPresentation'
+import { useConnectionHighlight } from './connectionHighlight'
 
 function nodeIcon(data: ProductionNodeData): ReactNode {
   const kind = assetKindOf(data)
@@ -34,13 +35,14 @@ function nodeIcon(data: ProductionNodeData): ReactNode {
   return <FileTextOutlined />
 }
 
-export function CanvasNodeView({ data, selected }: NodeProps<CanvasNode>) {
+export function CanvasNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
+  const { relatedNodeIds } = useConnectionHighlight()
   const material = materialOf(data)
   const isText = material === 'text'
   const isVideo = isVideoMedia(data)
   const summary = isText ? (data.result.text || data.parameters.text) : data.parameters.prompt
   return (
-    <div className={`canvas-node canvas-node-${material} ${selected ? 'is-selected' : ''}`}>
+    <div className={`canvas-node canvas-node-${material} ${selected ? 'is-selected' : ''} ${relatedNodeIds.has(id) ? 'is-related' : ''}`}>
       <Handle type="target" position={Position.Left} id="input" className="canvas-handle" />
       <Handle type="source" position={Position.Right} id="output" className="canvas-handle" />
       <div className="canvas-node-header">
@@ -64,7 +66,7 @@ export function CanvasNodeView({ data, selected }: NodeProps<CanvasNode>) {
       {data.result.taskId && <div className="canvas-node-task">任务 {data.result.taskId.slice(0, 8)}…</div>}
       {(data.status === 'pending' || data.status === 'running') && data.execution && (
         <div className="canvas-node-progress">
-          <Progress percent={data.execution.progress} size="small" showInfo={typeof data.execution.progress === 'number'} />
+          {typeof data.execution.progress === 'number' && <Progress percent={data.execution.progress} size="small" />}
           <span>{data.execution.message}</span>
         </div>
       )}

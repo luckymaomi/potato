@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     const services = createServices(db, config, providerRegistry, logger);
     const project = initializeRainyNightDemo(db, services, logger);
     console.log(`《雨夜外卖》Demo 已初始化：项目 ID ${project.id}`);
-    console.log('文本节点已预写完成；媒体节点使用 PearAPI / gpt-image-2 / grok-imagine-video。');
+    console.log('文本节点已预写完成；媒体节点使用 Agnes / agnes-image-2.5-flash / agnes-video-2.5-flash。');
   } finally {
     closeDb();
   }

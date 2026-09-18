@@ -27,12 +27,20 @@ export function normalizeCanvasNodes(nodes: CanvasWorkspaceSnapshot['workspace_n
     type: 'canvas',
     data: project ? restoreProductionNodeLifecycle({
       ...node.data,
+      parameters: {
+        ...node.data.parameters,
+        referenceImages: node.data.parameters.referenceImages ? [...node.data.parameters.referenceImages] : undefined,
+      },
       result: {
         ...node.data.result,
         outputUrl: mediaUrl(String(node.data.result.outputUrl || '')) || node.data.result.outputUrl,
       },
     }, project) : {
       ...node.data,
+      parameters: {
+        ...node.data.parameters,
+        referenceImages: node.data.parameters.referenceImages ? [...node.data.parameters.referenceImages] : undefined,
+      },
       result: {
         ...node.data.result,
         outputUrl: mediaUrl(String(node.data.result.outputUrl || '')) || node.data.result.outputUrl,
@@ -42,7 +50,7 @@ export function normalizeCanvasNodes(nodes: CanvasWorkspaceSnapshot['workspace_n
 }
 
 export function normalizeCanvasEdges(edges: Edge[]): Edge[] {
-  return edges.map((edge) => ({ ...edge, type: 'bezier', selected: false }))
+  return edges.map((edge) => ({ ...edge, type: 'default', selected: false }))
 }
 
 export function createCanvasSnapshot(

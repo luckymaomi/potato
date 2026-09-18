@@ -32,7 +32,7 @@ export function createProductionWorkspace(spec: ProductionWorkspaceSpec): Canvas
       id: `${spec.edgePrefix}-${index}`,
       source,
       target,
-      type: 'bezier',
+      type: 'default',
     }
   })
   const now = new Date().toISOString()

@@ -34,7 +34,7 @@
 - 节点上下文解析：`frontend/src/features/production/contextResolver.ts`
 - 生产节点执行器：`frontend/src/features/production/executor.ts`
 - 画布图规则与运行编排：`frontend/src/features/canvas/canvasGraph.ts`、`workflowRunner.ts`
-- 资产节点视觉折叠：`frontend/src/features/canvas/assetGroupVisibility.ts`
+- 直接关联高亮：`frontend/src/features/canvas/connectionHighlight.ts`、`ConnectionHighlightProvider.tsx`、`CanvasEdge.tsx`
 - 检查器短标签：`frontend/src/features/canvas/inspectorPresentation.ts`
 - 运行停止：`frontend/src/features/canvas/runSession.ts`
 - 画布状态：`frontend/src/store/canvasStore.ts`
@@ -62,10 +62,10 @@
 - 前端画布保存协调器对不可变业务快照做指纹去重和防抖，所有请求严格串行；保存进行中的新修改继续排队，旧请求完成不能把新修改误报为已保存。自动保存状态和错误在画布顶栏可见，失败快照保留并可重试；生成和内部导航前会 flush，尚有待保存内容时浏览器关闭会触发原生提示。
 - `dramas.canvas_revision` 是画布并发版本 owner。保存请求必须携带 `expected_revision`，SQLite 在同一事务内 compare-and-set 并递增；同一旧 revision 再次保存返回 HTTP 409，不覆盖新版本。当前无旧数据兼容或迁移入口。
 - 任务提交后前端轮询 `/api/v1/tasks/:id`，直接消费后端持久化的 `progress` 与 `message`；节点和检查器显示真实百分比与阶段，整组运行顶部显示完成数、总数和当前节点。没有真实百分比时只显示阶段，不伪造进度。运行会话只记录一个当前后端任务，停止时调用取消接口、终止轮询并拒绝继续提交后续节点；后端在持久化文本或媒体结果前再次检查取消。第三方没有撤销协议时，不承诺其远端计算被物理删除。
-- 角色、场景和道具资产节点可在画布工具条按类型折叠。折叠状态仅属于当前页面的视觉投影，不进入画布快照；执行器始终读取原始节点和显式边，折叠不会形成组级隐式输入。
-- 检查器只在切换选中节点时把节点参数灌入表单；字段编辑和自动保存返回不再整表重置。模型选择只显示模型标识，能力标签在独立区域换行；生成历史以本地时间、短版本号和缩略内容呈现。
+- React Flow 直接消费 Zustand 的原始 `nodes/edges`，画布页面不建立过滤副本。单选节点时，显示层用 memoized ID 集合投影直接邻居和对应边；它不修改 React Flow 多选、不进入业务 store 或快照。
+- 每次选中节点都挂载该节点独立的检查器与 Form 实例，取消选择时卸载；Form 只接收 `title/parameters`，运行结果、历史和执行状态不进入表单。字段编辑和自动保存返回不再整表重置。模型选择只显示模型标识，能力标签在独立区域换行；生成历史以本地时间、短版本号和缩略内容呈现。
 - 文本提示词目录由后端唯一维护并通过 `/api/v1/production/text-prompts` 公开。检查器显示完整默认值，用户覆盖值随 `system_prompt` 到达 Provider；恢复默认后画布不重复保存默认正文。文本节点的面板文本是完整输入，已经完成的直接文本入边只做追加；没有关联剧集时，提取与分镜文本仍可独立返回结果。
-- 参考图在画布中只保存 URL 或 `/static/uploads/...` 路径；图片生成提交前由后端统一校验本地文件并临时转换为带 MIME 的 Base64 data URL，远端供应商不会收到不可访问的 localhost 地址。检查器同时保留 URL 添加和本地多图上传，并以可预览、可删除的缩略图展示；生成后的图片也在检查器中直接显示缩略图，可点开大图或在新窗口打开，视频结果在同一区域提供播放预览。
+- 参考图在每个节点自己的 `parameters.referenceImages` 中独立保存 URL 或 `/static/uploads/...` 路径；创建、恢复和更新节点时都复制数组，检查器切换节点会显式灌入当前节点列表，未上传的节点显示空列表。图片生成提交前由后端统一校验本地文件并临时转换为带 MIME 的 Base64 data URL，远端供应商不会收到不可访问的 localhost 地址。
 - 供应商返回图片或视频后，后端必须下载、验证媒体签名并原子写入 `storage/projects/<projectId>/images|videos/`；只有本地文件完成才把 generation 标成 completed。来源 URL 单独保留，供应商失败、本地归档失败和本地合成失败分别记录，不用远端成功冒充本地完成。
 - 每次图片、镜头视频和整集合成都创建独立 generation；画布节点的 `result.generationId` 是当前采用版本，`history` 保留该节点历次成功结果。检查器只显示本节点历史并可切换当前版本；旧记录和旧文件不被新结果覆盖。存在明确业务输出目标时，资产、分镜或剧集也可保存当前 generation 指针。
 - `backend/logs/everything.log` 是默认持久 Everything 日志，不随 `backend/data` 清理而删除。HTTP 请求、项目与画布 CRUD、生产命令、任务生命周期、供应商阶段、本地归档、合成、Demo 初始化和验收脚本都写入 JSONL；凭据、授权头、查询串、Data URL 与二进制统一脱敏。
@@ -86,16 +86,16 @@
 - 后端全局严格 TypeScript 检查为 0 诊断，构建前会清除旧产物。
 - 前端能构建并启动，项目列表能真实读取和创建项目。
 - 能进入画布、拖动节点、自由连线、框选和整组运行。
-- 默认模板与《雨夜外卖》Demo 是无环分层图；画布可直接看到资产一对多、镜头多输入和十路镜头视频汇入合成。Demo 文本由仓库定义预写，媒体节点固定投影 PearAPI `gpt-image-2` 与 `grok-imagine-video`。
+- 默认模板与《雨夜外卖》Demo 是无环分层图；画布可直接看到资产一对多、镜头多输入和十路镜头视频汇入合成。Demo 文本由仓库定义预写，媒体节点固定投影 Agnes `agnes-image-2.5-flash` 与 `agnes-video-2.5-flash`。
 - 有真实 AI 配置时，四种图像/视频模式能够提交并轮询任务；无配置时后端拒绝原因可见。
 - 能提交整集合成；缺少输入视频时保留后端明确错误，不伪造成功。
 - 全局界面不使用单边彩色竖条、单边框或伪元素制作的状态强调样式。
 
 ## 当前交付状态
 
-- 项目管理、插件化生产核心、稳定资产仓库、本地媒体历史、流式项目归档、DAG 默认模板和 PearAPI《雨夜外卖》预写 Demo 已由当前 `frontend/` 与 `backend/` 主干实现。
-- Demo v14 含 36 个节点、56 条依赖边与 1 个工作流组：1 个故事、1 个剧本、3 组预写提取文本、10 个独立资产图、10 张分镜图、10 段镜头视频和 1 个整集合成。镜头描述分别保存在分镜图与视频节点面板，不再建立 10 个重复的通用文本节点；资产图不依赖提取节点，镜头 6/7/9/10 的入边按 owner 指定资产集合建立，合成节点有 10 个镜头视频入边。
-- `backend/scripts/initializeRainyNightDemo.ts` 是可恢复的 Demo 初始化入口：不调用供应商、不生成媒体、不清库；同版本半成品会原位补齐，完整 Demo 重复初始化不创建第二个项目也不覆盖完整画布。`npm.cmd run accept:rainy-night-demo` 是可恢复的真实 PearAPI 全链入口，会刷新模型目录、复用本地有效结果、逐节点保存并写 Everything 日志。
+- 项目管理、插件化生产核心、稳定资产仓库、本地媒体历史、流式项目归档、DAG 默认模板和 Agnes《雨夜外卖》预写 Demo 已由当前 `frontend/` 与 `backend/` 主干实现。
+- Demo v15 含 36 个节点、56 条依赖边与 1 个工作流组：1 个故事、1 个剧本、3 组预写提取文本、10 个独立资产图、10 张分镜图、10 段镜头视频和 1 个整集合成。镜头描述分别保存在分镜图与视频节点面板；资产图不依赖提取节点，镜头 6/7/9/10 的入边按 owner 指定资产集合建立，合成节点有 10 个镜头视频入边。
+- `backend/scripts/initializeRainyNightDemo.ts` 是唯一可恢复 Demo 初始化入口：不调用供应商、不生成媒体、不清库；同版本半成品会原位补齐，完整 Demo 重复初始化不创建第二个项目也不覆盖完整画布。`npm.cmd run accept:rainy-night-demo` 直接复用该入口，只初始化，不执行真实工作流。
 - 前端确定性测试覆盖插件合同、节点自治、DAG 无环结构、只追加已完成直接入边、逐镜精确资产、拓扑排序、循环拒绝、媒体展示、历史选择和运行停止。
 - 保存测试覆盖连续快照合并、写入串行、revision 递增、失败保留与重试、冲突停止覆盖，以及节点/连线选择态不持久化。
-- 本轮确定性结果：前端 40/40、lint、build 通过；后端 59/59、strict typecheck、build 通过。owner 已明确要求代理不运行初始化脚本或 PearAPI 媒体链；当前 `backend/data` 不存在，真实外部结果不能由自动测试替代。
+- 本轮确定性结果：前端 47/47、lint、build 通过；后端 62/62、strict typecheck、build 通过。owner 已明确要求代理不运行初始化脚本或真实媒体链；浏览器点击复现和真实外部结果不能由自动测试替代。

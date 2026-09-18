@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS async_tasks (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL,
   status TEXT NOT NULL,
-  progress INTEGER NOT NULL DEFAULT 0,
+  progress INTEGER NOT NULL DEFAULT -1,
   message TEXT,
   error TEXT,
   result TEXT,

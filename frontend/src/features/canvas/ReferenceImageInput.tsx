@@ -1,5 +1,5 @@
 import { DeleteOutlined, LinkOutlined, UploadOutlined } from '@ant-design/icons'
-import { Button, Image, Input, message, Space, Typography, Upload } from 'antd'
+import { App as AntdApp, Button, Image, Input, Space, Typography, Upload } from 'antd'
 import { useEffect, useRef, useState } from 'react'
 import { userErrorMessage } from '../../errors/appError'
 import { mediaUrl } from '../../utils/mediaUrl'
@@ -20,13 +20,21 @@ export function ReferenceImageInput({
   onUpload,
   maxCount,
 }: ReferenceImageInputProps) {
+  const { message } = AntdApp.useApp()
   const [urlDraft, setUrlDraft] = useState('')
   const valueRef = useRef(value)
   const uploadQueue = useRef(Promise.resolve())
+  const activeRef = useRef(true)
 
   useEffect(() => {
     valueRef.current = value
   }, [value])
+  useEffect(() => {
+    activeRef.current = true
+    return () => {
+      activeRef.current = false
+    }
+  }, [])
 
   const commit = (next: string[]) => {
     valueRef.current = next
@@ -51,7 +59,7 @@ export function ReferenceImageInput({
         return
       }
       const source = await onUpload(file)
-      if (source) {
+      if (activeRef.current && source) {
         const next = addReferenceImage(valueRef.current, source)
         assertWithinLimit(next, maxCount)
         commit(next)

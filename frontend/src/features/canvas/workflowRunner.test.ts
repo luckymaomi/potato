@@ -108,6 +108,46 @@ describe('画布运行编排', () => {
     expect(executeNode.mock.calls[0]?.[4]).toMatchObject({ texts: [], images: [], videos: [] })
   })
 
+  it('运行全部按拓扑顺序共用节点执行主干，并把刚完成的直接上游结果传给下游', async () => {
+    const upstream = node('story')
+    upstream.data = createProductionNodeData('story', { parameters: { text: '面板故事' } })
+    const downstream = node('script')
+    downstream.data = createProductionNodeData('script', { parameters: { text: '面板剧本要求' } })
+    const nodes = [upstream, downstream]
+    const edges = [{ id: 'story-script', source: upstream.id, target: downstream.id }]
+    const project: Project = { id: 1, title: '测试', metadata: {}, canvas_revision: 0 }
+    const contexts: string[][] = []
+    const updateNode = (id: string, data: Partial<CanvasNode['data']>) => {
+      const target = nodes.find((item) => item.id === id)
+      if (!target) return
+      target.data = {
+        ...target.data,
+        ...data,
+        parameters: data.parameters ? { ...target.data.parameters, ...data.parameters } : target.data.parameters,
+        assetRefs: data.assetRefs ? { ...target.data.assetRefs, ...data.assetRefs } : target.data.assetRefs,
+        result: data.result ? { ...target.data.result, ...data.result } : target.data.result,
+      }
+    }
+    const executeNode = vi.fn(async (current: CanvasNode, _project, update, _session, context) => {
+      contexts.push([...context.texts])
+      update(current.id, current.id === upstream.id
+        ? { status: 'completed', result: { text: '刚生成的上游故事' } }
+        : { status: 'completed', result: { text: '下游剧本' } })
+    })
+
+    await expect(runWorkflow({
+      ids: nodes.map((item) => item.id),
+      label: '整个画布',
+      session: new CanvasRunSession(),
+      getState: () => ({ project, nodes, edges }),
+      updateNode,
+      executeNode,
+    })).resolves.toEqual({ completed: 2 })
+
+    expect(executeNode.mock.calls.map((call) => call[0].id)).toEqual(['story', 'script'])
+    expect(contexts).toEqual([[], ['刚生成的上游故事']])
+  })
+
   it('按真实运行范围报告当前节点和完成数量', async () => {
     const nodes = [node('first'), node('second')]
     const progress: Array<{ completed: number; total: number; currentNodeId: string }> = []

@@ -95,7 +95,7 @@ export function createDemoWorkspace(project: Project): CanvasWorkspaceSnapshot {
   return createProductionWorkspace({
     nodes,
     connections,
-    groups: [{ id: 'rain-delivery-workflow', name: 'PearAPI《雨夜外卖》运行未完成媒体', nodeIds: nodes.map((node) => node.id) }],
+    groups: [{ id: 'rain-delivery-workflow', name: 'Agnes《雨夜外卖》运行未完成媒体', nodeIds: nodes.map((node) => node.id) }],
     template: { id: DEMO_TEMPLATE_ID, version: DEMO_VERSION },
     edgePrefix: 'rain-delivery-edge',
   })

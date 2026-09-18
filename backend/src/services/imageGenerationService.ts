@@ -144,7 +144,7 @@ export class ImageGenerationService {
     });
     const taskId = this.tasks.run('image_generation', String(id), async (reporter) => {
       this.mark(id, 'processing');
-      reporter.progress(5, '正在提交图片生成');
+      reporter.stage('正在提交图片生成');
       try {
         this.log.audit?.('image.provider.started', { generationId: id, provider: aiConfig.provider, model });
         const result = await runImageProvider(adapter, {
@@ -164,7 +164,7 @@ export class ImageGenerationService {
         reporter.throwIfCancelled();
         if (result.status === 'failed') throw new Error(result.error || '图片生成失败');
         if (!result.imageUrl) throw new Error('图片供应商没有返回图片地址');
-        reporter.progress(85, '供应商生成完成，正在保存到本地');
+        reporter.stage('供应商生成完成，正在保存到本地');
         const archived = await this.mediaArchive.archiveRemote({
           projectId: input.dramaId,
           generationId: id,
@@ -186,7 +186,6 @@ export class ImageGenerationService {
           if (reporter.signal.aborted) throw error;
           throw new MediaArchiveError('本地归档失败：无法提交生成记录和当前版本指针', { cause: error });
         }
-        reporter.progress(100, '图片已生成并保存到本地');
         return { image_url: archived.publicUrl, source_url: result.imageUrl, local_path: archived.relativePath, generation_id: id };
       } catch (error) {
         if (reporter.signal.aborted) this.mark(id, 'cancelled');

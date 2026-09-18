@@ -10,6 +10,14 @@ import { providerRegistry } from '../src/providers';
 import { createServices } from '../src/services/container';
 import type { AppConfig, Logger } from '../src/types/core';
 
+test('accept:rainy-night-demo 只复用初始化入口，不保留供应商执行脚本', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as {
+    scripts?: Record<string, string>;
+  };
+  assert.equal(packageJson.scripts?.['accept:rainy-night-demo'], 'tsx scripts/initializeRainyNightDemo.ts');
+  assert.equal(fs.existsSync(path.resolve('scripts/acceptRainyNightDemo.ts')), false);
+});
+
 test('同版本半成品 Demo 会原位补齐，重复初始化不创建第二个项目或覆盖完整画布', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-demo-init-'));
   const db = new Database(path.join(root, 'demo.db'));
@@ -27,7 +35,7 @@ test('同版本半成品 Demo 会原位补齐，重复初始化不创建第二�
       title: '半成品 Demo',
       metadata: {
         demo: true,
-        demo_version: 14,
+        demo_version: 15,
         canvas_layout: { workspace_nodes: [], edges: [], workflow_groups: [] },
       },
     });

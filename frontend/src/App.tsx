@@ -1,7 +1,8 @@
-import { ConfigProvider } from 'antd'
+import { App as AntdApp, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
+import { UiErrorBoundary } from './components/UiErrorBoundary'
 import { AiConfigPage } from './pages/AiConfigPage'
 import { CanvasPage } from './features/canvas/CanvasPage'
 import { ProjectsPage } from './pages/ProjectsPage'
@@ -32,16 +33,20 @@ export default function App() {
         },
       }}
     >
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route path="/" element={<ProjectsPage />} />
-            <Route path="/ai-config" element={<AiConfigPage />} />
-          </Route>
-          <Route path="/film/:id/canvas" element={<CanvasPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+      <AntdApp>
+        <UiErrorBoundary title="页面显示失败">
+          <BrowserRouter>
+            <Routes>
+              <Route element={<AppShell />}>
+                <Route path="/" element={<ProjectsPage />} />
+                <Route path="/ai-config" element={<AiConfigPage />} />
+              </Route>
+              <Route path="/film/:id/canvas" element={<CanvasPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </UiErrorBoundary>
+      </AntdApp>
     </ConfigProvider>
   )
 }

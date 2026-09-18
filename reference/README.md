@@ -8,10 +8,29 @@
 | --- | --- | --- | --- |
 | `tldraw/` | `tldraw/tldraw` | `b3914b2` | 无限画布基础交互、Workflow 与 Image Pipeline starter kit |
 | `comfyui-frontend/` | `Comfy-Org/ComfyUI_frontend` | `31d1d3d` | 选择上下文工具箱、拆分运行按钮、模板选择、队列与历史反馈 |
+| `xyflow/` | `xyflow/xyflow` | `0a1f957` | React Flow 受控图同步、内置边类型、自定义边和稳定类型映射 |
 | `aicon/` | `869413421/ai-moive-studio` | `4e0810e` | AI 视频无限画布的文本/图片/视频节点、工作台与详情编辑分层 |
 | `huobao-drama/` | `chatfire-AI/huobao-drama` | `ff9b046` | 短剧项目、资产、分镜、批量视频和失败重试的业务表达 |
 
 所有仓库使用 `--depth 1 --filter=blob:none` 浅克隆。以上提交是 2026-09-16 本地调研时的快照，不代表未来上游状态。
+
+## 画布稳定性与选择显示专项调研
+
+本节记录 2026-09-17 对点击白屏的根因核验。owner 随后明确要求不再等待 n8n 克隆，因此本节不把未完成的 n8n 下载当作证据，结论只采用 React Flow 官方源码与本地 ComfyUI frontend。
+
+### 已核验的成熟做法
+
+- React Flow 官方 `StoreUpdater` 以引用相等判断受控 `nodes/edges` 是否变化；引用变化就调用内部 `setNodes/setEdges`。因此在组件渲染体内反复 `filter/map` 受控图，会把纯显示计算伪装成图数据变化。官方受控示例直接把状态数组交给 `<ReactFlow>`，只在真实 change handler 中产生下一版数组。
+- React Flow 的内置贝塞尔边类型名是 `default`，不存在内置 `bezier` 类型；未知类型会触发 error 011 后回退。官方允许以组件外稳定 `edgeTypes` 映射覆盖 `default` 渲染器，并使用 `BaseEdge + getBezierPath` 增加纯显示行为。
+- React Flow 官方错误 002 明确要求 `nodeTypes/edgeTypes` 定义在组件外或 memoize，防止每次渲染更换组件类型。当前实现把两套映射固定在模块级。
+- ComfyUI frontend 以 `selectedItems` 保存真实选择，以 `highlighted_links` 保存随选择重算的连线显示状态；选择、连线高亮和图文档是不同事实。取消选择会清理高亮，不会为此派生或替换整张图。
+
+### 对本项目的采用边界
+
+- 删除资产折叠和 `visibleAssetGraph`，React Flow 只接收 Zustand 原始 `nodes/edges`。
+- 直接关联高亮只 memoize 节点/边 ID 集合；自定义节点和默认边渲染器读取集合加 class，不改 `selected`、不改数组、不写快照。
+- 旧快照中的 `bezier` 在读取时统一规范为 `default`；新建和模板边只写 `default`，不保留双轨类型。
+- 不引入 ComfyUI 的 LiteGraph 状态机，也不复制其实现；只采用“业务选择与显示高亮分离”的职责边界。
 
 ## 节点插件与自治上下文专项调研
 

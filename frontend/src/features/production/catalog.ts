@@ -283,12 +283,23 @@ export function createProductionNodeData(role: ProductionRole, overrides: Partia
   return {
     role,
     title: overrides.title ?? plugin.label,
-    parameters: { ...plugin.defaultParameters, ...(overrides.parameters || {}) },
+    parameters: cloneParameters(plugin.defaultParameters, overrides.parameters),
     assetRefs: cloneRefs(overrides.assetRefs || {}),
     result: { ...(overrides.result || {}) },
     history: overrides.history ? overrides.history.map((item) => ({ ...item, assetRefs: cloneRefs(item.assetRefs || {}) })) : [],
     status: overrides.status ?? 'idle',
     error: overrides.error,
+  }
+}
+
+function cloneParameters(
+  defaults: ProductionNodeParameters,
+  overrides: ProductionNodeParameters | undefined,
+): ProductionNodeParameters {
+  const parameters = { ...defaults, ...(overrides || {}) }
+  return {
+    ...parameters,
+    referenceImages: parameters.referenceImages ? [...parameters.referenceImages] : undefined,
   }
 }
 

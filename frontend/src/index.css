@@ -74,6 +74,7 @@ button, input, textarea { font: inherit; }
 .provider-model-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .provider-model-card { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #f7f8f9; border: 1px solid #dce0e3; border-radius: 7px; }
 .provider-model-card > .ant-typography { max-width: 100%; }
+.provider-model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .canvas-page { height: 100vh; min-height: 600px; display: flex; flex-direction: column; overflow: hidden; background: #e7eaec; }
 .canvas-topbar { position: relative; z-index: 12; min-height: 68px; display: flex; align-items: center; gap: 14px; padding: 10px 16px; color: var(--ink); background: rgb(255 255 255 / 97%); box-shadow: 0 2px 14px rgb(34 38 41 / 9%); }
@@ -89,6 +90,7 @@ button, input, textarea { font: inherit; }
 .canvas-run-progress-copy { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
 .canvas-run-progress-copy strong { flex: 0 0 auto; font-size: 13px; }
 .canvas-run-progress-copy span { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.canvas-run-progress-copy:only-child { grid-column: 1 / -1; }
 .canvas-run-progress .ant-progress { min-width: 0; margin: 0; }
 .canvas-body { min-height: 0; flex: 1; display: flex; gap: 8px; padding: 8px; }
 .canvas-main { min-width: 0; flex: 1; position: relative; overflow: hidden; background: var(--canvas); border: 1px solid #d2d7db; border-radius: 8px; }
@@ -101,6 +103,7 @@ button, input, textarea { font: inherit; }
 .inspector-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .inspector-heading h2 { max-width: 250px; margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 19px; letter-spacing: 0; }
 .inspector-status-row { min-height: 30px; display: flex; align-items: center; gap: 8px; margin-bottom: 17px; padding: 8px 10px; background: #f4f5f6; border: 1px solid #e0e3e6; border-radius: 7px; }
+.inspector-task-id { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .inspector-inline-fields { width: 100%; display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 10px; }
 .model-capability-summary { min-width: 0; display: flex; flex-direction: column; gap: 8px; margin: -4px 0 14px; padding: 10px; overflow: hidden; background: #f5f6f7; border: 1px solid #d7dce0; border-radius: 7px; }
 .model-capability-summary > .ant-typography { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -131,6 +134,9 @@ button, input, textarea { font: inherit; }
 .node-error-message { margin-top: 14px; padding: 11px 12px; color: #8e3734; background: #fff2f0; border: 1px solid #efc8c4; border-radius: 7px; line-height: 1.5; }
 .node-stopped-message { margin-top: 14px; padding: 11px 12px; color: #65512f; background: #fff9ee; border: 1px solid #e7d7ba; border-radius: 7px; line-height: 1.5; }
 .inspector-actions { position: sticky; bottom: -22px; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; margin: 22px -22px -22px; padding: 14px 22px 18px; background: rgb(255 255 255 / 96%); box-shadow: 0 -8px 18px rgb(34 38 41 / 7%); backdrop-filter: blur(10px); }
+.ui-error-boundary { width: 100%; min-height: 160px; display: grid; place-content: center; justify-items: center; gap: 9px; padding: 24px; color: #8e3734; background: #fff5f3; border: 1px solid #efc8c4; border-radius: 8px; text-align: center; }
+.ui-error-boundary span { max-width: 520px; color: #6f5552; overflow-wrap: anywhere; }
+.ui-error-boundary button { padding: 7px 13px; color: #fff; background: #9b4943; border: 0; border-radius: 6px; cursor: pointer; }
 
 .node-tool-palette { display: flex; align-items: center; gap: 4px; margin: 12px !important; padding: 7px; background: rgb(255 255 255 / 96%); border: 1px solid #d4d9dd; border-radius: 8px; box-shadow: 0 8px 24px rgb(34 38 41 / 11%); }
 .node-tool-palette .ant-btn { height: 34px; }
@@ -144,9 +150,13 @@ button, input, textarea { font: inherit; }
 .workflow-list-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workflow-list-main span { color: var(--muted); font-size: 12px; }
 
-.canvas-node { width: 264px; min-height: 148px; overflow: hidden; background: #fff; border: 1px solid #cbd1d6; border-radius: 8px; box-shadow: 0 6px 18px rgb(34 38 41 / 10%); transition: box-shadow 140ms ease, border-color 140ms ease; }
+.canvas-node { width: 264px; min-height: 148px; overflow: hidden; background: #fff; border: 1px solid #cbd1d6; border-radius: 8px; box-shadow: 0 6px 18px rgb(34 38 41 / 10%); transition: background-color 140ms ease, box-shadow 140ms ease, border-color 140ms ease; }
 .canvas-node:hover { border-color: #abb4bc; box-shadow: 0 9px 24px rgb(34 38 41 / 13%); }
 .canvas-node.is-selected { border-color: #4868a7; box-shadow: 0 0 0 3px rgb(72 104 167 / 17%), 0 9px 24px rgb(34 38 41 / 13%); }
+.canvas-node.is-related { background: #edf3ff; border: 2px solid #5f7fb5; box-shadow: 0 0 0 4px rgb(72 104 167 / 18%), 0 12px 28px rgb(34 38 41 / 16%); }
+.canvas-node.is-related .canvas-node-empty { background: #e3ecfb; border-color: #b4c5df; }
+.canvas-node.is-related .canvas-node-media { border-color: #9eb3d3; box-shadow: 0 0 0 2px rgb(72 104 167 / 12%); }
+.canvas-edge-related { stroke: #4868a7; stroke-width: 3; }
 .canvas-node-header { display: flex; align-items: center; gap: 8px; padding: 11px 12px 7px; color: #6c747b; font-size: 11px; letter-spacing: 0; }
 .canvas-node-icon { width: 28px; height: 28px; display: grid; place-items: center; color: #fff; background: #68737c; border-radius: 6px; font-size: 14px; }
 .canvas-node-text .canvas-node-icon { background: #5673a9; }

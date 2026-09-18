@@ -180,7 +180,7 @@ export class VideoGenerationService {
     reporter: TaskReporter,
   ): Promise<Record<string, unknown>> {
     this.mark(id, 'processing');
-    reporter.progress(5, '正在提交视频生成');
+    reporter.stage('正在提交视频生成');
     try {
       this.log.audit?.('video.provider.started', { generationId: id, provider: config.provider, model });
       let result = await submitVideoProvider(adapter, {
@@ -241,7 +241,8 @@ export class VideoGenerationService {
       reporter.throwIfCancelled();
       if (attempt > 0) await wait(5_000, reporter.signal);
       const result = await pollVideoProvider(adapter, { config, log: this.log, db: this.db }, taskId, reporter.signal, model);
-      reporter.progress(Math.min(95, result.progress ?? 10 + Math.round((attempt / maxAttempts) * 80)), '正在生成视频');
+      if (typeof result.progress === 'number') reporter.progress(result.progress, '正在生成视频');
+      else reporter.stage('正在生成视频');
       if (result.status === 'completed') return result;
       if (result.status === 'failed') throw new Error(result.error || '视频生成失败');
       this.mark(id, 'processing');
@@ -256,7 +257,7 @@ export class VideoGenerationService {
     storyboardId: number | null,
     reporter: TaskReporter,
   ): Promise<Record<string, unknown>> {
-    reporter.progress(96, '供应商生成完成，正在保存视频到本地');
+    reporter.stage('供应商生成完成，正在保存视频到本地');
     const archived = await this.mediaArchive.archiveRemote({
       projectId,
       generationId: id,

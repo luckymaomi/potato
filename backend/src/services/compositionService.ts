@@ -32,10 +32,10 @@ export class CompositionService {
       try {
         this.mark(generationId, 'processing');
         if (!videoUrls.length) throw new Error('没有显式连入可合成的视频');
-        reporter.progress(10, '正在准备视频片段');
+        reporter.stage('正在准备视频片段');
         await fs.promises.mkdir(path.dirname(output), { recursive: true });
         await fs.promises.writeFile(manifest, videoUrls.map((url) => `file '${escapeConcatPath(resolveVideoSource(url, root))}'`).join('\n'), { encoding: 'utf8', flag: 'wx' });
-        reporter.progress(25, '正在合成整集');
+        reporter.stage('正在合成整集');
         await runFfmpeg(manifest, output, reporter.signal);
         reporter.throwIfCancelled();
         const stat = await fs.promises.stat(output);
@@ -59,7 +59,6 @@ export class CompositionService {
           localPath: relativePath,
           fileSize: stat.size,
         });
-        reporter.progress(100, '整集合成完成');
         return { video_url: videoUrl, local_path: relativePath, episode_id: episodeId, generation_id: generationId };
       } catch (error) {
         await fs.promises.rm(output, { force: true }).catch(() => undefined);
