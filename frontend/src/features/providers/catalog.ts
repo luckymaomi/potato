@@ -50,7 +50,23 @@ export function modelCapabilityLabels(model: ProviderModel): string[] {
   else labels.push('不支持参考图')
   if (model.capabilities.aspectRatios === null) labels.push('画幅比例未知')
   else if (model.capabilities.aspectRatios.length) labels.push(`画幅 ${model.capabilities.aspectRatios.join('、')}`)
+  if (model.kind === 'video') {
+    if (model.capabilities.billingMode === 'duration') labels.push('按时长')
+    else if (model.capabilities.billingMode === 'per-request') labels.push('按次')
+    else labels.push('时长能力未知')
+    if (model.capabilities.supportedDurations?.length) labels.push(`时长 ${model.capabilities.supportedDurations.join('、')} 秒`)
+  }
   return labels
+}
+
+export function modelSupportsDuration(model: ProviderModel | undefined): boolean {
+  return model?.kind === 'video' && model.capabilities.supportsDuration === true
+}
+
+export function modelDurationOptions(model: ProviderModel | undefined): number[] {
+  return model?.capabilities.supportedDurations?.length
+    ? model.capabilities.supportedDurations
+    : modelSupportsDuration(model) ? [4, 6, 8, 10, 12, 15] : []
 }
 
 export function modelCapabilitySummary(model: ProviderModel): string {

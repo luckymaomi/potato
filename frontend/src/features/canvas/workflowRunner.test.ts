@@ -4,7 +4,7 @@ import type { Project } from '../../types/domain'
 import { createProductionNodeData } from '../production/catalog'
 import type { CanvasNode } from './canvasTypes'
 import { dependencyRunNodeIds, incompleteRunNodeIds } from './canvasGraph'
-import { CanvasRunSession } from './runSession'
+import { CanvasRunSession, CanvasRunStoppedError } from './runSession'
 import { runWorkflow, WorkflowRunTerminatedError } from './workflowRunner'
 
 function node(id: string): CanvasNode {
@@ -62,6 +62,124 @@ describe('画布运行编排', () => {
       { source: image.id, target: video.id },
     ]
     expect(incompleteRunNodeIds(nodes.map((item) => item.id), nodes, edges)).toEqual(['image', 'video'])
+  })
+
+  it('手动标记完成的节点在所有运行范围中跳过，关闭标记后恢复执行', async () => {
+    const skipped = node('skipped')
+    skipped.data.manuallyCompleted = true
+    const next = node('next')
+    next.data = createProductionNodeData('script', { parameters: { text: '只使用自己的面板内容' } })
+    const nodes = [skipped, next]
+    const executeNode = vi.fn().mockResolvedValue(undefined)
+    const project: Project = { id: 1, title: '测试', metadata: {}, canvas_revision: 0 }
+    const edges = [{ id: 'skipped-next', source: skipped.id, target: next.id }]
+
+    expect(incompleteRunNodeIds(nodes.map((item) => item.id), nodes, edges)).toEqual(['next'])
+    await expect(runWorkflow({
+      ids: nodes.map((item) => item.id),
+      label: '整个画布',
+      session: new CanvasRunSession(),
+      getState: () => ({ project, nodes, edges }),
+      updateNode: () => undefined,
+      executeNode,
+    })).resolves.toEqual({ completed: 1 })
+    expect(executeNode).toHaveBeenCalledOnce()
+    expect(executeNode.mock.calls[0]?.[0].id).toBe('next')
+    expect(executeNode.mock.calls[0]?.[4]).toMatchObject({ texts: [], images: [], videos: [] })
+
+    executeNode.mockClear()
+    await expect(runWorkflow({
+      ids: [skipped.id],
+      label: '当前节点',
+      session: new CanvasRunSession(),
+      getState: () => ({ project, nodes, edges }),
+      updateNode: () => undefined,
+      executeNode,
+    })).resolves.toEqual({ completed: 0 })
+    expect(executeNode).not.toHaveBeenCalled()
+
+    skipped.data.manuallyCompleted = false
+    expect(incompleteRunNodeIds([skipped.id], nodes, edges)).toEqual([skipped.id])
+  })
+
+  it('已有成功结果的节点重跑停止后继续保持完成并复用旧结果', async () => {
+    const script = node('script')
+    script.data.status = 'completed'
+    script.data.result = { text: '已经写好的剧本' }
+    script.data.execution = {
+      message: '已完成并保存到本地',
+      startedAt: '2026-09-18T00:00:00.000Z',
+      finishedAt: '2026-09-18T00:01:05.000Z',
+    }
+    const project: Project = { id: 1, title: '测试', metadata: {}, canvas_revision: 0 }
+    const updateNode = (id: string, data: Partial<CanvasNode['data']>) => {
+      if (id === script.id) script.data = {
+        ...script.data,
+        ...data,
+        result: data.result ? { ...script.data.result, ...data.result } : script.data.result,
+        assetRefs: data.assetRefs ? { ...script.data.assetRefs, ...data.assetRefs } : script.data.assetRefs,
+      }
+    }
+
+    await expect(runWorkflow({
+      ids: [script.id],
+      label: '当前节点',
+      session: new CanvasRunSession(),
+      getState: () => ({ project, nodes: [script], edges: [] }),
+      updateNode,
+      executeNode: vi.fn(async (_node: CanvasNode, _project: Project, update: (id: string, data: Partial<CanvasNode['data']>) => void) => {
+        update(script.id, { result: { ...script.data.result, taskId: 'new-task', provider: 'new-provider' } })
+        throw new CanvasRunStoppedError()
+      }),
+    })).rejects.toBeInstanceOf(CanvasRunStoppedError)
+
+    expect(script.data.status).toBe('completed')
+    expect(script.data.result.text).toBe('已经写好的剧本')
+    expect(script.data.result.taskId).toBeUndefined()
+    expect(script.data.result.provider).toBeUndefined()
+    expect(script.data.execution?.message).toContain('继续使用已有结果')
+    expect(script.data.execution?.startedAt).toBe('2026-09-18T00:00:00.000Z')
+    expect(script.data.execution?.finishedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/u)
+  })
+
+  it('已有成功结果的节点重跑失败后保留完成态和失败提示', async () => {
+    const script = node('script')
+    script.data.status = 'completed'
+    script.data.result = { text: '已经写好的剧本' }
+    script.data.execution = {
+      message: '已完成并保存到本地',
+      startedAt: '2026-09-18T00:00:00.000Z',
+      finishedAt: '2026-09-18T00:01:05.000Z',
+    }
+    const project: Project = { id: 1, title: '测试', metadata: {}, canvas_revision: 0 }
+    const updateNode = (id: string, data: Partial<CanvasNode['data']>) => {
+      if (id === script.id) script.data = {
+        ...script.data,
+        ...data,
+        result: data.result ? { ...script.data.result, ...data.result } : script.data.result,
+        assetRefs: data.assetRefs ? { ...script.data.assetRefs, ...data.assetRefs } : script.data.assetRefs,
+      }
+    }
+
+    await expect(runWorkflow({
+      ids: [script.id],
+      label: '当前节点',
+      session: new CanvasRunSession(),
+      getState: () => ({ project, nodes: [script], edges: [] }),
+      updateNode,
+      executeNode: vi.fn(async (_node: CanvasNode, _project: Project, update: (id: string, data: Partial<CanvasNode['data']>) => void) => {
+        update(script.id, { result: { ...script.data.result, taskId: 'new-task', model: 'new-model' } })
+        throw new Error('供应商暂时不可用')
+      }),
+    })).rejects.toBeInstanceOf(WorkflowRunTerminatedError)
+
+    expect(script.data.status).toBe('completed')
+    expect(script.data.result.text).toBe('已经写好的剧本')
+    expect(script.data.result.taskId).toBeUndefined()
+    expect(script.data.result.model).toBeUndefined()
+    expect(script.data.error).toContain('继续使用已有结果')
+    expect(script.data.execution?.startedAt).toBe('2026-09-18T00:00:00.000Z')
+    expect(script.data.execution?.finishedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/u)
   })
 
   it('任一错误都会终止整个运行范围，后续节点不再提交', async () => {

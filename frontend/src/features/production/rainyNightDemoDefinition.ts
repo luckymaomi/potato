@@ -1,18 +1,16 @@
 export const RAINY_NIGHT_DEMO = {
-  templateId: 'agnes-rainy-night-delivery-demo',
-  version: 15,
+  templateId: 'rainy-night-delivery-demo',
+  version: 19,
   project: {
-    title: '《雨夜外卖》· Agnes 媒体生成 Demo',
+    title: '《雨夜外卖》工作流 Demo',
     description: '暴雨夜，外卖员小林送错外卖，闯进女总裁苏晴的办公室，两人因此认识。',
     genre: '都市偶遇微短剧',
     style: 'realistic',
   },
   media: {
-    provider: 'agnes',
-    imageModel: 'agnes-image-2.5-flash',
-    videoModel: 'agnes-video-2.5-flash',
     aspectRatio: '9:16',
-    duration: 4,
+    storyboardAspectRatio: '1:1',
+    duration: 15,
   },
   story: '暴雨夜，外卖员小林送错外卖，闯进女总裁苏晴的办公室，两人因此认识。',
   script: `第一场：雨夜街道
@@ -93,9 +91,9 @@ export const RAINY_NIGHT_DEMO = {
     ...shot,
     action: shot.description,
     dialogue: '',
-    image_prompt: `${shot.description} 9:16竖屏电影分镜，写实风格。`,
-    video_prompt: `${shot.description} 镜头自然运动，人物动作连贯，时长4秒。`,
-    duration: 4,
+    image_prompt: `${shot.description} 九宫格故事板，3x3九宫格分镜构图，1:1方形画幅，九个连续镜头讲述同一段情节，写实风格。`,
+    video_prompt: `${shot.description} 镜头自然运动，人物动作连贯。`,
+    duration: 15,
   })),
 } as const
 

@@ -13,6 +13,12 @@ export interface TextGenerationInput {
   signal?: AbortSignal;
 }
 
+export interface TextGenerationResult {
+  text: string;
+  provider: string;
+  model: string;
+}
+
 export class TextGenerationService {
   constructor(
     private readonly configs: AiConfigService,
@@ -20,7 +26,7 @@ export class TextGenerationService {
     private readonly log: Logger,
   ) {}
 
-  async generate(input: TextGenerationInput): Promise<string> {
+  async generate(input: TextGenerationInput): Promise<TextGenerationResult> {
     const config = this.configs.select('text', input.provider, input.model);
     const model = input.model || config.default_model || config.model[0];
     if (!model) throw new ValidationError('文本配置没有可用模型');
@@ -36,6 +42,6 @@ export class TextGenerationService {
       maxTokens: input.maxTokens,
       signal: input.signal,
     });
-    return result.text;
+    return { text: result.text, provider: config.provider, model };
   }
 }

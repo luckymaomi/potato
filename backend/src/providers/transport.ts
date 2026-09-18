@@ -1,3 +1,4 @@
+import { Agent, type Dispatcher } from 'undici';
 import { ProviderError } from './errors';
 
 export type ProviderFetch = typeof fetch;
@@ -11,6 +12,7 @@ export interface ProviderHttpRequest {
   timeoutMs?: number;
   maxAttempts?: number;
   retryDelayMs?: number;
+  retryNetworkErrors?: boolean;
   signal?: AbortSignal;
 }
 
@@ -21,24 +23,36 @@ export interface ProviderHttpResponse<T = unknown> {
 }
 
 const DEFAULT_MAX_ATTEMPTS = 6;
-export const DEFAULT_PROVIDER_TIMEOUT_MS = 600_000;
+export const NO_PROVIDER_TIMEOUT_MS = 0;
+
+export function providerDispatcherOptions(timeoutMs: number): Pick<Agent.Options, 'headersTimeout' | 'bodyTimeout'> {
+  return {
+    headersTimeout: timeoutMs,
+    bodyTimeout: timeoutMs,
+  };
+}
 
 export async function requestProviderJson<T = unknown>(
   request: ProviderHttpRequest,
   fetchImpl: ProviderFetch = fetch,
 ): Promise<ProviderHttpResponse<T>> {
-  const timeoutMs = request.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
+  const timeoutMs = request.timeoutMs ?? NO_PROVIDER_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error('provider request timeout')), timeoutMs);
+  const timeout = timeoutMs > 0
+    ? setTimeout(() => controller.abort(new Error('provider request timeout')), timeoutMs)
+    : undefined;
   const abortFromCaller = () => controller.abort(request.signal?.reason);
-  request.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  if (request.signal?.aborted) abortFromCaller();
+  else request.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const dispatcher = fetchImpl === fetch ? new Agent(providerDispatcherOptions(timeoutMs)) : undefined;
 
   try {
     const maxAttempts = Math.max(1, request.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       let response: Response;
+      let raw: string;
       try {
-        response = await fetchImpl(request.url, {
+        const init: RequestInit & { dispatcher?: Dispatcher } = {
           method: request.method ?? 'POST',
           headers: request.headers,
           body: request.body === undefined
@@ -47,19 +61,27 @@ export async function requestProviderJson<T = unknown>(
               ? request.body
               : JSON.stringify(request.body),
           signal: controller.signal,
-        });
+          ...(dispatcher ? { dispatcher } : {}),
+        };
+        response = await fetchImpl(request.url, init);
+        raw = await response.text();
       } catch (error) {
-        const timedOut = controller.signal.aborted && !request.signal?.aborted;
-        throw new ProviderError({
+        if (request.signal?.aborted) throw request.signal.reason ?? error;
+        const timedOut = timeoutMs > 0 && controller.signal.aborted && !request.signal?.aborted;
+        const providerError = new ProviderError({
           providerId: request.providerId,
           code: timedOut ? 'timeout' : 'network',
           message: timedOut ? `供应商请求超时（${timeoutMs}ms）` : `供应商网络请求失败：${error instanceof Error ? error.message : String(error)}`,
           retryable: true,
           cause: error,
         });
+        if (request.retryNetworkErrors && !timedOut && attempt + 1 < maxAttempts) {
+          await wait(networkRetryDelay(attempt, request.retryDelayMs), controller.signal);
+          continue;
+        }
+        throw providerError;
       }
 
-      const raw = await response.text();
       let data: T;
       try {
         data = JSON.parse(raw) as T;
@@ -92,9 +114,14 @@ export async function requestProviderJson<T = unknown>(
     }
     throw new ProviderError({ providerId: request.providerId, code: 'network', message: '供应商请求未完成' });
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
     request.signal?.removeEventListener('abort', abortFromCaller);
+    await dispatcher?.close().catch(() => undefined);
   }
+}
+
+function networkRetryDelay(attempt: number, configured?: number): number {
+  return Math.min(30_000, Math.max(0, configured ?? 5_000) * (2 ** attempt));
 }
 
 function retryDelay(response: Response, attempt: number, configured?: number): number {

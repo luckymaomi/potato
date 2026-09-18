@@ -1,12 +1,13 @@
 import type { ProviderRegistry, VideoProviderResult } from '../providers';
 import { pollVideoProvider, submitVideoProvider } from '../providers';
-import type { AppConfig, Logger, SQLiteDatabase } from '../types/core';
+import type { Logger, SQLiteDatabase } from '../types/core';
 import { parseJson } from '../types/core';
 import { AiConfigService } from './aiConfigService';
 import { TaskService, type TaskReporter } from './taskService';
 import { NotFoundError, ValidationError } from '../errors';
 import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveError, MediaArchiveService } from './mediaArchiveService';
+import { ProviderError } from '../providers/errors';
 
 export interface VideoGenerationInput {
   dramaId: number;
@@ -57,7 +58,6 @@ export interface VideoGenerationRow {
 export class VideoGenerationService {
   constructor(
     private readonly db: SQLiteDatabase,
-    private readonly appConfig: AppConfig,
     private readonly mediaReferences: MediaReferenceService,
     private readonly mediaArchive: MediaArchiveService,
     private readonly configs: AiConfigService,
@@ -106,6 +106,8 @@ export class VideoGenerationService {
     });
     const model = input.model || aiConfig.default_model || aiConfig.model[0];
     if (!model) throw new ValidationError('视频配置没有可用模型');
+    const modelSnapshot = this.configs.models(aiConfig.provider, 'video').find((entry) => entry.id === model);
+    const duration = modelSnapshot?.capabilities.supportsDuration ? input.duration : undefined;
     const aspectRatio = this.configs.resolveAspectRatio('video', aiConfig.provider, model, input.aspectRatio);
     const adapter = this.registry.require({ kind: 'video', config: aiConfig, model });
     const now = new Date().toISOString();
@@ -120,7 +122,7 @@ export class VideoGenerationService {
       aiConfig.provider,
       input.prompt,
       model,
-      input.duration ?? null,
+      duration ?? null,
       aspectRatio,
       input.resolution ?? null,
       input.image ?? null,
@@ -139,12 +141,12 @@ export class VideoGenerationService {
       model,
       mode,
       aspectRatio,
-      duration: input.duration,
+      duration,
       referenceCount: references.length,
       prompt: input.prompt,
     });
     const taskId = this.tasks.run('video_generation', String(id), async (reporter) =>
-      this.execute(id, { ...input, aspectRatio }, model, aiConfig, adapter, reporter));
+      this.execute(id, { ...input, duration, aspectRatio }, model, aiConfig, adapter, reporter));
     this.db.prepare('UPDATE video_generations SET task_id = ?, updated_at = ? WHERE id = ?').run(taskId, new Date().toISOString(), id);
     return this.get(id) as VideoGenerationRow;
   }
@@ -235,19 +237,34 @@ export class VideoGenerationService {
     model: string,
     reporter: TaskReporter,
   ): Promise<VideoProviderResult> {
-    const timeoutMinutes = this.appConfig.video?.generation_timeout_minutes ?? 30;
-    const maxAttempts = Math.max(1, Math.ceil(timeoutMinutes * 12));
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    for (let attempt = 0; ; attempt += 1) {
       reporter.throwIfCancelled();
       if (attempt > 0) await wait(5_000, reporter.signal);
-      const result = await pollVideoProvider(adapter, { config, log: this.log, db: this.db }, taskId, reporter.signal, model);
+      let result: VideoProviderResult;
+      try {
+        result = await pollVideoProvider(adapter, { config, log: this.log, db: this.db }, taskId, reporter.signal, model);
+      } catch (error) {
+        reporter.throwIfCancelled();
+        if (error instanceof ProviderError && error.retryable) {
+          this.log.audit?.('provider.video.poll.retry', {
+            provider: adapter.descriptor.id,
+            taskId,
+            attempt: attempt + 1,
+            code: error.code,
+            message: error.message,
+          });
+          reporter.stage('供应商状态查询暂时失败，正在继续等待');
+          this.mark(id, 'processing');
+          continue;
+        }
+        throw error;
+      }
       if (typeof result.progress === 'number') reporter.progress(result.progress, '正在生成视频');
       else reporter.stage('正在生成视频');
       if (result.status === 'completed') return result;
       if (result.status === 'failed') throw new Error(result.error || '视频生成失败');
       this.mark(id, 'processing');
     }
-    throw new Error(`视频生成超过 ${timeoutMinutes} 分钟，已停止轮询`);
   }
 
   private async saveCompleted(

@@ -78,7 +78,7 @@ describe('插件化短剧生产核心', () => {
       result: {},
       status: 'idle',
     })
-    expect(Object.keys(data).sort()).toEqual(['assetRefs', 'error', 'history', 'parameters', 'result', 'role', 'status', 'title'])
+    expect(Object.keys(data).sort()).toEqual(['assetRefs', 'error', 'execution', 'history', 'manuallyCompleted', 'parameters', 'result', 'role', 'status', 'title'])
   })
 
   it('同一个资产图插件同时支持文生图、参考图生成和文字加参考图生成', () => {
@@ -104,7 +104,7 @@ describe('插件化短剧生产核心', () => {
     const plugin = productionPlugin('shot-video')
     expect(plugin.methods).toEqual(['text-to-video', 'image-to-video'])
     const data = createProductionNodeData('shot-video', {
-      parameters: { method: 'text-to-video', prompt: '人物转身离开', provider: 'pearapi', model: 'grok-imagine-video' },
+      parameters: { method: 'text-to-video', prompt: '人物转身离开', provider: 'pearapi', model: 'grok-imagine-video-1.5' },
     })
     expect(plugin.buildCommand({
       project,
@@ -138,7 +138,7 @@ describe('插件化短剧生产核心', () => {
     expect(productionPlugin(nodes[4]?.data.role ?? 'scene-extraction').inputs.map((item) => item.kind)).toContain('script')
   })
 
-  it('起步模板和 Agnes 预写 Demo 都投影为分层有向无环图', () => {
+  it('起步模板和供应商无关的预写 Demo 都投影为分层有向无环图', () => {
     const starter = createStarterWorkspace(project)
     const demo = createDemoWorkspace(project)
     expectDagWorkspace(starter, 12)
@@ -154,11 +154,8 @@ describe('插件化短剧生产核心', () => {
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'character-asset').map((node) => node.data.parameters.assetIndex)).toEqual([0, 1, 2, 3])
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'scene-asset').map((node) => node.data.parameters.assetIndex)).toEqual([0, 1, 2])
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'prop-asset').map((node) => node.data.parameters.assetIndex)).toEqual([0, 1, 2])
-    expect(demo.workspace_nodes.filter((node) => ['character-asset', 'scene-asset', 'prop-asset', 'storyboard-image'].includes(node.data.role)).every((node) => (
-      node.data.parameters.provider === 'agnes' && node.data.parameters.model === 'agnes-image-2.5-flash'
-    ))).toBe(true)
-    expect(demo.workspace_nodes.filter((node) => node.data.role === 'shot-video').every((node) => (
-      node.data.parameters.provider === 'agnes' && node.data.parameters.model === 'agnes-video-2.5-flash'
+    expect(demo.workspace_nodes.every((node) => (
+      node.data.parameters.provider === undefined && node.data.parameters.model === undefined
     ))).toBe(true)
     expect(demo.workspace_nodes.filter((node) => node.data.role === 'story' || node.data.role === 'script').every((node) => (
       node.data.status === 'completed' && Boolean(node.data.result.text)
@@ -218,6 +215,13 @@ describe('插件化短剧生产核心', () => {
       .map((edge) => workspace.workspace_nodes.find((node) => node.id === edge.source)?.data.title)
       .filter(Boolean)
     expect(workspace.workspace_nodes.some((node) => String(node.data.role) === 'generic-text')).toBe(false)
+    const storyboardImages = workspace.workspace_nodes.filter((node) => node.data.role === 'storyboard-image')
+    expect(storyboardImages).toHaveLength(10)
+    expect(storyboardImages.every((node) => node.data.parameters.aspectRatio === '1:1')).toBe(true)
+    expect(storyboardImages.every((node) => String(node.data.parameters.prompt).includes('九宫格'))).toBe(true)
+    expect(workspace.workspace_nodes.filter((node) => ['character-asset', 'scene-asset', 'prop-asset'].includes(node.data.role)).every((node) => node.data.parameters.aspectRatio === '9:16')).toBe(true)
+    expect(workspace.workspace_nodes.filter((node) => node.data.role === 'shot-video').every((node) => node.data.parameters.aspectRatio === '9:16')).toBe(true)
+    expect(workspace.workspace_nodes.filter((node) => node.data.role === 'shot-video').every((node) => node.data.parameters.duration === 15)).toBe(true)
     expect(workspace.workspace_nodes.find((node) => node.id === 'rain-delivery-shot-6-image')?.data.parameters.prompt).toContain('办公室门口全景')
     expect(workspace.workspace_nodes.find((node) => node.id === 'rain-delivery-shot-10-image')?.data.parameters.prompt).toContain('小林转身离开')
     for (const index of [5, 6, 8, 9]) {
@@ -260,9 +264,9 @@ describe('插件化短剧生产核心', () => {
     const initialized: Project = {
       ...project,
       id: 19,
-      title: '《雨夜外卖》· Agnes 媒体生成 Demo',
+      title: '《雨夜外卖》工作流 Demo',
       canvas_revision: 4,
-      metadata: { aspect_ratio: '9:16', demo: true, demo_provider: 'agnes', demo_version: DEMO_VERSION, canvas_layout: { workspace_nodes: Array.from({ length: 36 }, () => ({})) } },
+      metadata: { aspect_ratio: '9:16', demo: true, demo_version: DEMO_VERSION, canvas_layout: { workspace_nodes: Array.from({ length: 36 }, () => ({})) } },
       characters: Array.from({ length: 4 }, (_, index) => ({ id: index + 1, drama_id: 19, name: `角色${index + 1}` })),
       scenes: Array.from({ length: 3 }, (_, index) => ({ id: index + 1, drama_id: 19, location: `场景${index + 1}` })),
       props: Array.from({ length: 3 }, (_, index) => ({ id: index + 1, drama_id: 19, name: `道具${index + 1}` })),

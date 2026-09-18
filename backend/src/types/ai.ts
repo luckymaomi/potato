@@ -2,8 +2,15 @@ import type { JsonValue } from './core';
 import type { ProviderCapabilities, ProviderModel } from '../providers/contracts';
 
 export type AiServiceType = 'text' | 'image' | 'video';
+
+export interface AiModelPreset {
+  provider: string;
+  model: string;
+}
+
+export type AiModelPresets = Record<AiServiceType, AiModelPreset | null>;
+
 export interface AiConfigSettings {
-  task_type?: 'sync' | 'async';
   [key: string]: JsonValue | undefined;
 }
 

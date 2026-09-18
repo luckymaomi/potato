@@ -4,6 +4,7 @@ import {
   aspectRatioLabel,
   aspectRatiosFor,
   modelCapabilityLabels,
+  modelSupportsDuration,
   modelSupportsAspectRatio,
   modelSupportsMode,
   nodeServiceType,
@@ -74,5 +75,25 @@ describe('动态模型目录选择', () => {
       synchronized_at: '2026-09-17T00:00:00.000Z',
     }
     expect(modelCapabilityLabels(model)).toEqual(['图生图', '参考图上限未知', '画幅比例未知'])
+  })
+
+  it('区分按次视频与按时长视频，不为未知能力伪造时长', () => {
+    const perRequest: ProviderModel = {
+      provider: 'pearapi', id: 'grok-imagine-video-1.5', label: 'Grok Imagine Video 1.5', kind: 'video',
+      capabilities: { modes: ['text-to-video', 'image-to-video'], maxReferenceImages: 1, aspectRatios: ['16:9'], billingMode: 'per-request', supportsDuration: true, supportedDurations: [4, 6, 8, 10, 12, 15], source: 'provider' },
+      synchronized_at: '2026-09-18T00:00:00.000Z',
+    }
+    const duration: ProviderModel = {
+      provider: 'agnes', id: 'agnes-video-2.5-flash', label: 'Agnes Video 2.5 Flash', kind: 'video',
+      capabilities: { modes: ['text-to-video', 'image-to-video'], maxReferenceImages: 5, aspectRatios: ['16:9'], billingMode: 'duration', supportsDuration: true, supportedDurations: null, source: 'adapter' },
+      synchronized_at: '2026-09-18T00:00:00.000Z',
+    }
+  const unknown: ProviderModel = { ...perRequest, id: 'unknown-video', capabilities: { ...perRequest.capabilities, billingMode: 'unknown', supportsDuration: false, supportedDurations: null } }
+    expect(modelSupportsDuration(perRequest)).toBe(true)
+    expect(modelSupportsDuration(duration)).toBe(true)
+    expect(modelSupportsDuration(unknown)).toBe(false)
+    expect(modelCapabilityLabels(perRequest)).toContain('按次')
+    expect(modelCapabilityLabels(duration)).toContain('按时长')
+    expect(modelCapabilityLabels(unknown)).toContain('时长能力未知')
   })
 })

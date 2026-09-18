@@ -107,6 +107,12 @@ CREATE TABLE IF NOT EXISTS provider_model_catalog (
   synchronized_at TEXT NOT NULL,
   PRIMARY KEY(provider, model_id, kind)
 );
+CREATE TABLE IF NOT EXISTS ai_model_presets (
+  service_type TEXT PRIMARY KEY CHECK(service_type IN ('text', 'image', 'video')),
+  provider TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS async_tasks (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL,

@@ -1,5 +1,13 @@
 export type ServiceType = 'text' | 'image' | 'video'
 export type ProviderModelMode = 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video'
+export type VideoBillingMode = 'duration' | 'per-request' | 'unknown'
+
+export interface AiModelPreset {
+  provider: string
+  model: string
+}
+
+export type AiModelPresets = Record<ServiceType, AiModelPreset | null>
 
 export interface Episode {
   id: number
@@ -104,6 +112,9 @@ export interface ProviderModel {
     modes: ProviderModelMode[]
     maxReferenceImages: number | null
     aspectRatios: string[] | null
+    billingMode?: VideoBillingMode
+    supportsDuration?: boolean
+    supportedDurations?: number[] | null
     source: 'provider' | 'adapter' | 'unknown'
   }
   synchronized_at: string

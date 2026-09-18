@@ -69,6 +69,7 @@ import type { CanvasSaveState } from './canvasSaveCoordinator'
 import { downstreamNodeIds, incompleteRunNodeIds } from './canvasGraph'
 import { CanvasRunSession, CanvasRunStoppedError } from './runSession'
 import { runWorkflow, WorkflowRunTerminatedError, type WorkflowRunProgress } from './workflowRunner'
+import { GenerationElapsedTime } from './GenerationElapsedTime'
 
 const nodeTypes = { canvas: CanvasNodeView }
 const edgeTypes = { default: CanvasEdgeView }
@@ -205,9 +206,10 @@ export function CanvasPage() {
     }
     const state = useCanvasStore.getState()
     if (!state.project) return
-    const uniqueIds = [...new Set(ids)].filter((nodeId) => state.nodes.some((node) => node.id === nodeId))
+    const candidateIds = [...new Set(ids)].filter((nodeId) => state.nodes.some((node) => node.id === nodeId))
+    const uniqueIds = candidateIds.filter((nodeId) => state.nodes.find((node) => node.id === nodeId)?.data.manuallyCompleted !== true)
     if (!uniqueIds.length) {
-      message.info('当前运行范围没有节点')
+      message.info(candidateIds.length ? '当前运行范围中的节点均已标记完成' : '当前运行范围没有节点')
       return
     }
     const session = new CanvasRunSession()
@@ -349,9 +351,10 @@ export function CanvasPage() {
     if (!finalizeEpisodeId) { message.info('请选择要合成的剧集'); return }
     if (runSessionRef.current) { message.info('已有任务正在运行，请先停止或等待完成'); return }
     const session = new CanvasRunSession()
+    const startedAt = new Date().toISOString()
     runSessionRef.current = session
     setFinalizing(true)
-    setRunProgress({ completed: 0, total: 1, currentIndex: 1, currentNodeId: '', currentTitle: '整集合成', stage: 'running', taskMessage: '正在提交合成任务' })
+    setRunProgress({ completed: 0, total: 1, currentIndex: 1, currentNodeId: '', currentTitle: '整集合成', startedAt, stage: 'running', taskMessage: '正在提交合成任务' })
     try {
       await useCanvasStore.getState().save()
       if (!project) throw new Error('项目已经关闭')
@@ -367,7 +370,7 @@ export function CanvasPage() {
         taskProgress: task.progress,
         taskMessage: task.message || (task.status === 'pending' ? '合成任务排队中' : '正在合成整集'),
       } : current), session)
-      setRunProgress({ completed: 1, total: 1, currentIndex: 1, currentNodeId: '', currentTitle: '整集合成', stage: 'completed', taskProgress: 100, taskMessage: '整集合成完成' })
+      setRunProgress({ completed: 1, total: 1, currentIndex: 1, currentNodeId: '', currentTitle: '整集合成', startedAt, stage: 'completed', taskProgress: 100, taskMessage: '整集合成完成' })
       message.success('整集合成完成')
       setFinalizeOpen(false)
     } catch (finalizeError) {
@@ -475,6 +478,7 @@ export function CanvasPage() {
           <div className="canvas-run-progress-copy">
             <strong>进度 {runProgress.completed}/{runProgress.total}</strong>
             <span>{runProgress.currentTitle} · {runProgress.taskMessage || activeProgressNode?.data.execution?.message || (runProgress.stage === 'completed' ? '已完成' : '准备运行')}</span>
+            <GenerationElapsedTime startedAt={runProgress.startedAt} />
           </div>
           {typeof activeTaskProgress === 'number' && <Progress percent={activeTaskProgress} size="small" status="active" />}
         </div>

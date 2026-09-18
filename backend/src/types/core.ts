@@ -14,13 +14,11 @@ export interface AppConfig {
   };
   database: { type?: string; path: string };
   storage?: { type?: string; local_path?: string; base_url?: string };
-  video?: { generation_timeout_minutes?: number };
   ai?: {
     providers?: Record<string, {
       enabled?: boolean;
       base_url?: string;
       api_key?: string;
-      default_models?: { text?: string; image?: string; video?: string };
       settings?: Record<string, JsonValue>;
     }>;
   };

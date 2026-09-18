@@ -20,23 +20,14 @@ storage:
   local_path: ./backend/data/storage
   base_url: http://localhost:5679/static
 
-video:
-  generation_timeout_minutes: 30
-
 ai:
   providers:
     agnes:
       enabled: true
       base_url: https://apihub.agnes-ai.com/v1
       api_key: ""
-      # 可选；值必须来自供应商实时模型目录。节点未选模型时使用这里的默认值。
-      default_models: {}
     pearapi:
       enabled: true
       base_url: https://api.pearapi.ai
       # `/v1/models` 与 `/v1/chat/completions` 使用默认渠道的 `sk-` 令牌，请求时放在 Authorization 头。
       api_key: ""
-      settings:
-        task_type: sync
-        # `/api/image_generate`、`/api/video_generate` 使用普通分发 Key，请求时放在 JSON 的 key 字段。
-        generation_key: ""

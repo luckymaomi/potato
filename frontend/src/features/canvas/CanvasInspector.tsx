@@ -19,6 +19,7 @@ import {
   Progress,
   Select,
   Space,
+  Switch,
   Tag,
   Tooltip,
   Typography,
@@ -34,6 +35,8 @@ import {
   aspectRatioLabel,
   aspectRatiosFor,
   modelCapabilityLabels,
+  modelDurationOptions,
+  modelSupportsDuration,
   modelSupportsMode,
   preferredAspectRatio,
   providerSupportsMode,
@@ -51,6 +54,7 @@ import { GeneratedMediaPreview } from './GeneratedMediaPreview'
 import { ReferenceImageInput } from './ReferenceImageInput'
 import { historyVersionLabels, modelOptionLabel } from './inspectorPresentation'
 import { createInspectorFormValues, type InspectorFormValues } from './inspectorForm'
+import { GenerationElapsedTime } from './GenerationElapsedTime'
 
 interface CanvasInspectorProps {
   running: boolean
@@ -168,6 +172,8 @@ function CanvasInspectorEditor({ nodeId, running, stopping, onRunNode, onRunDown
     () => models.find((item) => item.id === model && (!provider || item.provider === provider)),
     [model, models, provider],
   )
+  const durationSupported = modelSupportsDuration(selectedModel)
+  const durationOptions = modelDurationOptions(selectedModel)
   const aspectRatios = useMemo(
     () => aspectRatiosFor(selectedModel ? [selectedModel] : availableModels),
     [availableModels, selectedModel],
@@ -255,9 +261,28 @@ function CanvasInspectorEditor({ nodeId, running, stopping, onRunNode, onRunDown
       {(node.data.status === 'pending' || node.data.status === 'running') && node.data.execution && (
         <div className="inspector-execution-status">
           <Typography.Text strong>{node.data.execution.message}</Typography.Text>
+          <GenerationElapsedTime startedAt={node.data.execution.startedAt} finishedAt={node.data.execution.finishedAt} active />
           {typeof node.data.execution.progress === 'number' && <Progress percent={node.data.execution.progress} size="small" />}
         </div>
       )}
+      {(node.data.status !== 'pending' && node.data.status !== 'running') && (
+        <div className="inspector-execution-status">
+          <Typography.Text strong>本次生成耗时</Typography.Text>
+          <GenerationElapsedTime startedAt={node.data.execution?.startedAt} finishedAt={node.data.execution?.finishedAt} />
+        </div>
+      )}
+
+      <div className="inspector-manual-complete">
+        <div>
+          <Typography.Text strong>标记为已完成</Typography.Text>
+          <Typography.Text type="secondary">批量和单节点运行会跳过；关闭后恢复正常执行。</Typography.Text>
+        </div>
+        <Switch
+          checked={node.data.manuallyCompleted === true}
+          disabled={running}
+          onChange={(checked) => updateNodeData(node.id, { manuallyCompleted: checked })}
+        />
+      </div>
 
       <Form form={form} initialValues={initialFormValues} layout="vertical" preserve={false} requiredMark={false} onValuesChange={onValuesChange} onSubmitCapture={(event) => event.preventDefault()}>
         <Form.Item name="title" label="名称" rules={[{ required: true, message: '请输入名称' }]}><Input maxLength={80} /></Form.Item>
@@ -290,7 +315,9 @@ function CanvasInspectorEditor({ nodeId, running, stopping, onRunNode, onRunDown
             <Form.Item name={['parameters', 'prompt']} label="提示词" rules={[{ required: true, whitespace: true, message: '请填写本节点提示词' }]}><Input.TextArea rows={7} /></Form.Item>
             {requiresReferenceImage(mediaMode) && <Form.Item name={['parameters', 'referenceImages']} label="补充参考图"><ReferenceImageInput key={node.id} uploading={uploading} onUpload={uploadReference} maxCount={selectedModel?.capabilities.maxReferenceImages ?? undefined} /></Form.Item>}
             <ProviderModelFields providerOptions={providerOptions} modelOptions={modelOptions} form={form} />
-            {plugin.material === 'video' && <Form.Item name={['parameters', 'duration']} label="时长（秒）"><InputNumber min={3} max={5} /></Form.Item>}
+            {plugin.material === 'video' && durationSupported && (durationOptions.length
+              ? <Form.Item name={['parameters', 'duration']} label="时长（秒）"><Select options={durationOptions.map((value) => ({ value, label: `${value} 秒` }))} /></Form.Item>
+              : <Form.Item name={['parameters', 'duration']} label="时长（秒）"><InputNumber min={1} max={3600} /></Form.Item>)}
             <Form.Item name={['parameters', 'aspectRatio']} label="生成画幅比例" rules={[{ required: true, message: '请选择画幅比例' }]}><Select disabled={!aspectRatios.length} options={aspectRatios.map((ratio) => ({ value: ratio, label: aspectRatioLabel(ratio) }))} /></Form.Item>
             {selectedModel && <div className="model-capability-summary"><Typography.Text strong>{modelOptionLabel(selectedModel)}</Typography.Text><div className="model-capability-labels">{modelCapabilityLabels(selectedModel).map((label) => <Tag key={label}>{label}</Tag>)}</div></div>}
           </>
@@ -321,9 +348,10 @@ function CanvasInspectorEditor({ nodeId, running, stopping, onRunNode, onRunDown
 
       {node.data.status === 'failed' && <div className="node-error-message">{node.data.error || '运行失败，请检查配置后重试。'}</div>}
       {node.data.status === 'cancelled' && <div className="node-stopped-message">运行已停止，后续节点没有继续提交。</div>}
+      {node.data.status === 'completed' && node.data.error && <div className="node-stopped-message">{node.data.error}</div>}
       <div className="inspector-actions">
         <Button icon={<SaveOutlined />} disabled={running} onClick={() => void save()}>保存</Button>
-        {running ? <Button danger icon={<StopOutlined />} loading={stopping} onClick={() => void onStop()}>停止运行</Button> : <><Tooltip title="只运行当前节点；已完成的直接入边会作为附加输入"><Button type="primary" icon={<PlayCircleOutlined />} onClick={() => void run('node')}>运行此节点</Button></Tooltip><Button icon={<BranchesOutlined />} onClick={() => void run('downstream')}>从此节点运行后续</Button></>}
+        {running ? <Button danger icon={<StopOutlined />} loading={stopping} onClick={() => void onStop()}>停止运行</Button> : <><Tooltip title={node.data.manuallyCompleted ? '此节点已标记完成，关闭开关后才能运行' : '只运行当前节点；已完成的直接入边会作为附加输入'}><Button type="primary" icon={<PlayCircleOutlined />} disabled={node.data.manuallyCompleted} onClick={() => void run('node')}>运行此节点</Button></Tooltip><Button icon={<BranchesOutlined />} onClick={() => void run('downstream')}>从此节点运行后续</Button></>}
       </div>
     </aside>
   )

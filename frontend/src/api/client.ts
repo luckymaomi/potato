@@ -3,6 +3,8 @@ import { AppError, type StructuredFailure } from '../errors/appError'
 
 interface ApiErrorBody { error?: { code?: string; message?: string; details?: Partial<StructuredFailure> } }
 
+export const API_REQUEST_TIMEOUT_MS = 0
+
 export class ApiRequestError extends AppError {
   constructor(
     message: string,
@@ -14,7 +16,10 @@ export class ApiRequestError extends AppError {
       code,
       message,
       status: details.status ?? status,
-      retryable: details.retryable ?? Boolean(status && [408, 425, 429, 500, 502, 503, 504].includes(status)),
+      retryable: details.retryable ?? (
+        Boolean(status && [408, 425, 429, 500, 502, 503, 504].includes(status))
+        || (!status && /network|fetch failed|socket|econn(?:reset|refused)|enotfound|timeout|网络|连接失败/iu.test(message))
+      ),
       provider: details.provider,
     })
     this.name = 'ApiRequestError'
@@ -23,7 +28,7 @@ export class ApiRequestError extends AppError {
 
 export const apiClient = axios.create({
   baseURL: '/api/v1',
-  timeout: 600_000,
+  timeout: API_REQUEST_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
 })
 

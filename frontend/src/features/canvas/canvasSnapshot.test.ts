@@ -37,6 +37,23 @@ describe('createCanvasSnapshot', () => {
     ])
   })
 
+  it('持久保存并恢复节点的生成起止时间', () => {
+    const execution = {
+      message: '已完成并保存到本地',
+      startedAt: '2026-09-18T00:00:00.000Z',
+      finishedAt: '2026-09-18T00:01:05.900Z',
+    }
+    const node: CanvasNode = {
+      id: 'timed-image',
+      type: 'canvas',
+      position: { x: 0, y: 0 },
+      data: createProductionNodeData('generic-image', { status: 'completed', execution }),
+    }
+    const snapshot = createCanvasSnapshot([node], [], [])
+    expect(snapshot.workspace_nodes[0]?.data.execution).toEqual(execution)
+    expect(normalizeCanvasNodes(snapshot.workspace_nodes)[0]?.data.execution).toEqual(execution)
+  })
+
   it('重新打开时只有当前 generation 与本地文件都有效的媒体节点恢复为完成', () => {
     const mediaNode: CanvasNode = {
       id: 'asset-1',

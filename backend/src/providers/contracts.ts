@@ -5,11 +5,16 @@ export type ProviderKind = 'text' | 'image' | 'video';
 export type ProviderTaskStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type ProviderModelMode = 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video';
 export type ProviderModelCapabilitySource = 'provider' | 'adapter' | 'unknown';
+/** 供应商的计费维度。它与是否接受 duration 是两个独立能力。 */
+export type VideoBillingMode = 'duration' | 'per-request' | 'unknown';
 
 export interface ProviderModelCapabilities {
   modes: ProviderModelMode[];
   maxReferenceImages: number | null;
   aspectRatios: string[] | null;
+  billingMode: VideoBillingMode;
+  supportsDuration: boolean;
+  supportedDurations: number[] | null;
   source: ProviderModelCapabilitySource;
 }
 

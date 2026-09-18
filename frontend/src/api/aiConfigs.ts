@@ -1,4 +1,4 @@
-import type { ProviderCatalogStatus, ProviderModel, ServiceType } from '../types/domain'
+import type { AiModelPresets, ProviderCatalogStatus, ProviderModel, ServiceType } from '../types/domain'
 import { apiClient } from './client'
 
 export const aiConfigsApi = {
@@ -10,4 +10,7 @@ export const aiConfigsApi = {
       provider,
       ...(serviceType ? { service_type: serviceType } : {}),
     }),
+  modelPresets: () => apiClient.get<never, AiModelPresets>('/ai-configs/model-presets'),
+  saveModelPresets: (presets: AiModelPresets) =>
+    apiClient.put<never, AiModelPresets>('/ai-configs/model-presets', presets),
 }

@@ -49,6 +49,10 @@ export function restoreProductionNodeLifecycle(data: ProductionNodeData, project
 
 export function isReusableProductionNode(data: ProductionNodeData): boolean {
   if (data.status !== 'completed') return false
+  return hasReusableProductionResult(data)
+}
+
+export function hasReusableProductionResult(data: ProductionNodeData): boolean {
   const plugin = productionPlugin(data.role)
   if (plugin.material !== 'text') {
     return Boolean(
@@ -60,6 +64,10 @@ export function isReusableProductionNode(data: ProductionNodeData): boolean {
   }
   if (data.result.text?.trim() || data.parameters.text?.trim()) return true
   return Object.values(data.result.assetRefs || {}).some((values) => Boolean(values?.length))
+}
+
+export function isProductionNodeExecutionComplete(data: ProductionNodeData): boolean {
+  return data.manuallyCompleted === true || isReusableProductionNode(data)
 }
 
 export function mediaLifecycleState(

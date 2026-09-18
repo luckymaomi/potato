@@ -86,8 +86,8 @@ export class ProductionWorkflowService {
         signal: reporter.signal,
       });
       reporter.throwIfCancelled();
-      const result = this.persistTextResult(command, episode, generated);
-      return result;
+      const result = this.persistTextResult(command, episode, generated.text);
+      return { ...result, provider: generated.provider, model: generated.model };
     });
   }
 
@@ -110,7 +110,7 @@ export class ProductionWorkflowService {
     return { storyboards: episode ? this.assets.syncStoryboards(episode.id, selected) : selected };
   }
 
-  private runImage(command: Extract<ProductionCommand, { kind: 'image' }>): string {
+  private runImage(command: Extract<ProductionCommand, { kind: 'image' }>): PendingTask {
     const prompt = command.prompt.trim();
     if (!prompt) throw new ValidationError('图片提示词不能为空');
     const referenceImages = command.mode === 'image-to-image' ? unique(command.referenceImages) : [];
@@ -125,10 +125,10 @@ export class ProductionWorkflowService {
       ...this.validateImageTarget(command.projectId, command.target),
     });
     if (!image.task_id) throw new Error('图片服务没有返回任务 ID');
-    return image.task_id;
+    return { taskId: image.task_id, provider: image.provider ?? undefined, model: image.model ?? undefined };
   }
 
-  private runVideo(command: Extract<ProductionCommand, { kind: 'video' }>): string {
+  private runVideo(command: Extract<ProductionCommand, { kind: 'video' }>): PendingTask {
     const prompt = command.prompt.trim();
     if (!prompt) throw new ValidationError('视频提示词不能为空');
     const referenceImages = command.mode === 'image-to-video' ? unique(command.referenceImages) : [];
@@ -146,7 +146,7 @@ export class ProductionWorkflowService {
       referenceImages,
     });
     if (!video.task_id) throw new Error('视频服务没有返回任务 ID');
-    return video.task_id;
+    return { taskId: video.task_id, provider: video.provider ?? undefined, model: video.model ?? undefined };
   }
 
   private runFinalize(command: Extract<ProductionCommand, { kind: 'finalize' }>): string {
@@ -187,8 +187,19 @@ export class ProductionWorkflowService {
   }
 }
 
-function pending(taskId: string): ProductionSubmission {
-  return { status: 'pending', task_id: taskId };
+interface PendingTask {
+  taskId: string;
+  provider?: string;
+  model?: string;
+}
+
+function pending(task: string | PendingTask): ProductionSubmission {
+  if (typeof task === 'string') return { status: 'pending', task_id: task };
+  return {
+    status: 'pending',
+    task_id: task.taskId,
+    result: { provider: task.provider, model: task.model },
+  };
 }
 
 function extractionAction(action: TextPromptKey): boolean {

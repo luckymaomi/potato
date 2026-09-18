@@ -15,14 +15,12 @@ const config: AppConfig = {
   server: {},
   database: { path: ':memory:' },
   storage: { local_path: './data/test-storage', base_url: 'http://localhost:5679/static' },
-  video: { generation_timeout_minutes: 1 },
   ai: {
     providers: {
       agnes: {
         enabled: true,
         base_url: 'https://api.test',
         api_key: 'secret',
-        default_models: { video: 'agnes-video-flash' },
       },
       pearapi: { enabled: true, base_url: 'https://pear.test', api_key: '' },
     },
@@ -39,6 +37,7 @@ function setup(options: {
   generateText?: NonNullable<ProviderAdapter['generateText']>;
   submitImage?: NonNullable<ProviderAdapter['submitImage']>;
   submitVideo?: NonNullable<ProviderAdapter['submitVideo']>;
+  logger?: Logger;
 } = {}) {
   const db = new Database(':memory:');
   initializeDatabase(db);
@@ -66,8 +65,10 @@ function setup(options: {
       { id: 'agnes-text', label: 'Agnes Text', kind: 'text', capabilities: modelCapabilities([], null, [], 'adapter') },
       { id: 'agnes-image', label: 'Agnes Image', kind: 'image', capabilities: modelCapabilities(['text-to-image', 'image-to-image'], 2, ['1:1', '9:16'], 'adapter') },
       { id: 'agnes-image-text-only', label: 'Agnes Image Text Only', kind: 'image', capabilities: modelCapabilities(['text-to-image'], 0, ['1:1', '9:16'], 'adapter') },
-      { id: 'agnes-video', label: 'Agnes Video', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter') },
-      { id: 'agnes-video-flash', label: 'Agnes Video Flash', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter') },
+      { id: 'agnes-video', label: 'Agnes Video', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter', 'duration') },
+      { id: 'agnes-video-flash', label: 'Agnes Video Flash', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter', 'duration') },
+      { id: 'agnes-video-per-request', label: 'Agnes Video Per Request', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter', 'per-request') },
+      { id: 'agnes-video-per-request-duration', label: 'Agnes Video Per Request With Duration', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter', 'per-request', [4, 6, 8, 10, 12, 15]) },
     ],
     generateText: options.generateText ?? (async (_context, request) => {
       const system = request.messages.find((message) => message.role === 'system')?.content || '';
@@ -89,7 +90,7 @@ function setup(options: {
       videoUrl: TEST_MP4,
     })),
   });
-  const services = createServices(db, testConfig, registry, log);
+  const services = createServices(db, testConfig, registry, options.logger ?? log);
   return { db, services, storageRoot };
 }
 
@@ -177,7 +178,10 @@ test('项目归档可由当前 schema 导出并重新导入', async () => {
 });
 
 test('配置服务从根配置读取供应商并保存动态模型快照', async () => {
-  const { db, services } = setup();
+  const auditEvents: string[] = [];
+  const { db, services } = setup({
+    logger: { info() {}, warn() {}, error() {}, audit(event) { auditEvents.push(event); } },
+  });
   try {
     assert.equal(services.aiConfigs.providers().find((item) => item.id === 'agnes')?.configured, true);
     await services.aiConfigs.refresh('agnes');
@@ -189,7 +193,28 @@ test('配置服务从根配置读取供应商并保存动态模型快照', async
       services.aiConfigs.models('agnes', 'image')[0]?.capabilities,
       modelCapabilities(['text-to-image', 'image-to-image'], 2, ['1:1', '9:16'], 'adapter'),
     );
-    assert.equal(services.aiConfigs.select('video', 'agnes').default_model, 'agnes-video-flash');
+    assert.deepEqual(services.aiConfigs.presets(), { text: null, image: null, video: null });
+    assert.equal(services.aiConfigs.select('video', 'agnes').default_model, 'agnes-video');
+    assert.deepEqual(services.aiConfigs.savePresets({
+      text: { provider: 'agnes', model: 'agnes-text' },
+      image: { provider: 'agnes', model: 'agnes-image-text-only' },
+      video: { provider: 'agnes', model: 'agnes-video' },
+    }), {
+      text: { provider: 'agnes', model: 'agnes-text' },
+      image: { provider: 'agnes', model: 'agnes-image-text-only' },
+      video: { provider: 'agnes', model: 'agnes-video' },
+    });
+    assert.deepEqual(auditEvents, ['ai.model-presets.updated']);
+    assert.equal(services.aiConfigs.select('video').default_model, 'agnes-video');
+    assert.equal(services.aiConfigs.select('video', 'agnes', 'agnes-video-flash').default_model, 'agnes-video-flash');
+    assert.equal(services.aiConfigs.select('image', undefined, undefined, { mode: 'image-to-image' }).default_model, 'agnes-image');
+    assert.throws(() => services.aiConfigs.savePresets({
+      text: null,
+      image: { provider: 'agnes', model: 'agnes-text' },
+      video: null,
+    }), /没有图片模型/u);
+    services.aiConfigs.savePresets({ text: null, image: null, video: null });
+    assert.equal(services.aiConfigs.select('video', 'agnes').default_model, 'agnes-video');
     await assert.rejects(services.aiConfigs.refresh('unknown'), /供应商未注册/u);
   } finally { db.close(); }
 });
@@ -202,11 +227,14 @@ test('文本、四种媒体模式通过统一任务主链完成', async () => {
     const episode = services.projects.saveEpisodes(project.id, [{ episode_number: 1, title: '第一集', script_content: '' }])[0];
     assert.ok(episode);
 
-    const textTask = submittedTaskId(services.production.execute({
+    const textSubmission = services.production.execute({
       kind: 'ai-text', projectId: project.id, episodeId: episode.id,
       action: 'write-script', sourceText: '雨夜重逢',
-    }));
+    });
+    const textTask = submittedTaskId(textSubmission);
     await taskDone(() => services.tasks.get(textTask));
+    assert.equal(services.tasks.get(textTask)?.result?.provider, 'agnes');
+    assert.equal(services.tasks.get(textTask)?.result?.model, 'agnes-text');
     assert.match(services.projects.require(project.id).episodes?.[0]?.script_content ?? '', /车站/u);
 
     const storyboardTask = submittedTaskId(services.production.execute({
@@ -216,10 +244,12 @@ test('文本、四种媒体模式通过统一任务主链完成', async () => {
     await taskDone(() => services.tasks.get(storyboardTask));
     assert.equal(services.assets.listStoryboards(episode.id).length, 3);
 
-    const textImageTask = submittedTaskId(services.production.execute({
+    const textImageSubmission = services.production.execute({
       kind: 'image', projectId: project.id, mode: 'text-to-image',
       prompt: '雨夜车站', referenceImages: [],
-    }));
+    });
+    assert.deepEqual(textImageSubmission.result, { provider: 'agnes', model: 'agnes-image' });
+    const textImageTask = submittedTaskId(textImageSubmission);
     const imageImageTask = submittedTaskId(services.production.execute({
       kind: 'image', projectId: project.id, mode: 'image-to-image',
       prompt: '保持人物一致', referenceImages: ['https://cdn.test/ref.png'],
@@ -563,6 +593,35 @@ test('媒体任务在创建前校验模型模式和参考图上限', async () =>
   } finally { db.close(); }
 });
 
+test('视频服务按独立时长能力传参，不把按次计费误判为不支持时长', async () => {
+  const receivedDurations: Array<number | undefined> = [];
+  const { db, services } = setup({
+    submitVideo: async (_context, request) => {
+      receivedDurations.push(request.duration);
+      return { status: 'completed', videoUrl: TEST_MP4 };
+    },
+  });
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const project = services.projects.create({ title: '视频计费方式' });
+    const taskId = submittedTaskId(services.production.execute({
+      kind: 'video', projectId: project.id, mode: 'text-to-video', prompt: '按次视频',
+      duration: 8, provider: 'agnes', model: 'agnes-video-per-request', aspectRatio: '16:9', referenceImages: [],
+    }));
+    await taskDone(() => services.tasks.get(taskId));
+    assert.equal(receivedDurations[0], undefined);
+    assert.equal(services.videos.list(project.id).find((row) => row.model === 'agnes-video-per-request')?.duration, null);
+
+    const durationTaskId = submittedTaskId(services.production.execute({
+      kind: 'video', projectId: project.id, mode: 'text-to-video', prompt: '按次但支持时长的视频',
+      duration: 15, provider: 'agnes', model: 'agnes-video-per-request-duration', aspectRatio: '16:9', referenceImages: [],
+    }));
+    await taskDone(() => services.tasks.get(durationTaskId));
+    assert.equal(receivedDurations[1], 15);
+    assert.equal(services.videos.list(project.id).find((row) => row.model === 'agnes-video-per-request-duration')?.duration, 15);
+  } finally { db.close(); }
+});
+
 test('分镜图以直接连线传入的参考图为准，不额外混入仓库中的其他资产图', async () => {
   let receivedReferences: string[] = [];
   const { db, services } = setup({
@@ -600,6 +659,8 @@ test('全新数据库 schema 直接包含模型能力列', () => {
     assert.ok(columns.some((column) => column.name === 'capabilities'));
     const projectColumns = db.prepare('PRAGMA table_info(dramas)').all() as Array<{ name: string }>;
     assert.ok(projectColumns.some((column) => column.name === 'canvas_revision'));
+    const presetColumns = db.prepare('PRAGMA table_info(ai_model_presets)').all() as Array<{ name: string }>;
+    assert.deepEqual(presetColumns.map((column) => column.name), ['service_type', 'provider', 'model_id', 'updated_at']);
     assert.equal((db.prepare('SELECT COUNT(*) AS total FROM provider_model_catalog').get() as { total: number }).total, 0);
   } finally { db.close(); }
 });

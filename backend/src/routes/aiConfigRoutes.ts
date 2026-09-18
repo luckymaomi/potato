@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { ServiceContainer } from '../services/container';
-import type { AiServiceType } from '../types/ai';
+import type { AiModelPreset, AiServiceType } from '../types/ai';
 import { success } from '../response';
 import { asyncRoute, bodyRecord } from './http';
 import { ValidationError } from '../errors';
@@ -27,7 +27,30 @@ export function aiConfigRoutes(services: Pick<ServiceContainer, 'aiConfigs'>): R
     success(res, await services.aiConfigs.refresh(provider, serviceType(body.service_type)));
   }));
 
+  router.get('/ai-configs/model-presets', (_req, res) => {
+    success(res, services.aiConfigs.presets());
+  });
+
+  router.put('/ai-configs/model-presets', (req, res) => {
+    const body = bodyRecord(req);
+    success(res, services.aiConfigs.savePresets({
+      text: modelPreset(body.text, 'text'),
+      image: modelPreset(body.image, 'image'),
+      video: modelPreset(body.video, 'video'),
+    }));
+  });
+
   return router;
+}
+
+function modelPreset(value: unknown, type: AiServiceType): AiModelPreset | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new ValidationError(`${type} 预设必须包含 provider 和 model`);
+  const record = value as Record<string, unknown>;
+  const provider = readString(record.provider);
+  const model = readString(record.model);
+  if (!provider || !model) throw new ValidationError(`${type} 预设必须包含 provider 和 model`);
+  return { provider, model };
 }
 
 function serviceType(value: unknown): AiServiceType | undefined {

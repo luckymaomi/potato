@@ -23,7 +23,6 @@ export function initializeRainyNightDemo(
         aspect_ratio: RAINY_NIGHT_DEMO.media.aspectRatio,
         demo: true,
         demo_version: DEMO_VERSION,
-        demo_provider: RAINY_NIGHT_DEMO.media.provider,
         prewritten_text: true,
       },
     };
@@ -33,7 +32,7 @@ export function initializeRainyNightDemo(
     const episode = services.projects.saveEpisodes(project.id, [{
       episode_number: 1,
       title: '第 1 集｜雨夜外卖',
-      duration: 40,
+      duration: 150,
       script_content: RAINY_NIGHT_DEMO.script,
     }])[0];
     if (!episode) throw new Error('Demo 剧集初始化失败。');

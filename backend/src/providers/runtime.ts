@@ -11,10 +11,12 @@ import { ProviderError } from './errors';
 
 export interface PollPolicy {
   intervalMs: number;
-  maxAttempts: number;
 }
 
-const DEFAULT_IMAGE_POLL_POLICY: PollPolicy = { intervalMs: 5_000, maxAttempts: 120 };
+const DEFAULT_IMAGE_POLL_INTERVAL_MS = 5_000;
+export const DEFAULT_IMAGE_POLL_POLICY: PollPolicy = {
+  intervalMs: DEFAULT_IMAGE_POLL_INTERVAL_MS,
+};
 
 export async function runImageProvider(
   adapter: ProviderAdapter,
@@ -35,18 +37,27 @@ export async function runImageProvider(
     });
   }
   const taskId = result.taskId;
-  for (let attempt = 0; attempt < policy.maxAttempts; attempt += 1) {
+  for (let attempt = 0; ; attempt += 1) {
     await wait(policy.intervalMs, request.signal);
-    result = await adapter.pollImage(context, taskId, request.signal);
+    try {
+      result = await adapter.pollImage(context, taskId, request.signal);
+    } catch (error) {
+      if (request.signal?.aborted) throw request.signal.reason ?? error;
+      if (error instanceof ProviderError && error.retryable) {
+        context.log.audit?.('provider.image.poll.retry', {
+          provider: adapter.descriptor.id,
+          taskId,
+          attempt: attempt + 1,
+          code: error.code,
+          message: error.message,
+        });
+        continue;
+      }
+      throw error;
+    }
     assertImageResult(adapter, result);
     if (result.status === 'completed' || result.status === 'failed') return result;
   }
-  throw new ProviderError({
-    providerId: adapter.descriptor.id,
-    code: 'timeout',
-    message: '图片生成轮询超时',
-    retryable: true,
-  });
 }
 
 export async function submitVideoProvider(

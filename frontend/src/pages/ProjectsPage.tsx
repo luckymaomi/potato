@@ -202,7 +202,7 @@ export function ProjectsPage() {
                 <div className="project-card-body">
                   <div className="project-title-row">
                     <h2 className="project-title">{project.title}</h2>
-                    {project.metadata?.demo === true && <Tag bordered={false}>{project.metadata?.demo_provider === 'pearapi' ? 'PearAPI Demo' : 'Demo'}</Tag>}
+                    {project.metadata?.demo === true && <Tag bordered={false}>Demo</Tag>}
                   </div>
                   <p className="project-description">{project.description || '尚未填写项目说明'}</p>
                   <div className="project-meta">

@@ -14,7 +14,7 @@ import type {
 } from '../contracts';
 import { modelCapabilities } from '../modelCapabilities';
 import { ProviderError } from '../errors';
-import { DEFAULT_PROVIDER_TIMEOUT_MS, requestProviderJson, type ProviderFetch } from '../transport';
+import { requestProviderJson, type ProviderFetch } from '../transport';
 
 const IMAGE_RATIOS: ReadonlyArray<readonly [string, number]> = [
   ['1:1', 1],
@@ -140,7 +140,7 @@ function agnesModelCapabilities(id: string, kind: 'text' | 'image' | 'video'): P
     const aspectRatios = isVideo25(id)
       ? VIDEO_25_RATIOS.map(([ratio]) => ratio)
       : Object.keys(VIDEO_20_DIMENSIONS);
-    return modelCapabilities(['text-to-video', 'image-to-video'], maxReferences, aspectRatios, 'adapter');
+    return modelCapabilities(['text-to-video', 'image-to-video'], maxReferences, aspectRatios, 'adapter', 'duration');
   }
   return modelCapabilities([], null, [], 'adapter');
 }
@@ -161,7 +161,6 @@ async function generateText(
       ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
       ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {}),
     },
-    timeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
     signal: request.signal,
   }, fetchImpl);
   const choices = Array.isArray(response.data.choices) ? response.data.choices : [];
@@ -196,7 +195,6 @@ async function submitImage(
         ...(references.length ? { image: references } : {}),
       },
     },
-    timeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
     signal: request.signal,
   }, fetchImpl);
   const root = response.data;
@@ -249,7 +247,6 @@ async function submitVideo(
     url: endpoint(context, '/videos'),
     headers: bearerHeaders(context.config.api_key),
     body,
-    timeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
     signal: request.signal,
   }, fetchImpl);
   return normalizeVideo(response.data);
@@ -267,7 +264,6 @@ async function pollVideo(
     url: pollEndpoint(context, taskId, model),
     method: 'GET',
     headers: bearerHeaders(context.config.api_key),
-    timeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
     signal,
   }, fetchImpl);
   return normalizeVideo(response.data, taskId);

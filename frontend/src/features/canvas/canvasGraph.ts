@@ -1,6 +1,6 @@
 import type { Edge } from '@xyflow/react'
 import type { CanvasNode } from './canvasTypes'
-import { isReusableProductionNode } from '../production/lifecycle'
+import { isProductionNodeExecutionComplete } from '../production/lifecycle'
 
 export function downstreamNodeIds(startIds: string[], edges: Array<Pick<Edge, 'source' | 'target'>>): string[] {
   const visited = new Set(startIds)
@@ -46,7 +46,7 @@ export function incompleteRunNodeIds(
   const nodesById = new Map(nodes.map((node) => [node.id, node]))
   const incomplete = [...new Set(candidateIds)].filter((id) => {
     const node = nodesById.get(id)
-    return node && !isReusableProductionNode(node.data)
+    return node && !isProductionNodeExecutionComplete(node.data)
   })
   return dependencyRunNodeIds(incomplete, nodes, edges)
 }

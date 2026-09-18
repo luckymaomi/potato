@@ -32,7 +32,7 @@ export function createServices(
   registry: ProviderRegistry,
   log: Logger,
 ): ServiceContainer {
-  const aiConfigs = new AiConfigService(db, registry, config);
+  const aiConfigs = new AiConfigService(db, registry, config, log);
   const tasks = new TaskService(db, log);
   const mediaArchive = new MediaArchiveService(config, log);
   const projects = new ProjectService(db, mediaArchive, log);
@@ -40,7 +40,7 @@ export function createServices(
   const text = new TextGenerationService(aiConfigs, registry, log);
   const mediaReferences = new MediaReferenceService(config, db);
   const images = new ImageGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);
-  const videos = new VideoGenerationService(db, config, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);
+  const videos = new VideoGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);
   const composition = new CompositionService(db, config, tasks, log);
   return {
     aiConfigs,

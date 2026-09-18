@@ -218,6 +218,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
         history: [],
         execution: undefined,
         status: 'idle' as const,
+        manuallyCompleted: false,
         error: '',
       },
     }))

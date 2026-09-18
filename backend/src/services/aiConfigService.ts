@@ -9,8 +9,8 @@ import {
   type ProviderModelMode,
   type ProviderRegistry,
 } from '../providers';
-import type { AiServiceConfig, AiServiceType, ProviderCatalogStatus, ProviderModelSnapshot } from '../types/ai';
-import type { AppConfig, SQLiteDatabase } from '../types/core';
+import type { AiModelPreset, AiModelPresets, AiServiceConfig, AiServiceType, ProviderCatalogStatus, ProviderModelSnapshot } from '../types/ai';
+import type { AppConfig, Logger, SQLiteDatabase } from '../types/core';
 import { readString } from '../types/core';
 import { ValidationError } from '../errors';
 
@@ -21,6 +21,12 @@ interface CatalogRow {
   kind: ProviderKind;
   capabilities: string;
   synchronized_at: string;
+}
+
+interface PresetRow {
+  service_type: AiServiceType;
+  provider: string;
+  model_id: string;
 }
 
 interface ModelSelectionRequirements {
@@ -35,6 +41,7 @@ export class AiConfigService {
     private readonly db: SQLiteDatabase,
     private readonly registry: ProviderRegistry,
     private readonly appConfig: AppConfig,
+    private readonly log?: Logger,
   ) {}
 
   providers(): ProviderCatalogStatus[] {
@@ -70,6 +77,40 @@ export class AiConfigService {
     }));
   }
 
+  presets(): AiModelPresets {
+    const presets: AiModelPresets = { text: null, image: null, video: null };
+    const rows = this.db.prepare(`
+      SELECT service_type, provider, model_id
+      FROM ai_model_presets
+      ORDER BY service_type
+    `).all() as PresetRow[];
+    for (const row of rows) presets[row.service_type] = { provider: row.provider, model: row.model_id };
+    return presets;
+  }
+
+  savePresets(presets: AiModelPresets): AiModelPresets {
+    const normalized: AiModelPresets = {
+      text: this.validatePreset('text', presets.text),
+      image: this.validatePreset('image', presets.image),
+      video: this.validatePreset('video', presets.video),
+    };
+    const save = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM ai_model_presets').run();
+      const insert = this.db.prepare(`
+        INSERT INTO ai_model_presets (service_type, provider, model_id, updated_at)
+        VALUES (?, ?, ?, ?)
+      `);
+      const now = new Date().toISOString();
+      for (const serviceType of serviceTypes) {
+        const preset = normalized[serviceType];
+        if (preset) insert.run(serviceType, preset.provider, preset.model, now);
+      }
+    });
+    save();
+    this.log?.audit?.('ai.model-presets.updated', { presets: normalized });
+    return this.presets();
+  }
+
   async refresh(provider: string, serviceType?: AiServiceType): Promise<ProviderModelSnapshot[]> {
     const adapter = this.requireAdapter(provider);
     if (!adapter.listModels) throw new ValidationError(`${adapter.descriptor.label} 未实现动态模型目录`);
@@ -93,27 +134,37 @@ export class AiConfigService {
     requirements: ModelSelectionRequirements = {},
   ): AiServiceConfig {
     const requestedProvider = provider ? this.requireAdapter(provider).descriptor.id : undefined;
+    const preset = model ? null : this.presets()[serviceType];
+    const applicablePreset = preset && (!requestedProvider || preset.provider === requestedProvider) ? preset : null;
     const descriptors = this.registry.list(serviceType)
       .filter((descriptor) => !requestedProvider || descriptor.id === requestedProvider)
       .filter((descriptor) => {
         const runtime = this.providerConfig(descriptor.id);
         return runtime?.enabled !== false && Boolean(readString(runtime?.api_key));
+      })
+      .sort((left, right) => {
+        if (!applicablePreset) return 0;
+        if (left.id === applicablePreset.provider) return -1;
+        if (right.id === applicablePreset.provider) return 1;
+        return 0;
       });
 
     for (const descriptor of descriptors) {
       const available = this.models(descriptor.id, serviceType);
-      const configuredDefault = readString(this.providerConfig(descriptor.id)?.default_models?.[serviceType]);
-      const configuredModel = configuredDefault
-        ? available.find((entry) => entry.id === configuredDefault)
+      const presetModel = applicablePreset?.provider === descriptor.id
+        ? available.find((entry) => entry.id === applicablePreset.model)
         : undefined;
-      if (configuredDefault && !configuredModel) {
-        throw new ValidationError(`${descriptor.label} 在 config.yaml 设置的默认${serviceLabel(serviceType)}模型不在实时目录：${configuredDefault}`);
+      if (applicablePreset?.provider === descriptor.id && !presetModel) {
+        throw new ValidationError(`界面预设的${serviceLabel(serviceType)}模型不在实时目录：${applicablePreset.model}`);
       }
+      const compatiblePreset = presetModel && this.matchesRequirements(presetModel, requirements)
+        ? presetModel
+        : undefined;
       const compatible = available.filter((entry) => this.matchesRequirements(entry, requirements));
       const selectedModel = model
         ? available.find((entry) => entry.id === model)
-        : configuredModel && this.matchesRequirements(configuredModel, requirements)
-          ? configuredModel
+        : compatiblePreset
+          ? compatiblePreset
           : compatible[0];
       if (!selectedModel) continue;
       this.assertRequirements(selectedModel, requirements);
@@ -258,12 +309,26 @@ export class AiConfigService {
     return this.appConfig.ai?.providers?.[provider];
   }
 
+  private validatePreset(serviceType: AiServiceType, preset: AiModelPreset | null): AiModelPreset | null {
+    if (!preset) return null;
+    const descriptor = this.requireAdapter(preset.provider).descriptor;
+    assertCapability(descriptor, serviceType);
+    const runtime = this.requireProviderConfig(descriptor.id);
+    if (runtime.enabled === false) throw new ValidationError(`${descriptor.label} 已在 config.yaml 中停用`);
+    if (!readString(runtime.api_key)) throw new ValidationError(`${descriptor.label} 尚未配置 API Key`);
+    const model = this.models(descriptor.id, serviceType).find((entry) => entry.id === preset.model);
+    if (!model) throw new ValidationError(`${descriptor.label} 的实时目录中没有${serviceLabel(serviceType)}模型：${preset.model}`);
+    return { provider: descriptor.id, model: model.id };
+  }
+
   private requireProviderConfig(provider: string) {
     const config = this.providerConfig(provider);
     if (!config) throw new ValidationError(`config.yaml 中没有 ${provider} 供应商配置`);
     return config;
   }
 }
+
+const serviceTypes: AiServiceType[] = ['text', 'image', 'video'];
 
 function assertCapability(descriptor: ProviderDescriptor, serviceType: AiServiceType): void {
   const supported = serviceType === 'text'

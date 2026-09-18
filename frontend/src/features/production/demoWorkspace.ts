@@ -38,7 +38,7 @@ function textResult(items: Array<Record<string, unknown>>, fields: string[]): st
 export function createDemoWorkspace(project: Project): CanvasWorkspaceSnapshot {
   const episode = project.episodes?.[0]
   const episodeRefs = episode ? { episodes: [episode.id] } : {}
-  const { provider, imageModel, videoModel, aspectRatio, duration } = RAINY_NIGHT_DEMO.media
+  const { aspectRatio, storyboardAspectRatio, duration } = RAINY_NIGHT_DEMO.media
   const nodes: ProductionNodeSpec[] = [
     { id: 'rain-delivery-story', role: 'story', x: 40, y: 950, data: { title: '故事｜雨夜外卖', parameters: { text: RAINY_NIGHT_DEMO.story }, result: { text: RAINY_NIGHT_DEMO.story }, status: 'completed' } },
     { id: 'rain-delivery-script', role: 'script', x: 360, y: 950, data: { title: '预写四场剧本', parameters: { text: episode?.script_content || RAINY_NIGHT_DEMO.script }, assetRefs: episodeRefs, result: { text: episode?.script_content || RAINY_NIGHT_DEMO.script }, status: episode ? 'completed' : 'idle' } },
@@ -55,7 +55,7 @@ export function createDemoWorkspace(project: Project): CanvasWorkspaceSnapshot {
   const assetNodeIds = new Map<string, string>()
   assetSpecs.forEach((asset, index) => {
     const assetIndex = assetSpecs.slice(0, index).filter((candidate) => candidate.kind === asset.kind).length
-    const id = addAssetNode(nodes, project, asset, index, assetIndex, provider, imageModel, aspectRatio)
+    const id = addAssetNode(nodes, project, asset, index, assetIndex, aspectRatio)
     assetNodeIds.set(assetKey(asset.kind, asset.name), id)
   })
 
@@ -70,11 +70,11 @@ export function createDemoWorkspace(project: Project): CanvasWorkspaceSnapshot {
     const rowY = 40 + index * 210
     nodes.push({
       id: imageId, role: 'storyboard-image', x: 1320, y: rowY,
-      data: { title: `分镜图 ${index + 1}｜${shot.title}`, parameters: { provider, model: imageModel, aspectRatio, assetIndex: index, prompt: storyboard?.image_prompt || shot.image_prompt }, assetRefs: storyboardRefs, result: { outputUrl: imageMedia?.url || undefined, generationId: imageMedia?.generation_id, localPath: imageMedia?.local_path || undefined, mediaAvailable: imageMedia?.available === true, assetRefs: storyboardRefs }, status: completed(imageMedia) },
+      data: { title: `分镜图 ${index + 1}｜${shot.title}`, parameters: { aspectRatio: storyboardAspectRatio, assetIndex: index, prompt: storyboard?.image_prompt || shot.image_prompt }, assetRefs: storyboardRefs, result: { outputUrl: imageMedia?.url || undefined, generationId: imageMedia?.generation_id, localPath: imageMedia?.local_path || undefined, mediaAvailable: imageMedia?.available === true, assetRefs: storyboardRefs }, status: completed(imageMedia) },
     })
     nodes.push({
       id: videoId, role: 'shot-video', x: 1640, y: rowY,
-      data: { title: `镜头视频 ${index + 1}｜${shot.title}`, parameters: { provider, model: videoModel, aspectRatio, duration, assetIndex: index, prompt: storyboard?.video_prompt || shot.video_prompt }, assetRefs: storyboardRefs, result: { outputUrl: videoMedia?.url || undefined, generationId: videoMedia?.generation_id, localPath: videoMedia?.local_path || undefined, mediaAvailable: videoMedia?.available === true, assetRefs: storyboardRefs }, status: completed(videoMedia) },
+      data: { title: `镜头视频 ${index + 1}｜${shot.title}`, parameters: { aspectRatio, duration, assetIndex: index, prompt: storyboard?.video_prompt || shot.video_prompt }, assetRefs: storyboardRefs, result: { outputUrl: videoMedia?.url || undefined, generationId: videoMedia?.generation_id, localPath: videoMedia?.local_path || undefined, mediaAvailable: videoMedia?.available === true, assetRefs: storyboardRefs }, status: completed(videoMedia) },
     })
     for (const [kind, names] of [
       ['characters', shot.characters],
@@ -95,7 +95,7 @@ export function createDemoWorkspace(project: Project): CanvasWorkspaceSnapshot {
   return createProductionWorkspace({
     nodes,
     connections,
-    groups: [{ id: 'rain-delivery-workflow', name: 'Agnes《雨夜外卖》运行未完成媒体', nodeIds: nodes.map((node) => node.id) }],
+    groups: [{ id: 'rain-delivery-workflow', name: '《雨夜外卖》运行未完成媒体', nodeIds: nodes.map((node) => node.id) }],
     template: { id: DEMO_TEMPLATE_ID, version: DEMO_VERSION },
     edgePrefix: 'rain-delivery-edge',
   })
@@ -107,8 +107,6 @@ function addAssetNode(
   asset: (typeof assetSpecs)[number],
   layoutIndex: number,
   assetIndex: number,
-  provider: string,
-  model: string,
   aspectRatio: string,
 ): string {
   const item = entityByName(project, asset.kind, asset.name)
@@ -122,7 +120,7 @@ function addAssetNode(
     y: 40 + layoutIndex * 210,
     data: {
       title: `${asset.name}｜标准资产图`,
-      parameters: { provider, model, aspectRatio, prompt: asset.prompt, assetIndex },
+      parameters: { aspectRatio, prompt: asset.prompt, assetIndex },
       assetRefs: explicitRefs,
       result: { outputUrl: media?.url || undefined, generationId: media?.generation_id, localPath: media?.local_path || undefined, mediaAvailable: media?.available === true, assetRefs: explicitRefs },
       status: completed(media),

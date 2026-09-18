@@ -1,9 +1,47 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_PROVIDER_TIMEOUT_MS, requestProviderJson } from '../src/providers/transport';
+import { NO_PROVIDER_TIMEOUT_MS, providerDispatcherOptions, requestProviderJson } from '../src/providers/transport';
 
-test('供应商生成请求默认等待十分钟', () => {
-  assert.equal(DEFAULT_PROVIDER_TIMEOUT_MS, 600_000);
+test('供应商生成请求默认不设置本地等待上限', () => {
+  assert.equal(NO_PROVIDER_TIMEOUT_MS, 0);
+  assert.deepEqual(providerDispatcherOptions(NO_PROVIDER_TIMEOUT_MS), {
+    headersTimeout: 0,
+    bodyTimeout: 0,
+  });
+});
+
+test('Provider 传输层只在调用方声明安全时重试瞬时网络错误', async () => {
+  let attempts = 0;
+  const response = await requestProviderJson<{ ok: boolean }>({
+    providerId: 'test',
+    url: 'https://provider.test/task',
+    retryNetworkErrors: true,
+    maxAttempts: 2,
+    retryDelayMs: 0,
+  }, async () => {
+    attempts += 1;
+    if (attempts === 1) throw new TypeError('fetch failed');
+    return Response.json({ ok: true });
+  });
+  assert.equal(attempts, 2);
+  assert.deepEqual(response.data, { ok: true });
+});
+
+test('Provider 传输层默认不重发可能已经被供应商接受的生成请求', async () => {
+  let attempts = 0;
+  await assert.rejects(
+    requestProviderJson({
+      providerId: 'test',
+      url: 'https://provider.test/generate',
+      maxAttempts: 3,
+      retryDelayMs: 0,
+    }, async () => {
+      attempts += 1;
+      throw new TypeError('fetch failed');
+    }),
+    /供应商网络请求失败/u,
+  );
+  assert.equal(attempts, 1);
 });
 
 test('Provider 传输层遇到 429 后按有界策略重试', async () => {

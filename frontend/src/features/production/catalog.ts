@@ -59,12 +59,21 @@ export interface ProductionNodeParameters {
 export interface ProductionNodeResult {
   text?: string
   outputUrl?: string
+  provider?: string
+  model?: string
   assetRefs?: AssetReferences
   taskId?: string
   generationId?: number
   localPath?: string
   mediaAvailable?: boolean
   createdAt?: string
+}
+
+export interface ProductionExecution {
+  progress?: number
+  message: string
+  startedAt?: string
+  finishedAt?: string
 }
 
 export interface ProductionNodeData extends Record<string, unknown> {
@@ -75,7 +84,8 @@ export interface ProductionNodeData extends Record<string, unknown> {
   result: ProductionNodeResult
   history?: ProductionNodeResult[]
   status: ProductionNodeStatus
-  execution?: { progress?: number; message: string }
+  manuallyCompleted?: boolean
+  execution?: ProductionExecution
   error?: string
 }
 
@@ -288,6 +298,8 @@ export function createProductionNodeData(role: ProductionRole, overrides: Partia
     result: { ...(overrides.result || {}) },
     history: overrides.history ? overrides.history.map((item) => ({ ...item, assetRefs: cloneRefs(item.assetRefs || {}) })) : [],
     status: overrides.status ?? 'idle',
+    manuallyCompleted: overrides.manuallyCompleted ?? false,
+    execution: overrides.execution ? { ...overrides.execution } : undefined,
     error: overrides.error,
   }
 }

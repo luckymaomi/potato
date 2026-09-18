@@ -1,10 +1,11 @@
-import { ReloadOutlined } from '@ant-design/icons'
-import { App as AntdApp, Button, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { ReloadOutlined, SaveOutlined } from '@ant-design/icons'
+import { App as AntdApp, Button, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { aiConfigsApi } from '../api/aiConfigs'
 import { userErrorMessage } from '../errors/appError'
-import type { ProviderCatalogStatus, ProviderModel, ServiceType } from '../types/domain'
+import type { AiModelPresets, ProviderCatalogStatus, ProviderModel, ServiceType } from '../types/domain'
 import { modelCapabilityLabels, supportsService } from '../features/providers/catalog'
+import { emptyModelPresets, modelPresetFromKey, modelPresetKey, modelPresetOptions } from '../features/providers/modelPresets'
 
 const serviceLabels: Record<ServiceType, string> = { text: '文本', image: '图片', video: '视频' }
 
@@ -15,14 +16,17 @@ export function AiConfigPage() {
   const [models, setModels] = useState<ProviderModel[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState<string[]>([])
+  const [presets, setPresets] = useState<AiModelPresets>(emptyModelPresets)
+  const [savingPresets, setSavingPresets] = useState(false)
 
   useEffect(() => {
     let active = true
-    void Promise.all([aiConfigsApi.providers(), aiConfigsApi.models()])
-      .then(([providerItems, modelItems]) => {
+    void Promise.all([aiConfigsApi.providers(), aiConfigsApi.models(), aiConfigsApi.modelPresets()])
+      .then(([providerItems, modelItems, savedPresets]) => {
         if (!active) return
         setProviders(providerItems)
         setModels(modelItems)
+        setPresets(savedPresets)
       })
       .catch((error: unknown) => { if (active) message.error(userErrorMessage(error)) })
       .finally(() => { if (active) setLoading(false) })
@@ -50,6 +54,24 @@ export function AiConfigPage() {
     () => providers.filter((provider) => supportsService(provider.capabilities, serviceType)),
     [providers, serviceType],
   )
+  const presetOptions = useMemo(() => Object.fromEntries(
+    (Object.keys(serviceLabels) as ServiceType[]).map((type) => [
+      type,
+      modelPresetOptions(type, models, providers, presets[type]),
+    ]),
+  ) as Record<ServiceType, ReturnType<typeof modelPresetOptions>>, [models, presets, providers])
+
+  const savePresets = async () => {
+    setSavingPresets(true)
+    try {
+      setPresets(await aiConfigsApi.saveModelPresets(presets))
+      message.success('默认模型预设已保存')
+    } catch (error) {
+      message.error(userErrorMessage(error))
+    } finally {
+      setSavingPresets(false)
+    }
+  }
 
   return (
     <>
@@ -59,6 +81,32 @@ export function AiConfigPage() {
           <p>密钥与接口地址统一读取根目录 config.yaml；这里负责查看状态并同步供应商实时模型目录。</p>
         </div>
       </header>
+      <section className="settings-surface model-preset-surface">
+        <div className="model-preset-heading">
+          <div>
+            <h2>默认模型预设</h2>
+            <p>节点没有单独选择模型时使用；每一项都可以留空，让系统按能力自动选择。</p>
+          </div>
+          <Button type="primary" icon={<SaveOutlined />} loading={savingPresets} disabled={loading} onClick={() => void savePresets()}>保存预设</Button>
+        </div>
+        <div className="model-preset-grid">
+          {(Object.keys(serviceLabels) as ServiceType[]).map((type) => (
+            <label className="model-preset-field" key={type}>
+              <span>{serviceLabels[type]}模型</span>
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                loading={loading}
+                value={modelPresetKey(presets[type])}
+                options={presetOptions[type]}
+                placeholder="不预设（自动选择）"
+                onChange={(value) => setPresets((current) => ({ ...current, [type]: modelPresetFromKey(value) }))}
+              />
+            </label>
+          ))}
+        </div>
+      </section>
       <section className="settings-surface">
         <Tabs
           activeKey={serviceType}
