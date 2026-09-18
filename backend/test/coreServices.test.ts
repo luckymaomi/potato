@@ -34,6 +34,7 @@ const TEST_MP4 = `data:video/mp4;base64,${Buffer.from('\u0000\u0000\u0000\u0018f
 after(() => temporaryStorageRoots.forEach((root) => fs.rmSync(root, { recursive: true, force: true })));
 
 function setup(options: {
+  listModels?: NonNullable<ProviderAdapter['listModels']>;
   generateText?: NonNullable<ProviderAdapter['generateText']>;
   submitImage?: NonNullable<ProviderAdapter['submitImage']>;
   submitVideo?: NonNullable<ProviderAdapter['submitVideo']>;
@@ -61,7 +62,7 @@ function setup(options: {
         firstLastFrame: true,
       },
     },
-    listModels: async () => [
+    listModels: options.listModels ?? (async () => [
       { id: 'agnes-text', label: 'Agnes Text', kind: 'text', capabilities: modelCapabilities([], null, [], 'adapter') },
       { id: 'agnes-image', label: 'Agnes Image', kind: 'image', capabilities: modelCapabilities(['text-to-image', 'image-to-image'], 2, ['1:1', '9:16'], 'adapter') },
       { id: 'agnes-image-text-only', label: 'Agnes Image Text Only', kind: 'image', capabilities: modelCapabilities(['text-to-image'], 0, ['1:1', '9:16'], 'adapter') },
@@ -69,7 +70,7 @@ function setup(options: {
       { id: 'agnes-video-flash', label: 'Agnes Video Flash', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter', 'duration') },
       { id: 'agnes-video-per-request', label: 'Agnes Video Per Request', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter', 'per-request') },
       { id: 'agnes-video-per-request-duration', label: 'Agnes Video Per Request With Duration', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 1, ['16:9', '9:16'], 'adapter', 'per-request', [4, 6, 8, 10, 12, 15]) },
-    ],
+    ]),
     generateText: options.generateText ?? (async (_context, request) => {
       const system = request.messages.find((message) => message.role === 'system')?.content || '';
       return {
@@ -207,15 +208,67 @@ test('配置服务从根配置读取供应商并保存动态模型快照', async
     assert.deepEqual(auditEvents, ['ai.model-presets.updated']);
     assert.equal(services.aiConfigs.select('video').default_model, 'agnes-video');
     assert.equal(services.aiConfigs.select('video', 'agnes', 'agnes-video-flash').default_model, 'agnes-video-flash');
-    assert.equal(services.aiConfigs.select('image', undefined, undefined, { mode: 'image-to-image' }).default_model, 'agnes-image');
+    assert.throws(
+      () => services.aiConfigs.select('image', undefined, undefined, { mode: 'image-to-image' }),
+      /Agnes Image Text Only 不支持图生图/u,
+    );
     assert.throws(() => services.aiConfigs.savePresets({
       text: null,
       image: { provider: 'agnes', model: 'agnes-text' },
       video: null,
     }), /没有图片模型/u);
     services.aiConfigs.savePresets({ text: null, image: null, video: null });
+    assert.equal(services.aiConfigs.select('image', undefined, undefined, { mode: 'image-to-image' }).default_model, 'agnes-image');
     assert.equal(services.aiConfigs.select('video', 'agnes').default_model, 'agnes-video');
     await assert.rejects(services.aiConfigs.refresh('unknown'), /供应商未注册/u);
+  } finally { db.close(); }
+});
+
+test('模型能力未知时固定显式选择和全局预设，仅明确冲突才拒绝', async () => {
+  const submitted: Array<{ model: string; aspectRatio?: string }> = [];
+  const { db, services } = setup({
+    listModels: async () => [
+      { id: 'gpt-image-2', label: 'A GPT Image 2', kind: 'image', capabilities: modelCapabilities([], null, null, 'provider') },
+      { id: 'known-image', label: 'Z Known Image', kind: 'image', capabilities: modelCapabilities(['text-to-image', 'image-to-image'], 4, ['1:1', '9:16'], 'provider') },
+      { id: 'limited-image', label: 'Limited Image', kind: 'image', capabilities: modelCapabilities(['text-to-image'], 0, ['1:1'], 'provider') },
+    ],
+    submitImage: async (_context, request) => {
+      submitted.push({ model: request.model, aspectRatio: request.aspectRatio });
+      return { status: 'completed', imageUrl: TEST_PNG };
+    },
+  });
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const requirements = {
+      mode: 'image-to-image' as const,
+      referenceImageCount: 3,
+      aspectRatio: '9:16',
+      requiresAspectRatio: true,
+    };
+
+    assert.equal(services.aiConfigs.select('image', 'agnes', 'gpt-image-2', requirements).default_model, 'gpt-image-2');
+    assert.equal(services.aiConfigs.resolveAspectRatio('image', 'agnes', 'gpt-image-2', '9:16'), '9:16');
+
+    services.aiConfigs.savePresets({ text: null, image: { provider: 'agnes', model: 'gpt-image-2' }, video: null });
+    assert.equal(services.aiConfigs.select('image', undefined, undefined, requirements).default_model, 'gpt-image-2');
+
+    const project = services.projects.create({ title: '未知能力模型透传' });
+    const taskId = submittedTaskId(services.production.execute({
+      kind: 'image', projectId: project.id, mode: 'text-to-image', prompt: '竖屏画面',
+      provider: 'agnes', model: 'gpt-image-2', aspectRatio: '9:16', referenceImages: [],
+    }));
+    await taskDone(() => services.tasks.get(taskId));
+    assert.deepEqual(submitted, [{ model: 'gpt-image-2', aspectRatio: '9:16' }]);
+
+    services.aiConfigs.savePresets({ text: null, image: null, video: null });
+    assert.equal(services.aiConfigs.select('image', undefined, undefined, requirements).default_model, 'known-image');
+    assert.throws(
+      () => services.aiConfigs.select('image', 'agnes', 'limited-image', requirements),
+      /不支持图生图|最多支持 0 张参考图|不支持画幅比例 9:16/u,
+    );
+
+    db.prepare("DELETE FROM provider_model_catalog WHERE provider = 'agnes' AND model_id != 'gpt-image-2'").run();
+    assert.equal(services.aiConfigs.select('image', undefined, undefined, requirements).default_model, 'gpt-image-2');
   } finally { db.close(); }
 });
 

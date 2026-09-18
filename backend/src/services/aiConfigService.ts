@@ -141,39 +141,55 @@ export class AiConfigService {
       .filter((descriptor) => {
         const runtime = this.providerConfig(descriptor.id);
         return runtime?.enabled !== false && Boolean(readString(runtime?.api_key));
-      })
-      .sort((left, right) => {
-        if (!applicablePreset) return 0;
-        if (left.id === applicablePreset.provider) return -1;
-        if (right.id === applicablePreset.provider) return 1;
-        return 0;
       });
 
-    for (const descriptor of descriptors) {
+    if (model) {
+      for (const descriptor of descriptors) {
+        const available = this.models(descriptor.id, serviceType);
+        const selectedModel = available.find((entry) => entry.id === model);
+        if (!selectedModel) continue;
+        this.assertRequirements(selectedModel, requirements);
+        return this.executionConfig(descriptor, serviceType, available, selectedModel.id);
+      }
+      throw new ValidationError(`动态模型目录中没有可用的 ${model}`);
+    }
+
+    if (applicablePreset) {
+      const descriptor = descriptors.find((entry) => entry.id === applicablePreset.provider);
+      if (!descriptor) {
+        throw new ValidationError(`界面预设的${serviceLabel(serviceType)}供应商当前不可用：${applicablePreset.provider}`);
+      }
       const available = this.models(descriptor.id, serviceType);
-      const presetModel = applicablePreset?.provider === descriptor.id
-        ? available.find((entry) => entry.id === applicablePreset.model)
-        : undefined;
-      if (applicablePreset?.provider === descriptor.id && !presetModel) {
+      const selectedModel = available.find((entry) => entry.id === applicablePreset.model);
+      if (!selectedModel) {
         throw new ValidationError(`界面预设的${serviceLabel(serviceType)}模型不在实时目录：${applicablePreset.model}`);
       }
-      const compatiblePreset = presetModel && this.matchesRequirements(presetModel, requirements)
-        ? presetModel
-        : undefined;
-      const compatible = available.filter((entry) => this.matchesRequirements(entry, requirements));
-      const selectedModel = model
-        ? available.find((entry) => entry.id === model)
-        : compatiblePreset
-          ? compatiblePreset
-          : compatible[0];
-      if (!selectedModel) continue;
       this.assertRequirements(selectedModel, requirements);
       return this.executionConfig(descriptor, serviceType, available, selectedModel.id);
     }
 
-    if (model) throw new ValidationError(`动态模型目录中没有可用的 ${model}`);
+    let automatic: {
+      descriptor: ProviderDescriptor;
+      available: ProviderModelSnapshot[];
+      model: ProviderModelSnapshot;
+      confidence: number;
+    } | undefined;
+    for (const descriptor of descriptors) {
+      const available = this.models(descriptor.id, serviceType);
+      for (const candidate of available) {
+        if (!this.matchesRequirements(candidate, requirements)) continue;
+        const confidence = this.requirementConfidence(candidate, requirements);
+        if (!automatic || confidence > automatic.confidence) {
+          automatic = { descriptor, available, model: candidate, confidence };
+        }
+      }
+    }
+    if (automatic) {
+      return this.executionConfig(automatic.descriptor, serviceType, automatic.available, automatic.model.id);
+    }
+
     if (requirements.aspectRatio) throw new ValidationError(`动态模型目录中没有支持画幅比例 ${requirements.aspectRatio} 的模型`);
-    if (requirements.requiresAspectRatio) throw new ValidationError(`动态模型目录中没有已确认画幅比例能力的${serviceLabel(serviceType)}模型`);
+    if (requirements.requiresAspectRatio) throw new ValidationError(`动态模型目录中没有可接受画幅比例参数的${serviceLabel(serviceType)}模型`);
     if (requirements.mode) throw new ValidationError(`动态模型目录中没有支持${modeLabel(requirements.mode)}的模型`);
     throw new ValidationError(`尚未同步可用的${serviceLabel(serviceType)}模型，请先打开 AI 配置刷新模型目录`);
   }
@@ -188,7 +204,7 @@ export class AiConfigService {
     if (!model) throw new ValidationError(`动态模型目录中没有可用的 ${modelId}`);
     const aspectRatio = readString(requested) ?? model.capabilities.aspectRatios?.[0];
     if (!aspectRatio) {
-      throw new ValidationError(`模型 ${model.label} 的画幅比例能力未知，请刷新模型目录或选择已标明比例的模型`);
+      throw new ValidationError(`没有为模型 ${model.label} 提供画幅比例，模型目录也没有可用默认值`);
     }
     this.assertRequirements(model, { aspectRatio });
     return aspectRatio;
@@ -267,42 +283,46 @@ export class AiConfigService {
   }
 
   private assertRequirements(model: ProviderModelSnapshot, requirements: ModelSelectionRequirements): void {
-    if (requirements.mode && !modelSupportsMode(model.capabilities, requirements.mode)) {
-      const known = model.capabilities.source === 'unknown'
-        ? '能力信息未知，请先刷新模型目录'
-        : `不支持${modeLabel(requirements.mode)}`;
-      throw new ValidationError(`模型 ${model.label} ${known}`);
+    if (requirements.mode && model.capabilities.modes.length > 0
+      && !modelSupportsMode(model.capabilities, requirements.mode)) {
+      throw new ValidationError(`模型 ${model.label} 不支持${modeLabel(requirements.mode)}`);
     }
     const referenceCount = Math.max(0, requirements.referenceImageCount ?? 0);
-    if (referenceCount > 0 && model.capabilities.maxReferenceImages === null) {
-      throw new ValidationError(`模型 ${model.label} 的参考图上限未知，请刷新模型目录或选择已标明上限的模型`);
-    }
     if (model.capabilities.maxReferenceImages !== null && referenceCount > model.capabilities.maxReferenceImages) {
       throw new ValidationError(`模型 ${model.label} 最多支持 ${model.capabilities.maxReferenceImages} 张参考图，当前为 ${referenceCount} 张`);
     }
     if (requirements.requiresAspectRatio
-      && (!model.capabilities.aspectRatios || model.capabilities.aspectRatios.length === 0)) {
-      throw new ValidationError(`模型 ${model.label} 的画幅比例能力未知，请刷新模型目录或选择已标明比例的模型`);
+      && model.capabilities.aspectRatios !== null
+      && model.capabilities.aspectRatios.length === 0) {
+      throw new ValidationError(`模型 ${model.label} 明确不支持画幅比例参数`);
     }
     const aspectRatio = readString(requirements.aspectRatio);
-    if (aspectRatio && model.capabilities.aspectRatios === null) {
-      throw new ValidationError(`模型 ${model.label} 的画幅比例能力未知，请刷新模型目录或选择已标明比例的模型`);
-    }
     if (aspectRatio && !modelSupportsAspectRatio(model.capabilities, aspectRatio)) {
       throw new ValidationError(`模型 ${model.label} 不支持画幅比例 ${aspectRatio}，可用比例：${model.capabilities.aspectRatios?.join('、') || '未知'}`);
     }
   }
 
   private matchesRequirements(model: ProviderModelSnapshot, requirements: ModelSelectionRequirements): boolean {
-    if (requirements.mode && !modelSupportsMode(model.capabilities, requirements.mode)) return false;
+    if (requirements.mode && model.capabilities.modes.length > 0
+      && !modelSupportsMode(model.capabilities, requirements.mode)) return false;
     const referenceCount = Math.max(0, requirements.referenceImageCount ?? 0);
-    if (referenceCount > 0 && (model.capabilities.maxReferenceImages === null
-      || referenceCount > model.capabilities.maxReferenceImages)) return false;
+    if (model.capabilities.maxReferenceImages !== null
+      && referenceCount > model.capabilities.maxReferenceImages) return false;
     if (requirements.requiresAspectRatio
-      && (!model.capabilities.aspectRatios || model.capabilities.aspectRatios.length === 0)) return false;
+      && model.capabilities.aspectRatios !== null
+      && model.capabilities.aspectRatios.length === 0) return false;
     const aspectRatio = readString(requirements.aspectRatio);
     if (aspectRatio && !modelSupportsAspectRatio(model.capabilities, aspectRatio)) return false;
     return true;
+  }
+
+  private requirementConfidence(model: ProviderModelSnapshot, requirements: ModelSelectionRequirements): number {
+    let confidence = 0;
+    if (requirements.mode && model.capabilities.modes.length > 0) confidence += 1;
+    if ((requirements.referenceImageCount ?? 0) > 0 && model.capabilities.maxReferenceImages !== null) confidence += 1;
+    if ((requirements.requiresAspectRatio || readString(requirements.aspectRatio))
+      && model.capabilities.aspectRatios !== null) confidence += 1;
+    return confidence;
   }
 
   private providerConfig(provider: string) {

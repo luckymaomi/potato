@@ -53,17 +53,17 @@ test('Agnes 动态模型目录使用 GET /models 并按返回元数据分类', a
   ]);
 });
 
-test('PearAPI 只使用 Bearer /v1/models，并为已核验 FLUX 模型补充能力', async () => {
+test('PearAPI 只使用 Bearer /v1/models，并为已核验 GPT Image 2 模型补充能力', async () => {
   const requests: Array<{ url: string; method: string; authorization?: string }> = [];
   const adapter = createPearApiAdapter(async (input, init) => {
     requests.push({ url: String(input), method: String(init?.method), authorization: (init?.headers as Record<string, string> | undefined)?.Authorization });
-    return Response.json({ object: 'list', data: [{ id: 'flux2-klein-9b', object: 'model', created: 0, owned_by: 'pearapi' }] });
+    return Response.json({ object: 'list', data: [{ id: 'gpt-image-2', object: 'model', created: 0, owned_by: 'pearapi' }] });
   });
 
   assert.deepEqual(await adapter.listModels!({ apiKey: 'sk-test', serviceType: 'image' }), [
     {
-      id: 'flux2-klein-9b', label: 'flux2-klein-9b', kind: 'image',
-      capabilities: { modes: ['text-to-image'], maxReferenceImages: 0, aspectRatios: ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'], billingMode: 'unknown', supportsDuration: false, supportedDurations: null, source: 'provider' },
+      id: 'gpt-image-2', label: 'gpt-image-2', kind: 'image',
+      capabilities: { modes: ['text-to-image', 'image-to-image'], maxReferenceImages: 16, aspectRatios: ['9:16', '16:9', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'], billingMode: 'unknown', supportsDuration: false, supportedDurations: null, source: 'provider' },
     },
   ]);
   assert.deepEqual(requests, [{ url: 'https://api.pearapi.ai/v1/models', method: 'GET', authorization: 'Bearer sk-test' }]);
@@ -98,6 +98,16 @@ test('PearAPI 普通模型只采用 /v1/models 明确返回的能力', async () 
       capabilities: { modes: [], maxReferenceImages: 0, aspectRatios: null, billingMode: 'unknown', supportsDuration: false, supportedDurations: null, source: 'provider' },
     },
   ]);
+});
+
+test('PearAPI 未知媒体模型仍保留在目录，只有已核验模型使用适配器特判', async () => {
+  const adapter = createPearApiAdapter(async () => Response.json({ data: [
+    { id: 'future-image-model', model_type: 'image', supported_endpoint_types: ['images.generations'] },
+    { id: 'gpt-image-2', object: 'model' },
+  ] }));
+  const models = await adapter.listModels!({ apiKey: 'sk-test', serviceType: 'image' });
+  assert.equal(models.some((model) => model.id === 'future-image-model'), true);
+  assert.equal(models.find((model) => model.id === 'gpt-image-2')?.capabilities.maxReferenceImages, 16);
 });
 
 test('PearAPI 只为官方 Grok 1.5 及 preview 别名补充视频能力', async () => {

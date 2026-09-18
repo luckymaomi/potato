@@ -8,6 +8,8 @@ const modelModeLabels: Record<ProviderModelMode, string> = {
   'image-to-video': '图生视频',
 }
 
+const commonAspectRatios = ['9:16', '16:9', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9']
+
 export function supportsService(capabilities: ProviderCapabilities, serviceType: ServiceType): boolean {
   if (serviceType === 'text') return capabilities.text
   if (serviceType === 'image') return capabilities.textToImage || capabilities.imageToImage
@@ -38,7 +40,7 @@ export function providerSupportsMode(capabilities: ProviderCapabilities, mode: M
 
 export function modelSupportsMode(model: ProviderModel, mode: MediaGenerationMode | undefined): boolean {
   if (!isProviderModelMode(mode)) return true
-  return model.capabilities.modes.includes(mode)
+  return model.capabilities.modes.length === 0 || model.capabilities.modes.includes(mode)
 }
 
 export function modelCapabilityLabels(model: ProviderModel): string[] {
@@ -79,11 +81,17 @@ export function requiresReferenceImage(mode: MediaGenerationMode | undefined): b
 
 export function modelSupportsAspectRatio(model: ProviderModel, aspectRatio: string | undefined): boolean {
   if (!aspectRatio) return true
-  return model.capabilities.aspectRatios?.includes(aspectRatio) === true
+  return model.capabilities.aspectRatios === null || model.capabilities.aspectRatios.includes(aspectRatio)
 }
 
-export function aspectRatiosFor(models: ProviderModel[]): string[] {
-  return [...new Set(models.flatMap((model) => model.capabilities.aspectRatios || []))]
+export function aspectRatiosFor(models: ProviderModel[], current?: string): string[] {
+  const hasUnknownCapabilities = models.some((model) => model.capabilities.aspectRatios === null)
+  const declared = models.flatMap((model) => model.capabilities.aspectRatios || [])
+  return [...new Set([
+    ...(hasUnknownCapabilities && current ? [current] : []),
+    ...declared,
+    ...(hasUnknownCapabilities ? commonAspectRatios : []),
+  ])]
 }
 
 export function preferredAspectRatio(aspectRatios: string[], current?: string): string | undefined {

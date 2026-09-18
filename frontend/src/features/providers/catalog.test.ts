@@ -75,6 +75,21 @@ describe('动态模型目录选择', () => {
       synchronized_at: '2026-09-17T00:00:00.000Z',
     }
     expect(modelCapabilityLabels(model)).toEqual(['图生图', '参考图上限未知', '画幅比例未知'])
+    expect(modelSupportsAspectRatio(model, '9:16')).toBe(true)
+    expect(aspectRatiosFor([model], '5:4')).toEqual(['5:4', '9:16', '16:9', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9'])
+  })
+
+  it('不因目录没有声明模式而隐藏模型', () => {
+    const model: ProviderModel = {
+      provider: 'pearapi',
+      id: 'gpt-image-2',
+      label: 'GPT Image 2',
+      kind: 'image',
+      capabilities: { modes: [], maxReferenceImages: null, aspectRatios: null, source: 'provider' },
+      synchronized_at: '2026-09-18T00:00:00.000Z',
+    }
+    expect(modelSupportsMode(model, 'text-to-image')).toBe(true)
+    expect(modelSupportsMode(model, 'image-to-image')).toBe(true)
   })
 
   it('区分按次视频与按时长视频，不为未知能力伪造时长', () => {

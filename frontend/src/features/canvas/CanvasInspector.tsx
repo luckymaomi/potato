@@ -30,7 +30,7 @@ import { mediaHistoryApi, uploadsApi, type MediaGenerationHistory } from '../../
 import { productionApi, type TextPromptDefinition } from '../../api/production'
 import { userErrorMessage } from '../../errors/appError'
 import { useCanvasStore } from '../../store/canvasStore'
-import type { ProviderCatalogStatus, ProviderModel, ServiceType } from '../../types/domain'
+import type { AiModelPresets, ProviderCatalogStatus, ProviderModel, ServiceType } from '../../types/domain'
 import {
   aspectRatioLabel,
   aspectRatiosFor,
@@ -93,6 +93,7 @@ function CanvasInspectorEditor({ nodeId, running, stopping, onRunNode, onRunDown
   const [uploading, setUploading] = useState(false)
   const [providers, setProviders] = useState<ProviderCatalogStatus[]>([])
   const [models, setModels] = useState<ProviderModel[]>([])
+  const [modelPresets, setModelPresets] = useState<AiModelPresets>({ text: null, image: null, video: null })
   const [textPrompts, setTextPrompts] = useState<TextPromptDefinition[]>([])
   const [history, setHistory] = useState<MediaGenerationHistory[]>([])
   const [form] = Form.useForm<InspectorFormValues>()
@@ -137,13 +138,14 @@ function CanvasInspectorEditor({ nodeId, running, stopping, onRunNode, onRunDown
       return
     }
     let active = true
-    void Promise.all([aiConfigsApi.providers(), aiConfigsApi.models({ service_type: serviceType })])
-      .then(([providerItems, modelItems]) => {
+    void Promise.all([aiConfigsApi.providers(), aiConfigsApi.models({ service_type: serviceType }), aiConfigsApi.modelPresets()])
+      .then(([providerItems, modelItems, presets]) => {
         if (!active) return
         setProviders(providerItems.filter((item) => item.enabled && item.configured && supportsService(item.capabilities, serviceType)))
         setModels(modelItems)
+        setModelPresets(presets)
       })
-      .catch(() => { if (active) { setProviders([]); setModels([]) } })
+      .catch(() => { if (active) { setProviders([]); setModels([]); setModelPresets({ text: null, image: null, video: null }) } })
     return () => { active = false }
   }, [serviceType])
 
@@ -168,15 +170,19 @@ function CanvasInspectorEditor({ nodeId, running, stopping, onRunNode, onRunDown
     () => models.filter((item) => (!provider || item.provider === provider) && modelSupportsMode(item, mediaMode)),
     [mediaMode, models, provider],
   )
-  const selectedModel = useMemo(
-    () => models.find((item) => item.id === model && (!provider || item.provider === provider)),
-    [model, models, provider],
-  )
+  const selectedModel = useMemo(() => {
+    const explicit = models.find((item) => item.id === model && (!provider || item.provider === provider))
+    if (explicit || !serviceType) return explicit
+    const preset = modelPresets[serviceType]
+    return preset && (!provider || preset.provider === provider)
+      ? models.find((item) => item.provider === preset.provider && item.id === preset.model)
+      : undefined
+  }, [model, modelPresets, models, provider, serviceType])
   const durationSupported = modelSupportsDuration(selectedModel)
   const durationOptions = modelDurationOptions(selectedModel)
   const aspectRatios = useMemo(
-    () => aspectRatiosFor(selectedModel ? [selectedModel] : availableModels),
-    [availableModels, selectedModel],
+    () => aspectRatiosFor(selectedModel ? [selectedModel] : availableModels, aspectRatio),
+    [aspectRatio, availableModels, selectedModel],
   )
   const providerOptions = useMemo(() => providers.filter((item) => providerSupportsMode(item.capabilities, mediaMode)
     && models.some((modelItem) => modelItem.provider === item.id && modelSupportsMode(modelItem, mediaMode)))

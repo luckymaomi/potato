@@ -57,8 +57,13 @@ function inferModelKind(id: string): 'text' | 'image' | 'video' | undefined {
 
 function knownModelMetadata(id: string, item: JsonRecord): PearModelMetadata {
   const metadata = asRecord(item.capabilities) as PearModelMetadata | undefined; const lower = id.toLowerCase();
+  if (lower === 'gpt-image-2') return {
+    ...metadata,
+    supported_modes: ['text2image', 'image2image'],
+    reference_image: 16,
+    aspect_ratio: ['9:16', '16:9', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'],
+  };
   if (/^grok-imagine-video-1\.5(?:-preview)?$/iu.test(lower)) return { ...metadata, supported_modes: ['text2video', 'image2video'], reference_image: 1, aspect_ratio: ['16:9', '9:16'], supported_durations: [4, 6, 8, 10, 12, 15], billing_type: metadata?.billing_type || 'per-request' };
-  if (lower === 'flux2-klein-9b') return { ...metadata, reference_image: 0, aspect_ratio: ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9'], supported_modes: ['text2image'] };
   return metadata || {};
 }
 

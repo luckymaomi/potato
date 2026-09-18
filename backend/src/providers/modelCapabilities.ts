@@ -73,14 +73,14 @@ export function parseModelCapabilities(value: unknown): ProviderModelCapabilitie
 }
 
 export function modelSupportsMode(capabilities: ProviderModelCapabilities, mode: ProviderModelMode): boolean {
-  return capabilities.modes.includes(mode);
+  return capabilities.modes.length === 0 || capabilities.modes.includes(mode);
 }
 
 export function modelSupportsAspectRatio(
   capabilities: ProviderModelCapabilities,
   aspectRatio: string,
 ): boolean {
-  return capabilities.aspectRatios?.includes(aspectRatio) === true;
+  return capabilities.aspectRatios === null || capabilities.aspectRatios.includes(aspectRatio);
 }
 
 export function normalizeAspectRatios(value: unknown): string[] | null {
