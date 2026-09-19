@@ -31,7 +31,7 @@ describe('动态模型目录选择', () => {
     expect(supportsService(capabilities, 'video')).toBe(false)
   })
 
-  it('把节点运行方式映射到实时模型类型', () => {
+  it('把生成方式映射到实时模型类型', () => {
     expect(nodeServiceType('text', 'manual', undefined)).toBeUndefined()
     expect(nodeServiceType('text', 'ai', undefined)).toBe('text')
     expect(nodeServiceType('image', undefined, 'image-to-image')).toBe('image')

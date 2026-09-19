@@ -7,14 +7,15 @@ import * as unzipper from 'unzipper';
 import { ValidationError } from '../errors';
 import type { SQLiteDatabase } from '../types/core';
 import { asRecord, readNumber, readString } from '../types/core';
-import type { Drama } from '../types/domain';
+import type { AssetLibraryItemRow, Drama, ProjectAssetRow } from '../types/domain';
 import { AssetRepository } from './assetRepository';
 import { MediaArchiveService } from './mediaArchiveService';
 import { ProjectService } from './projectService';
 
 interface ArchivePayload {
-  version: 2;
+  format: 3;
   project: Drama;
+  asset_library_items: AssetLibraryItemRow[];
   image_generations: Array<Record<string, unknown>>;
   video_generations: Array<Record<string, unknown>>;
 }
@@ -25,6 +26,8 @@ interface ImportMaps {
   scenes: Map<number, number>;
   props: Map<number, number>;
   storyboards: Map<number, number>;
+  libraryItems: Map<number, number>;
+  projectAssets: Map<number, number>;
   images: Map<number, number>;
   videos: Map<number, number>;
   urls: Map<string, string>;
@@ -42,9 +45,19 @@ export class ProjectArchiveService {
     const project = this.projects.require(projectId);
     const archivalProject: Drama = { ...project };
     delete archivalProject.media_lifecycle;
-    const images = this.db.prepare('SELECT * FROM image_generations WHERE drama_id = ? ORDER BY id').all(projectId) as Array<Record<string, unknown>>;
+    const projectAssets = project.project_assets ?? [];
+    const libraryIds = projectAssets.flatMap((item) => item.library_item_id ? [item.library_item_id] : []);
+    const libraryItems = rowsByIds<AssetLibraryItemRow>(this.db, 'asset_library_items', libraryIds);
+    const referencedImageIds = new Set<number>([
+      ...projectAssets.flatMap((item) => [item.current_image_generation_id, item.locked_image_generation_id]).filter((id): id is number => Boolean(id)),
+      ...libraryItems.flatMap((item) => item.current_image_generation_id ? [item.current_image_generation_id] : []),
+      ...(project.episodes ?? []).flatMap((episode) => (episode.storyboards ?? []).flatMap((shot) => shot.current_image_generation_id ? [shot.current_image_generation_id] : [])),
+    ]);
+    const projectImages = this.db.prepare('SELECT * FROM image_generations WHERE drama_id = ? ORDER BY id').all(projectId) as Array<Record<string, unknown>>;
+    const referencedImages = rowsByIds<Record<string, unknown>>(this.db, 'image_generations', [...referencedImageIds]);
+    const images = [...new Map([...projectImages, ...referencedImages].map((row) => [readNumber(row.id), row])).values()];
     const videos = this.db.prepare('SELECT * FROM video_generations WHERE drama_id = ? ORDER BY id').all(projectId) as Array<Record<string, unknown>>;
-    const payload: ArchivePayload = { version: 2, project: archivalProject, image_generations: images, video_generations: videos };
+    const payload: ArchivePayload = { format: 3, project: archivalProject, asset_library_items: libraryItems, image_generations: images, video_generations: videos };
     const relativePaths = new Set<string>();
     [...images, ...videos].forEach((row) => {
       const localPath = readString(row.local_path);
@@ -83,22 +96,21 @@ export class ProjectArchiveService {
       if (!fs.existsSync(manifest)) throw new ValidationError('归档中缺少 project.json');
       const payload = parsePayload(await fs.promises.readFile(manifest, 'utf8'));
       const source = payload.project;
-      const sourceMetadata = { ...source.metadata };
-      delete sourceMetadata.canvas_layout;
-      const created = this.projects.create({ ...source, metadata: sourceMetadata });
+      const created = this.projects.create({ ...source, metadata: source.metadata });
       const maps: ImportMaps = {
         episodes: new Map(), characters: new Map(), scenes: new Map(), props: new Map(), storyboards: new Map(),
+        libraryItems: new Map(), projectAssets: new Map(),
         images: new Map(), videos: new Map(), urls: new Map(),
       };
       try {
         this.importEpisodes(created.id, source, maps);
         this.importAssets(created.id, source, maps);
+        this.importLibrary(payload.asset_library_items, maps);
+        this.importProjectAssets(created.id, source.project_assets ?? [], maps);
         this.importStoryboards(source, maps);
         await this.importImages(extractedRoot, created.id, payload.image_generations, maps);
         await this.importVideos(extractedRoot, created.id, payload.video_generations, maps);
-        this.applyCurrentVersions(source, maps);
-        const metadata = remapCanvasMetadata(source.metadata, maps);
-        this.projects.update(created.id, { metadata });
+        this.applyCurrentVersions(source, payload.asset_library_items, maps);
         return this.projects.require(created.id);
       } catch (error) {
         this.projects.remove(created.id);
@@ -128,6 +140,32 @@ export class ProjectArchiveService {
     (source.props || []).forEach((item, index) => { const target = props[index]; if (target) maps.props.set(item.id, target.id); });
   }
 
+  private importLibrary(items: AssetLibraryItemRow[], maps: ImportMaps): void {
+    for (const item of items) {
+      const created = this.assets.createLibraryItem(item);
+      maps.libraryItems.set(item.id, created.id);
+    }
+  }
+
+  private importProjectAssets(projectId: number, items: ProjectAssetRow[], maps: ImportMaps): void {
+    for (const item of items) {
+      const libraryItemId = item.library_item_id ? maps.libraryItems.get(item.library_item_id) : undefined;
+      const { dependency_asset_ids: _dependencies, ...fields } = item;
+      const created = this.assets.createProjectAsset(projectId, libraryItemId
+        ? { ...fields, from_library_item_id: libraryItemId }
+        : { ...fields, library_item_id: undefined });
+      this.assets.updateProjectAsset(created.id, fields);
+      maps.projectAssets.set(item.id, created.id);
+    }
+    for (const item of items) {
+      const targetId = maps.projectAssets.get(item.id);
+      if (!targetId) continue;
+      this.assets.updateProjectAsset(targetId, {
+        dependency_asset_ids: item.dependency_asset_ids.map((id) => maps.projectAssets.get(id)).filter(Boolean),
+      });
+    }
+  }
+
   private importStoryboards(source: Drama, maps: ImportMaps): void {
     (source.episodes || []).forEach((episode) => {
       const targetEpisode = maps.episodes.get(episode.id);
@@ -137,6 +175,7 @@ export class ProjectArchiveService {
         character_ids: item.character_ids.map((id) => maps.characters.get(id)).filter(Boolean),
         scene_ids: item.scene_ids.map((id) => maps.scenes.get(id)).filter(Boolean),
         prop_ids: item.prop_ids.map((id) => maps.props.get(id)).filter(Boolean),
+        project_asset_ids: item.project_asset_ids.map((id) => maps.projectAssets.get(id)).filter(Boolean),
       })));
       (episode.storyboards || []).forEach((item, index) => { const target = storyboards[index]; if (target) maps.storyboards.set(item.id, target.id); });
     });
@@ -147,11 +186,13 @@ export class ProjectArchiveService {
       const now = new Date().toISOString();
       const result = this.db.prepare(`
         INSERT INTO image_generations (
-          drama_id, storyboard_id, scene_id, character_id, prop_id, provider, prompt, model, size, aspect_ratio,
+          drama_id, library_item_id, project_asset_id, storyboard_id, scene_id, character_id, prop_id, provider, prompt, model, size, aspect_ratio,
           reference_images, source_url, status, task_id, error_msg, failure_stage, created_at, updated_at, completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        projectId, mappedId(row.storyboard_id, maps.storyboards), mappedId(row.scene_id, maps.scenes),
+        row.library_item_id && !row.project_asset_id && !row.storyboard_id ? null : projectId,
+        mappedId(row.library_item_id, maps.libraryItems), mappedId(row.project_asset_id, maps.projectAssets),
+        mappedId(row.storyboard_id, maps.storyboards), mappedId(row.scene_id, maps.scenes),
         mappedId(row.character_id, maps.characters), mappedId(row.prop_id, maps.props),
         textOrNull(row.provider), String(row.prompt ?? ''), textOrNull(row.model), textOrNull(row.size), textOrNull(row.aspect_ratio),
         remapReferences(row.reference_images, maps.urls), textOrNull(row.source_url) ?? textOrNull(row.image_url),
@@ -202,10 +243,18 @@ export class ProjectArchiveService {
     }
   }
 
-  private applyCurrentVersions(source: Drama, maps: ImportMaps): void {
+  private applyCurrentVersions(source: Drama, libraryItems: AssetLibraryItemRow[], maps: ImportMaps): void {
     for (const item of source.characters || []) updateImagePointer(this.db, 'characters', maps.characters.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
     for (const item of source.scenes || []) updateImagePointer(this.db, 'scenes', maps.scenes.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
     for (const item of source.props || []) updateImagePointer(this.db, 'props', maps.props.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
+    for (const item of libraryItems) {
+      updateImagePointer(this.db, 'asset_library_items', maps.libraryItems.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
+    }
+    for (const item of source.project_assets || []) {
+      const targetId = maps.projectAssets.get(item.id);
+      updateImagePointer(this.db, 'project_assets', targetId, maps.images.get(item.current_image_generation_id ?? 0));
+      updateLockedImagePointer(this.db, targetId, maps.images.get(item.locked_image_generation_id ?? 0));
+    }
     for (const episode of source.episodes || []) for (const item of episode.storyboards || []) {
       updateImagePointer(this.db, 'storyboards', maps.storyboards.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
       updateVideoPointer(this.db, maps.storyboards.get(item.id), maps.videos.get(item.current_video_generation_id ?? 0));
@@ -220,7 +269,7 @@ function parsePayload(text: string): ArchivePayload {
   let value: unknown;
   try { value = JSON.parse(text) as unknown; } catch { throw new ValidationError('项目归档 JSON 无法解析'); }
   const payload = asRecord(value);
-  if (payload?.version !== 2 || !asRecord(payload.project) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
+  if (payload?.format !== 3 || !asRecord(payload.project) || !Array.isArray(payload.asset_library_items) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
     throw new ValidationError('项目归档格式无效或版本不受支持');
   }
   return payload as unknown as ArchivePayload;
@@ -232,6 +281,12 @@ function updateImagePointer(db: SQLiteDatabase, table: string, targetId: number 
   if (!row) return;
   if (table === 'storyboards') db.prepare('UPDATE storyboards SET image_url = ?, current_image_generation_id = ? WHERE id = ?').run(row.image_url, generationId, targetId);
   else db.prepare(`UPDATE ${table} SET image_url = ?, local_path = ?, current_image_generation_id = ? WHERE id = ?`).run(row.image_url, row.local_path, generationId, targetId);
+}
+
+function updateLockedImagePointer(db: SQLiteDatabase, targetId: number | undefined, generationId: number | undefined): void {
+  if (!targetId || !generationId) return;
+  const completed = db.prepare("SELECT id FROM image_generations WHERE id = ? AND status = 'completed'").get(generationId);
+  if (completed) db.prepare('UPDATE project_assets SET locked_image_generation_id = ? WHERE id = ?').run(generationId, targetId);
 }
 
 function updateVideoPointer(db: SQLiteDatabase, storyboardId: number | undefined, generationId: number | undefined): void {
@@ -246,42 +301,11 @@ function updateEpisodeVideoPointer(db: SQLiteDatabase, episodeId: number | undef
   if (row) db.prepare('UPDATE episodes SET video_url = ?, current_video_generation_id = ? WHERE id = ?').run(row.video_url, generationId, episodeId);
 }
 
-function remapCanvasMetadata(metadata: Drama['metadata'], maps: ImportMaps): Drama['metadata'] {
-  const cloned = JSON.parse(JSON.stringify(metadata)) as Drama['metadata'];
-  const layout = asRecord(cloned.canvas_layout);
-  if (!layout || !Array.isArray(layout.workspace_nodes)) return cloned;
-  for (const raw of layout.workspace_nodes) {
-    const node = asRecord(raw);
-    const data = asRecord(node?.data);
-    if (!data) continue;
-    remapAssetRefs(asRecord(data.assetRefs), maps);
-    const result = asRecord(data.result);
-    remapAssetRefs(asRecord(result?.assetRefs), maps);
-    remapResult(result, String(data.role ?? ''), maps);
-    if (Array.isArray(data.history)) data.history.forEach((item) => remapResult(asRecord(item), String(data.role ?? ''), maps));
-    const parameters = asRecord(data.parameters);
-    if (Array.isArray(parameters?.referenceImages)) parameters.referenceImages = parameters.referenceImages.map((url) => remapUrl(url, maps.urls));
-  }
-  return cloned;
-}
-
-function remapAssetRefs(refs: Record<string, unknown> | undefined, maps: ImportMaps): void {
-  if (!refs) return;
-  for (const key of ['episodes', 'characters', 'scenes', 'props', 'storyboards'] as const) {
-    if (!Array.isArray(refs[key])) continue;
-    refs[key] = refs[key].map(readNumber).flatMap((id) => {
-      const mapped = id ? maps[key].get(id) : undefined;
-      return mapped ? [mapped] : [];
-    });
-  }
-}
-
-function remapResult(result: Record<string, unknown> | undefined, role: string, maps: ImportMaps): void {
-  if (!result) return;
-  if (typeof result.outputUrl === 'string') result.outputUrl = maps.urls.get(result.outputUrl) ?? result.outputUrl;
-  const generationId = readNumber(result.generationId);
-  if (generationId) result.generationId = (role.includes('video') || role === 'episode-compose' ? maps.videos : maps.images).get(generationId) ?? null;
-  remapAssetRefs(asRecord(result.assetRefs), maps);
+function rowsByIds<T>(db: SQLiteDatabase, table: 'asset_library_items' | 'image_generations', ids: number[]): T[] {
+  const uniqueIds = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!uniqueIds.length) return [];
+  const placeholders = uniqueIds.map(() => '?').join(', ');
+  return db.prepare(`SELECT * FROM ${table} WHERE id IN (${placeholders}) ORDER BY id`).all(...uniqueIds) as T[];
 }
 
 function mappedId(value: unknown, map: Map<number, number>): number | null {

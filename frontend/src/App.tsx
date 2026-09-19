@@ -4,8 +4,13 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { UiErrorBoundary } from './components/UiErrorBoundary'
 import { AiConfigPage } from './pages/AiConfigPage'
-import { CanvasPage } from './features/canvas/CanvasPage'
 import { ProjectsPage } from './pages/ProjectsPage'
+import { AssetLibraryWorkspace } from './features/workspace/AssetLibraryWorkspace'
+import { AssetWorkspace } from './features/workspace/AssetWorkspace'
+import { ProduceWorkspace } from './features/workspace/ProduceWorkspace'
+import { ProjectShell } from './features/workspace/ProjectShell'
+import { ScriptWorkspace } from './features/workspace/ScriptWorkspace'
+import { StoryboardWorkspace } from './features/workspace/StoryboardWorkspace'
 
 export default function App() {
   return (
@@ -40,8 +45,17 @@ export default function App() {
               <Route element={<AppShell />}>
                 <Route path="/" element={<ProjectsPage />} />
                 <Route path="/ai-config" element={<AiConfigPage />} />
+                <Route path="/film/:id" element={<ProjectShell />}>
+                  <Route index element={<Navigate to="script" replace />} />
+                  <Route path="script" element={<ScriptWorkspace />} />
+                  <Route path="characters" element={<AssetWorkspace kind="character" />} />
+                  <Route path="scenes" element={<AssetWorkspace kind="scene" />} />
+                  <Route path="props" element={<AssetWorkspace kind="prop" />} />
+                  <Route path="assets/library" element={<AssetLibraryWorkspace />} />
+                  <Route path="storyboard" element={<StoryboardWorkspace />} />
+                  <Route path="produce" element={<ProduceWorkspace />} />
+                </Route>
               </Route>
-              <Route path="/film/:id/canvas" element={<CanvasPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>

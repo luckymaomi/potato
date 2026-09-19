@@ -1,8 +1,8 @@
 export const RAINY_NIGHT_DEMO = {
   templateId: 'rainy-night-delivery-demo',
-  version: 19,
+  contract: 'structured-short-drama-workspace',
   project: {
-    title: '《雨夜外卖》工作流 Demo',
+    title: '《雨夜外卖》制作 Demo',
     description: '暴雨夜，外卖员小林送错外卖，闯进女总裁苏晴的办公室，两人因此认识。',
     genre: '都市偶遇微短剧',
     style: 'realistic',

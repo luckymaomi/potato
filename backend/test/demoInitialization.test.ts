@@ -18,7 +18,7 @@ test('accept:rainy-night-demo 只复用初始化入口，不保留供应商执�
   assert.equal(fs.existsSync(path.resolve('scripts/acceptRainyNightDemo.ts')), false);
 });
 
-test('同版本半成品 Demo 会原位补齐，重复初始化不创建第二个项目或覆盖完整画布', () => {
+test('半成品 Demo 会原位补齐为结构化短剧工作区且重复初始化不创建第二个项目', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-demo-init-'));
   const db = new Database(path.join(root, 'demo.db'));
   try {
@@ -35,8 +35,7 @@ test('同版本半成品 Demo 会原位补齐，重复初始化不创建第二�
       title: '半成品 Demo',
       metadata: {
         demo: true,
-        demo_version: 16,
-        canvas_layout: { workspace_nodes: [], edges: [], workflow_groups: [] },
+        demo_contract: 'legacy-workspace',
       },
     });
 
@@ -45,19 +44,15 @@ test('同版本半成品 Demo 会原位补齐，重复初始化不创建第二�
     assert.equal(rainyNightDemoComplete(repaired), true);
     assert.equal(services.projects.list({ page: 1, pageSize: 20 }).total, 1);
     assert.equal(repaired.metadata.demo_provider, undefined);
-    const snapshot = repaired.metadata.canvas_layout as { workspace_nodes: Array<{ data?: { role?: string; parameters?: { provider?: string; model?: string; duration?: number } } }>; edges: unknown[]; workflow_groups: unknown[] };
-    assert.equal(snapshot.workspace_nodes.length, 36);
-    assert.equal(snapshot.edges.length, 56);
-    assert.equal(snapshot.workflow_groups.length, 1);
-    assert.equal(snapshot.workspace_nodes.every((node) => node.data?.parameters?.provider === undefined), true);
-    assert.equal(snapshot.workspace_nodes.every((node) => node.data?.parameters?.model === undefined), true);
-    assert.equal(snapshot.workspace_nodes.filter((node) => node.data?.role === 'shot-video').every((node) => node.data?.parameters?.duration === 15), true);
+    assert.equal(repaired.project_assets?.length, 10);
+    assert.equal(repaired.episodes?.[0]?.storyboards?.length, 10);
+    assert.equal(repaired.episodes?.[0]?.storyboards?.every((shot) => shot.project_asset_ids.length > 0), true);
+    assert.equal(repaired.episodes?.[0]?.storyboards?.every((shot) => shot.grid_rows === 3 && shot.grid_columns === 3), true);
+    assert.equal(repaired.episodes?.[0]?.storyboards?.every((shot) => Boolean(shot.shot_size && shot.camera_angle && shot.composition && shot.image_prompt)), true);
     assert.equal(repaired.episodes?.[0]?.duration, 150);
 
-    const revision = repaired.canvas_revision;
     const repeated = initializeRainyNightDemo(db, services, logger);
     assert.equal(repeated.id, half.id);
-    assert.equal(repeated.canvas_revision, revision);
     assert.equal(services.projects.list({ page: 1, pageSize: 20 }).total, 1);
   } finally {
     db.close();

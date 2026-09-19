@@ -2,7 +2,9 @@ import { apiClient } from './client'
 
 export interface MediaGenerationHistory {
   id: number
-  drama_id: number
+  drama_id: number | null
+  library_item_id?: number | null
+  project_asset_id?: number | null
   episode_id?: number | null
   storyboard_id?: number | null
   scene_id?: number | null
@@ -20,6 +22,7 @@ export interface MediaGenerationHistory {
   status: string
   failure_stage?: 'provider' | 'archive' | 'composition' | null
   error_msg?: string | null
+  task_id?: string | null
   created_at: string
   completed_at?: string | null
   available: boolean

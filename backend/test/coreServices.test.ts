@@ -110,42 +110,14 @@ function submittedTaskId(submission: { task_id?: string }): string {
   return submission.task_id;
 }
 
-test('项目、剧集和画布布局使用同一项目服务持久化', () => {
+test('项目和剧集使用同一项目服务持久化', () => {
   const { db, services } = setup();
   try {
     const project = services.projects.create({ title: '测试短剧', metadata: {} });
     const episodes = services.projects.saveEpisodes(project.id, [{ episode_number: 1, title: '第一集', script_content: '' }]);
-    const firstSave = services.projects.saveCanvas(
-      project.id,
-      { workspace_nodes: [{ id: 'text-1' }], edges: [], workflow_groups: [{ id: 'group-1' }] },
-      project.canvas_revision,
-    );
     const saved = services.projects.require(project.id);
     assert.equal(episodes.length, 1);
-    assert.equal(firstSave.canvas_revision, 1);
-    assert.deepEqual(saved.metadata.canvas_layout, {
-      workspace_nodes: [{ id: 'text-1' }],
-      edges: [],
-      workflow_groups: [{ id: 'group-1' }],
-    });
-    assert.throws(
-      () => services.projects.saveCanvas(
-        project.id,
-        { workspace_nodes: [{ id: 'stale-node' }], edges: [], workflow_groups: [] },
-        project.canvas_revision,
-      ),
-      (error: unknown) => error instanceof Error
-        && error.name === 'ConflictError'
-        && /画布已被其他页面更新/u.test(error.message),
-    );
-    assert.deepEqual(
-      services.projects.require(project.id).metadata.canvas_layout,
-      { workspace_nodes: [{ id: 'text-1' }], edges: [], workflow_groups: [{ id: 'group-1' }] },
-    );
-    assert.throws(
-      () => services.projects.saveCanvas(project.id, { workspace_nodes: [] }, firstSave.canvas_revision),
-      /canvas_layout 必须包含 workspace_nodes、edges 和 workflow_groups 数组/u,
-    );
+    assert.deepEqual(saved.metadata, {});
   } finally { db.close(); }
 });
 
@@ -175,6 +147,30 @@ test('项目归档可由当前 schema 导出并重新导入', async () => {
     assert.equal(imported.title, '归档测试');
     assert.equal(imported.episodes?.[0]?.script_content, '归档剧本');
     assert.deepEqual(imported.metadata, { source: 'test' });
+  } finally { db.close(); }
+});
+
+test('项目归档重建全局资产快照、项目依赖和分镜资产托盘', async () => {
+  const { db, services, storageRoot } = setup();
+  try {
+    const project = services.projects.create({ title: '资产归档测试' });
+    const episodeId = project.episodes?.[0]?.id as number;
+    const library = services.assets.createLibraryItem({ kind: 'character', name: '小林', visual_description: '黑色雨衣' });
+    const character = services.assets.createProjectAsset(project.id, { from_library_item_id: library.id });
+    const prop = services.assets.createProjectAsset(project.id, { kind: 'prop', name: '外卖箱' });
+    services.assets.updateProjectAsset(prop.id, { dependency_asset_ids: [character.id] });
+    services.assets.createStoryboard({ episode_id: episodeId, title: '闯入', project_asset_ids: [character.id, prop.id] });
+
+    const archivePath = path.join(storageRoot, 'asset-project.zip');
+    await services.projectArchives.export(project.id, archivePath);
+    const imported = await services.projectArchives.import(archivePath);
+    const importedCharacter = imported.project_assets?.find((item) => item.name === '小林');
+    const importedProp = imported.project_assets?.find((item) => item.name === '外卖箱');
+    assert.ok(importedCharacter?.library_item_id);
+    assert.ok(importedProp);
+    assert.deepEqual(importedProp.dependency_asset_ids, [importedCharacter.id]);
+    assert.deepEqual(imported.episodes?.[0]?.storyboards?.[0]?.project_asset_ids.sort((left, right) => left - right), [importedCharacter.id, importedProp.id].sort((left, right) => left - right));
+    assert.equal((db.prepare('SELECT name FROM asset_library_items WHERE id = ?').get(importedCharacter.library_item_id) as { name: string }).name, '小林');
   } finally { db.close(); }
 });
 
@@ -459,20 +455,6 @@ test('项目归档携带本地媒体和历史，导入后不依赖供应商链�
     db.prepare(`UPDATE video_generations SET video_url = ?, local_path = ?, media_type = 'video/mp4', file_size = ? WHERE id = ?`)
       .run(composedUrl, composedPath, fs.statSync(path.join(storageRoot, composedPath)).size, composedId);
     db.prepare('UPDATE episodes SET video_url = ?, current_video_generation_id = ? WHERE id = ?').run(composedUrl, composedId, episode.id);
-    services.projects.saveCanvas(project.id, {
-      workspace_nodes: [{
-        id: 'compose',
-        data: {
-          role: 'episode-compose',
-          assetRefs: { episodes: [episode.id] },
-          result: { outputUrl: composedUrl, generationId: composedId, assetRefs: { episodes: [episode.id] } },
-          history: [{ outputUrl: composedUrl, generationId: composedId, assetRefs: { episodes: [episode.id] } }],
-        },
-      }],
-      edges: [],
-      workflow_groups: [{ id: 'workflow', nodeIds: ['compose'] }],
-    }, project.canvas_revision);
-
     const archivePath = path.join(storageRoot, 'project-with-media.zip');
     await services.projectArchives.export(project.id, archivePath);
     const exportedArchive = await unzipper.Open.file(archivePath);
@@ -494,13 +476,6 @@ test('项目归档携带本地媒体和历史，导入后不依赖供应商链�
     assert.ok(fs.existsSync(path.join(storageRoot, importedComposition.local_path)));
     assert.equal(imported.episodes?.[0]?.current_video_generation_id, importedComposition.id);
     assert.equal(imported.episodes?.[0]?.video_url, importedComposition.video_url);
-    const layout = imported.metadata.canvas_layout as { workspace_nodes: Array<{ data: { assetRefs: { episodes: number[] }; result: { outputUrl: string; generationId: number }; history: Array<{ outputUrl: string; generationId: number }> } }> };
-    const composeNode = layout.workspace_nodes[0]?.data;
-    assert.deepEqual(composeNode?.assetRefs.episodes, [imported.episodes?.[0]?.id]);
-    assert.equal(composeNode?.result.generationId, importedComposition.id);
-    assert.equal(composeNode?.result.outputUrl, importedComposition.video_url);
-    assert.equal(composeNode?.history[0]?.generationId, importedComposition.id);
-    assert.equal(composeNode?.history[0]?.outputUrl, importedComposition.video_url);
   } finally { db.close(); }
 });
 
@@ -527,16 +502,16 @@ test('默认系统提示词公开且用户覆盖值真实到达文本供应商',
       kind: 'ai-text', projectId: project.id,
       episodeId: episode.id,
       action: 'write-script', sourceText: '雨夜重逢',
-      systemPrompt: '这是用户在画布中完整编辑的系统提示词。',
+      systemPrompt: '这是用户完整编辑的系统提示词。',
       provider: 'agnes',
       model: 'agnes-text',
     }));
     await taskDone(() => services.tasks.get(taskId));
-    assert.equal(receivedSystem, '这是用户在画布中完整编辑的系统提示词。');
+    assert.equal(receivedSystem, '这是用户完整编辑的系统提示词。');
   } finally { db.close(); }
 });
 
-test('分镜生成可直接消费画布传来的手动剧本', async () => {
+test('分镜生成可直接消费手动剧本', async () => {
   const { db, services } = setup();
   try {
     await services.aiConfigs.refresh('agnes');
@@ -711,7 +686,7 @@ test('全新数据库 schema 直接包含模型能力列', () => {
     const columns = db.prepare('PRAGMA table_info(provider_model_catalog)').all() as Array<{ name: string }>;
     assert.ok(columns.some((column) => column.name === 'capabilities'));
     const projectColumns = db.prepare('PRAGMA table_info(dramas)').all() as Array<{ name: string }>;
-    assert.ok(projectColumns.some((column) => column.name === 'canvas_revision'));
+    assert.ok(projectColumns.some((column) => column.name === 'metadata'));
     const presetColumns = db.prepare('PRAGMA table_info(ai_model_presets)').all() as Array<{ name: string }>;
     assert.deepEqual(presetColumns.map((column) => column.name), ['service_type', 'provider', 'model_id', 'updated_at']);
     assert.equal((db.prepare('SELECT COUNT(*) AS total FROM provider_model_catalog').get() as { total: number }).total, 0);

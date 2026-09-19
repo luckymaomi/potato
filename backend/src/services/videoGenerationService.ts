@@ -4,7 +4,7 @@ import type { Logger, SQLiteDatabase } from '../types/core';
 import { parseJson } from '../types/core';
 import { AiConfigService } from './aiConfigService';
 import { TaskService, type TaskReporter } from './taskService';
-import { NotFoundError, ValidationError } from '../errors';
+import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveError, MediaArchiveService } from './mediaArchiveService';
 import { ProviderError } from '../providers/errors';
@@ -96,6 +96,13 @@ export class VideoGenerationService {
   }
 
   create(input: VideoGenerationInput): VideoGenerationRow {
+    if (input.storyboardId) {
+      const activeVideo = this.db.prepare("SELECT id FROM video_generations WHERE storyboard_id = ? AND status IN ('pending', 'processing') LIMIT 1")
+        .get(input.storyboardId) as { id: number } | undefined;
+      const activeImage = this.db.prepare("SELECT id FROM image_generations WHERE storyboard_id = ? AND status IN ('pending', 'processing') LIMIT 1")
+        .get(input.storyboardId) as { id: number } | undefined;
+      if (activeVideo || activeImage) throw new ConflictError('分镜已有进行中的生成任务，请等待完成或先取消');
+    }
     const references = unique([input.image, input.firstFrame, input.lastFrame, ...input.referenceImages]);
     const mode = references.length ? 'image-to-video' : 'text-to-video';
     const aiConfig = this.configs.select('video', input.provider, input.model, {

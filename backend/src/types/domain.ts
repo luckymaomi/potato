@@ -9,7 +9,6 @@ export interface DramaRow {
   status: string;
   thumbnail: string | null;
   metadata: string;
-  canvas_revision: number;
   created_at: string;
   updated_at: string;
 }
@@ -20,6 +19,7 @@ export interface Drama extends Omit<DramaRow, 'metadata'> {
   characters?: CharacterRow[];
   scenes?: SceneRow[];
   props?: PropRow[];
+  project_assets?: ProjectAssetRow[];
   media_lifecycle?: {
     images: Record<string, MediaLifecycleState>;
     videos: Record<string, MediaLifecycleState>;
@@ -98,15 +98,64 @@ export interface StoryboardRow {
   action: string | null;
   dialogue: string | null;
   image_prompt: string | null;
+  negative_prompt: string | null;
   video_prompt: string | null;
+  shot_size: string | null;
+  camera_angle: string | null;
+  camera_movement: string | null;
+  composition: string | null;
+  lighting: string | null;
+  mood: string | null;
+  sound: string | null;
   image_url: string | null;
   video_url: string | null;
   current_image_generation_id: number | null;
   current_video_generation_id: number | null;
+  grid_rows: number;
+  grid_columns: number;
   character_ids: number[];
   scene_ids: number[];
   prop_ids: number[];
+  project_asset_ids: number[];
   duration: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AssetKind = 'character' | 'scene' | 'prop';
+
+export interface AssetLibraryItemRow {
+  id: number;
+  kind: AssetKind;
+  name: string;
+  description: string | null;
+  appearance: string | null;
+  prompt: string | null;
+  visual_description: string | null;
+  image_url: string | null;
+  local_path: string | null;
+  current_image_generation_id: number | null;
+  metadata: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectAssetRow {
+  id: number;
+  drama_id: number;
+  library_item_id: number | null;
+  kind: AssetKind;
+  name: string;
+  description: string | null;
+  appearance: string | null;
+  prompt: string | null;
+  visual_description: string | null;
+  image_url: string | null;
+  local_path: string | null;
+  current_image_generation_id: number | null;
+  locked_image_generation_id: number | null;
+  dependency_asset_ids: number[];
+  metadata: string;
   created_at: string;
   updated_at: string;
 }

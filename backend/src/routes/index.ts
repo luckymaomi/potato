@@ -8,10 +8,12 @@ import { productionRoutes } from './productionRoutes';
 import { projectRoutes } from './projectRoutes';
 import { storyboardRoutes } from './storyboardRoutes';
 import { taskRoutes } from './taskRoutes';
+import { workspaceRoutes } from './workspaceRoutes';
 
 export function createApiRouter(services: ServiceContainer, config: AppConfig): Router {
   const router = Router();
   router.use(projectRoutes(services, config));
+  router.use(workspaceRoutes(services));
   router.use(aiConfigRoutes(services));
   router.use(mediaRoutes(services, config));
   router.use(entityRoutes(services));

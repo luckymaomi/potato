@@ -53,15 +53,6 @@ export function projectRoutes(
     success(res, { episodes: services.projects.saveEpisodes(idParam(req), body.episodes) });
   });
 
-  router.put('/dramas/:id/canvas-layout', (req, res) => {
-    const body = bodyRecord(req);
-    success(res, services.projects.saveCanvas(
-      idParam(req),
-      body.canvas_layout,
-      body.expected_revision,
-    ));
-  });
-
   router.get('/dramas/:id/export', asyncRoute(async (req, res) => {
     const temporary = path.join(archiveDirectory, `${randomUUID()}.zip`);
     try {

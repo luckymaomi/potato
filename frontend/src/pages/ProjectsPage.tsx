@@ -13,8 +13,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { projectsApi } from '../api/projects'
 import { userErrorMessage } from '../errors/appError'
-import { createDemoProject } from '../features/production/demoWorkspace'
-import { createStarterWorkspace } from '../features/production/starterWorkspace'
+import { openRainyNightDemo } from '../features/workspace/demoProject'
 import type { Project } from '../types/domain'
 
 interface ProjectFormValues {
@@ -30,13 +29,6 @@ function downloadBlob(blob: Blob, filename: string) {
   anchor.download = filename
   anchor.click()
   URL.revokeObjectURL(url)
-}
-
-function nodeCount(project: Project): number {
-  const layout = project.metadata?.canvas_layout
-  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return 0
-  const nodes = (layout as { workspace_nodes?: unknown[] }).workspace_nodes
-  return Array.isArray(nodes) ? nodes.length : 0
 }
 
 export function ProjectsPage() {
@@ -94,12 +86,10 @@ export function ProjectsPage() {
         return
       }
       const project = await projectsApi.create({ ...values, style: 'realistic', metadata: { aspect_ratio: '9:16' } })
-      const starter = createStarterWorkspace(project)
-      await projectsApi.saveCanvasLayout(project.id, starter, project.canvas_revision)
-      message.success('项目和默认工作流已创建')
+      message.success('短剧项目已创建')
       setModalOpen(false)
       form.resetFields()
-      navigate(`/film/${project.id}/canvas`)
+      navigate(`/film/${project.id}/script`)
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -121,7 +111,7 @@ export function ProjectsPage() {
     try {
       const project = await projectsApi.import(file)
       message.success('项目已导入')
-      navigate(`/film/${project.id}/canvas`)
+      navigate(`/film/${project.id}/script`)
     } catch (error) {
       message.error(userErrorMessage(error))
     }
@@ -140,8 +130,8 @@ export function ProjectsPage() {
   const openDemo = async () => {
     setCreatingDemo(true)
     try {
-      const id = await createDemoProject()
-      navigate(`/film/${id}/canvas`)
+      const id = await openRainyNightDemo()
+      navigate(`/film/${id}/script`)
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -152,11 +142,7 @@ export function ProjectsPage() {
   return (
     <>
       <header className="page-heading projects-heading">
-        <div>
-          <span className="page-kicker">CREATIVE WORKSPACE</span>
-          <h1>项目工作台</h1>
-          <p>每个新项目都会带一条可编辑的默认短剧工作流。</p>
-        </div>
+        <div><h1>项目</h1></div>
         <Space wrap>
           <Upload accept=".zip" showUploadList={false} beforeUpload={importProject}>
             <Button icon={<ImportOutlined />}>导入项目</Button>
@@ -185,17 +171,17 @@ export function ProjectsPage() {
                 key={project.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => navigate(`/film/${project.id}/canvas`)}
+                onClick={() => navigate(`/film/${project.id}/script`)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
-                    navigate(`/film/${project.id}/canvas`)
+                    navigate(`/film/${project.id}/script`)
                   }
                 }}
                 cover={(
                   <div className={`project-cover project-cover-tone-${project.id % 4}`}>
                     {project.thumbnail ? <img src={project.thumbnail} alt="" /> : <VideoCameraOutlined />}
-                    <span>{nodeCount(project) ? `${nodeCount(project)} 个节点` : '待初始化'}</span>
+                    <span>短剧项目</span>
                   </div>
                 )}
               >
@@ -214,7 +200,7 @@ export function ProjectsPage() {
                     <Tooltip title="导出项目"><Button type="text" icon={<DownloadOutlined />} aria-label="导出项目" onClick={() => void exportProject(project)} /></Tooltip>
                     <Popconfirm
                       title="删除项目"
-                      description={`确定删除“${project.title}”及其全部画布数据吗？`}
+                      description={`确定删除“${project.title}”及其全部项目数据吗？`}
                       okText="删除"
                       cancelText="取消"
                       okButtonProps={{ danger: true }}

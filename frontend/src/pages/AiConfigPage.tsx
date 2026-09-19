@@ -76,16 +76,12 @@ export function AiConfigPage() {
   return (
     <>
       <header className="page-heading">
-        <div>
-          <h1>AI 供应商</h1>
-          <p>密钥与接口地址统一读取根目录 config.yaml；这里负责查看状态并同步供应商实时模型目录。</p>
-        </div>
+        <div><h1>AI 供应商</h1></div>
       </header>
       <section className="settings-surface model-preset-surface">
         <div className="model-preset-heading">
           <div>
             <h2>默认模型预设</h2>
-            <p>节点没有单独选择模型时使用；每一项都可以留空，让系统按能力自动选择。</p>
           </div>
           <Button type="primary" icon={<SaveOutlined />} loading={savingPresets} disabled={loading} onClick={() => void savePresets()}>保存预设</Button>
         </div>

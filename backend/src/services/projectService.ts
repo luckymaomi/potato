@@ -9,9 +9,10 @@ import type {
   SceneRow,
   StoryboardRow,
   MediaLifecycleState,
+  ProjectAssetRow,
 } from '../types/domain';
 import type { SQLiteDatabase } from '../types/core';
-import { ConflictError, NotFoundError, ValidationError } from '../errors';
+import { NotFoundError, ValidationError } from '../errors';
 import { MediaArchiveService } from './mediaArchiveService';
 
 export interface DramaListInput { page: number; pageSize: number; keyword?: string }
@@ -47,11 +48,18 @@ export class ProjectService {
         character_ids: relationIds(this.db, 'storyboard_characters', 'character_id', storyboard.id),
         scene_ids: relationIds(this.db, 'storyboard_scenes', 'scene_id', storyboard.id),
         prop_ids: relationIds(this.db, 'storyboard_props', 'prop_id', storyboard.id),
+        project_asset_ids: relationIds(this.db, 'storyboard_project_assets', 'project_asset_id', storyboard.id),
       })),
     }));
     drama.characters = this.db.prepare('SELECT * FROM characters WHERE drama_id = ? ORDER BY id').all(id) as CharacterRow[];
     drama.scenes = this.db.prepare('SELECT * FROM scenes WHERE drama_id = ? ORDER BY id').all(id) as SceneRow[];
     drama.props = this.db.prepare('SELECT * FROM props WHERE drama_id = ? ORDER BY id').all(id) as PropRow[];
+    drama.project_assets = (this.db.prepare('SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id').all(id) as ProjectAssetRow[])
+      .map((asset) => ({
+        ...asset,
+        dependency_asset_ids: (this.db.prepare('SELECT depends_on_asset_id AS id FROM project_asset_dependencies WHERE project_asset_id = ? ORDER BY depends_on_asset_id')
+          .all(asset.id) as Array<{ id: number }>).map((item) => item.id),
+      }));
     drama.media_lifecycle = {
       images: this.mediaLifecycle('image_generations', 'image_url', id),
       videos: this.mediaLifecycle('video_generations', 'video_url', id),
@@ -95,9 +103,7 @@ export class ProjectService {
   update(id: number, input: unknown): Drama {
     const current = this.require(id);
     const body = asRecord(input) ?? {};
-    const metadata = body.metadata === undefined
-      ? current.metadata
-      : preserveCanvasMetadata(jsonObject(body.metadata), current.metadata);
+    const metadata = body.metadata === undefined ? current.metadata : jsonObject(body.metadata);
     this.db.prepare(`
       UPDATE dramas SET title = ?, description = ?, genre = ?, style = ?, status = ?, thumbnail = ?, metadata = ?, updated_at = ?
       WHERE id = ?
@@ -164,59 +170,6 @@ export class ProjectService {
     return episodes;
   }
 
-  saveCanvas(
-    dramaId: number,
-    canvasLayout: unknown,
-    expectedRevision: unknown,
-  ): Drama {
-    const revision = readNumber(expectedRevision);
-    if (revision === undefined || !Number.isInteger(revision) || revision < 0) {
-      throw new ValidationError('保存画布时必须提供有效的 expected_revision');
-    }
-    const layout = asRecord(canvasLayout);
-    if (
-      !layout
-      || !Array.isArray(layout.workspace_nodes)
-      || !Array.isArray(layout.edges)
-      || !Array.isArray(layout.workflow_groups)
-    ) {
-      throw new ValidationError('canvas_layout 必须包含 workspace_nodes、edges 和 workflow_groups 数组');
-    }
-
-    const save = this.db.transaction(() => {
-      const row = this.db.prepare('SELECT metadata, canvas_revision FROM dramas WHERE id = ?')
-        .get(dramaId) as Pick<DramaRow, 'metadata' | 'canvas_revision'> | undefined;
-      if (!row) throw new NotFoundError('项目不存在');
-      if (row.canvas_revision !== revision) {
-        throw new ConflictError(`画布已被其他页面更新，当前版本为 ${row.canvas_revision}，请重新加载后再编辑`);
-      }
-
-      const metadata = parseJson<JsonObject>(row.metadata, {});
-      metadata.canvas_layout = toJsonValue(layout);
-      const result = this.db.prepare(`
-        UPDATE dramas
-        SET metadata = ?, canvas_revision = canvas_revision + 1, updated_at = ?
-        WHERE id = ? AND canvas_revision = ?
-      `).run(JSON.stringify(metadata), new Date().toISOString(), dramaId, revision);
-      if (result.changes !== 1) {
-        const actual = this.db.prepare('SELECT canvas_revision FROM dramas WHERE id = ?')
-          .get(dramaId) as Pick<DramaRow, 'canvas_revision'> | undefined;
-        throw new ConflictError(`画布已被其他页面更新，当前版本为 ${actual?.canvas_revision ?? '未知'}，请重新加载后再编辑`);
-      }
-    });
-    save();
-    const project = this.require(dramaId);
-    this.log?.audit?.('project.canvas.saved', {
-      projectId: dramaId,
-      previousRevision: revision,
-      revision: project.canvas_revision,
-      nodes: layout.workspace_nodes.length,
-      edges: layout.edges.length,
-      workflowGroups: layout.workflow_groups.length,
-    });
-    return project;
-  }
-
   require(id: number): Drama {
     const project = this.get(id);
     if (!project) throw new NotFoundError('项目不存在');
@@ -252,17 +205,6 @@ function normalizeDrama(row: DramaRow): Drama {
 function jsonObject(value: unknown): JsonObject {
   const object = asRecord(value);
   return object ? JSON.parse(JSON.stringify(object)) as JsonObject : {};
-}
-
-function preserveCanvasMetadata(next: JsonObject, current: JsonObject): JsonObject {
-  const metadata = { ...next };
-  if (current.canvas_layout !== undefined) metadata.canvas_layout = current.canvas_layout;
-  return metadata;
-}
-
-function toJsonValue(value: unknown): import('../types/core').JsonValue {
-  if (value === undefined) return null;
-  return JSON.parse(JSON.stringify(value)) as import('../types/core').JsonValue;
 }
 
 function relationIds(db: SQLiteDatabase, table: string, column: string, storyboardId: number): number[] {

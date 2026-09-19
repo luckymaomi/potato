@@ -39,6 +39,48 @@ test('任务阶段不伪造百分比，只公开显式报告的真实进度', as
   }
 });
 
+test('图片任务可全部并发而视频任务统一串行', async () => {
+  const db = new Database(':memory:');
+  try {
+    initializeDatabase(db);
+    const tasks = new TaskService(db);
+    const imageGate = deferred();
+    let startedImages = 0;
+    const imageIds = Array.from({ length: 5 }, (_, index) => tasks.run('image_generation', String(index), async () => {
+      startedImages += 1;
+      await imageGate.promise;
+      return { index };
+    }));
+    await waitFor(() => startedImages === 5);
+    imageGate.resolve();
+    await waitFor(() => imageIds.every((id) => tasks.get(id)?.status === 'completed'));
+
+    const videoGates = [deferred(), deferred(), deferred()];
+    let startedVideos = 0;
+    let activeVideos = 0;
+    let maximumActiveVideos = 0;
+    const videoIds = videoGates.map((gate, index) => tasks.run('video_generation', String(index), async () => {
+      startedVideos += 1;
+      activeVideos += 1;
+      maximumActiveVideos = Math.max(maximumActiveVideos, activeVideos);
+      await gate.promise;
+      activeVideos -= 1;
+      return { index };
+    }));
+    await waitFor(() => startedVideos === 1);
+    assert.equal(maximumActiveVideos, 1);
+    videoGates[0]?.resolve();
+    await waitFor(() => startedVideos === 2);
+    videoGates[1]?.resolve();
+    await waitFor(() => startedVideos === 3);
+    videoGates[2]?.resolve();
+    await waitFor(() => videoIds.every((id) => tasks.get(id)?.status === 'completed'));
+    assert.equal(maximumActiveVideos, 1);
+  } finally {
+    db.close();
+  }
+});
+
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve: () => void = () => {};
   const promise = new Promise<void>((done) => { resolve = done; });

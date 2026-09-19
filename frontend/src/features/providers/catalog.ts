@@ -1,5 +1,5 @@
-import type { MediaGenerationMode, ProductionMaterial, ProductionMethod, TextMode } from '../production/catalog'
 import type { ProviderCapabilities, ProviderModel, ProviderModelMode, ServiceType } from '../../types/domain'
+import type { MediaGenerationMode, ProductionMaterial, ProductionMethod, TextMode } from '../../types/production'
 
 const modelModeLabels: Record<ProviderModelMode, string> = {
   'text-to-image': '文生图',

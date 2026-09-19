@@ -39,6 +39,8 @@ export interface TaskReporter {
 
 export class TaskService {
   private readonly controllers = new Map<string, AbortController>();
+  private readonly queues = new Map<string, QueuedTask[]>();
+  private readonly activeByType = new Map<string, number>();
 
   constructor(private readonly db: SQLiteDatabase, private readonly log?: Logger) {}
 
@@ -71,9 +73,10 @@ export class TaskService {
     `).run(id, type, resourceId, now, now);
     this.log?.audit?.('task.created', { taskId: id, type, resourceId });
     this.controllers.set(id, new AbortController());
-    queueMicrotask(() => {
-      void this.execute(id, work);
-    });
+    const queue = this.queues.get(type) ?? [];
+    queue.push({ id, work });
+    this.queues.set(type, queue);
+    this.drain(type);
     return id;
   }
 
@@ -150,6 +153,31 @@ export class TaskService {
     }
   }
 
+  private drain(type: string): void {
+    const queue = this.queues.get(type);
+    if (!queue?.length) return;
+    const limit = concurrencyLimit(type);
+    let active = this.activeByType.get(type) ?? 0;
+    while (active < limit && queue.length) {
+      const next = queue.shift();
+      if (!next) break;
+      if (this.get(next.id)?.status === 'cancelled') {
+        this.controllers.delete(next.id);
+        continue;
+      }
+      active += 1;
+      this.activeByType.set(type, active);
+      queueMicrotask(() => {
+        void this.execute(next.id, next.work).finally(() => {
+          const remaining = Math.max(0, (this.activeByType.get(type) ?? 1) - 1);
+          this.activeByType.set(type, remaining);
+          this.drain(type);
+        });
+      });
+    }
+    if (!queue.length) this.queues.delete(type);
+  }
+
   private updateStage(id: string, message: string): void {
     this.db.prepare(`
       UPDATE async_tasks SET status = 'processing', progress = -1, message = ?, updated_at = ?
@@ -163,6 +191,16 @@ export class TaskService {
       WHERE id = ? AND status <> 'cancelled'
     `).run(progress, message ?? null, new Date().toISOString(), id);
   }
+}
+
+interface QueuedTask {
+  id: string;
+  work: (reporter: TaskReporter) => Promise<Record<string, unknown>>;
+}
+
+function concurrencyLimit(type: string): number {
+  if (type === 'video_generation') return 1;
+  return Number.POSITIVE_INFINITY;
 }
 
 function clamp(value: number): number {

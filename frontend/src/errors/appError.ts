@@ -66,7 +66,7 @@ export function userErrorMessage(value: unknown): string {
 }
 
 const STATUS_PRESENTATIONS: Record<number, { title: string; action: string }> = {
-  400: { title: '请求内容有误', action: '请检查节点输入、模型和生成参数后重试。' },
+  400: { title: '请求内容有误', action: '请检查输入、模型和生成参数后重试。' },
   401: { title: '身份验证失败', action: '请检查根配置中的 API Key 后重试。' },
   403: { title: '当前账号无权调用', action: '请检查供应商权限、模型权限或账户状态。' },
   404: { title: '请求的资源不存在', action: '请刷新模型目录，并检查项目、记录或接口地址。' },

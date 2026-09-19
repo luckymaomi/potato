@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     const services = createServices(db, config, providerRegistry, logger);
     const project = initializeRainyNightDemo(db, services, logger);
     console.log(`《雨夜外卖》Demo 已初始化：项目 ID ${project.id}`);
-    console.log('文本节点已预写完成；媒体节点保持自动选择，可在 AI 配置页设置文本、图片和视频默认模型。');
+    console.log('故事总览、项目资产和十条完整分镜规格已写入；未调用供应商或生成媒体。');
   } finally {
     closeDb();
   }

@@ -8,10 +8,6 @@ export const projectsApi = {
   update: (id: number | string, data: Partial<Project>) => apiClient.put<never, Project>(`/dramas/${id}`, data),
   remove: (id: number | string) => apiClient.delete<never, { removed: boolean }>(`/dramas/${id}`),
   saveEpisodes: (id: number | string, episodes: Partial<Episode>[]) => apiClient.put<never, { episodes: Episode[] }>(`/dramas/${id}/episodes`, { episodes }),
-  saveCanvasLayout: (id: number | string, canvasLayout: object, expectedRevision: number) => apiClient.put<never, Project>(`/dramas/${id}/canvas-layout`, {
-    canvas_layout: canvasLayout,
-    expected_revision: expectedRevision,
-  }),
   export: (id: number) => apiClient.get<never, Blob>(`/dramas/${id}/export`, { responseType: 'blob' }),
   import: (file: File) => {
     const form = new FormData()

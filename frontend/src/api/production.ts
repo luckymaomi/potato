@@ -1,4 +1,4 @@
-import type { MediaGenerationMode, TextAction } from '../features/production/catalog'
+import type { MediaGenerationMode, TextAction } from '../types/production'
 import { AppError } from '../errors/appError'
 import type { GenerationTask } from './tasks'
 import { apiClient } from './client'

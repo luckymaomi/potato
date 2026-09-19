@@ -60,3 +60,88 @@ test('资产仓库不会把其他项目的 ID 写入分镜关系', () => {
     assert.deepEqual(shot?.character_ids, []);
   } finally { db.close(); }
 });
+
+test('全局资产加入项目时锁定版本且库更新不污染既有项目', () => {
+  const { db, projectId, assets } = setup();
+  try {
+    const library = assets.createLibraryItem({ kind: 'character', name: '小林', visual_description: '黑色雨衣，短发' });
+    db.prepare('UPDATE asset_library_items SET current_image_generation_id = 11, image_url = ? WHERE id = ?')
+      .run('/static/library/11.png', library.id);
+    const bound = assets.createProjectAsset(projectId, { from_library_item_id: library.id });
+    assert.equal(bound.locked_image_generation_id, 11);
+    assert.equal(bound.visual_description, '黑色雨衣，短发');
+
+    db.prepare('UPDATE asset_library_items SET current_image_generation_id = 12, image_url = ? WHERE id = ?')
+      .run('/static/library/12.png', library.id);
+    assert.equal(assets.getProjectAsset(bound.id)?.locked_image_generation_id, 11);
+
+    const upgraded = assets.upgradeProjectAsset(bound.id);
+    assert.equal(upgraded.locked_image_generation_id, 12);
+    assert.equal(upgraded.image_url, '/static/library/12.png');
+  } finally { db.close(); }
+});
+
+test('项目资产依赖只允许同项目无环关系', () => {
+  const { db, projectId, assets } = setup();
+  try {
+    const base = assets.createProjectAsset(projectId, { kind: 'character', name: '标准人物' });
+    const derived = assets.createProjectAsset(projectId, { kind: 'character', name: '换装人物' });
+    const updated = assets.updateProjectAsset(derived.id, { dependency_asset_ids: [base.id] });
+    assert.deepEqual(updated.dependency_asset_ids, [base.id]);
+    assert.throws(() => assets.updateProjectAsset(base.id, { dependency_asset_ids: [derived.id] }), /循环/u);
+
+    const now = new Date().toISOString();
+    const otherProject = Number(db.prepare(`
+      INSERT INTO dramas (title, metadata, created_at, updated_at) VALUES ('其他项目', '{}', ?, ?)
+    `).run(now, now).lastInsertRowid);
+    const foreign = assets.createProjectAsset(otherProject, { kind: 'prop', name: '越界道具' });
+    assert.throws(() => assets.updateProjectAsset(derived.id, { dependency_asset_ids: [foreign.id] }), /同一项目/u);
+  } finally { db.close(); }
+});
+
+test('删除项目资产会清理分镜托盘和依赖关系', () => {
+  const { db, projectId, episodeId, assets } = setup();
+  try {
+    const base = assets.createProjectAsset(projectId, { kind: 'character', name: '基础人物' });
+    const derived = assets.createProjectAsset(projectId, { kind: 'prop', name: '人物道具', dependency_asset_ids: [base.id] });
+    const [shot] = assets.syncStoryboards(episodeId, [{ title: '删除边界', project_asset_ids: [base.id, derived.id] }]);
+    assert.ok(shot);
+
+    assert.equal(assets.deleteProjectAsset(base.id), true);
+    assert.equal(assets.getProjectAsset(base.id), undefined);
+    assert.deepEqual(assets.getProjectAsset(derived.id)?.dependency_asset_ids, []);
+    assert.deepEqual(assets.getStoryboard(shot.id)?.project_asset_ids, [derived.id]);
+    assert.throws(() => assets.deleteProjectAsset(base.id), /项目资产不存在/u);
+  } finally { db.close(); }
+});
+
+test('分镜完整规格全部可选并能保存项目资产托盘与网格提示', () => {
+  const { db, projectId, episodeId, assets } = setup();
+  try {
+    const character = assets.createProjectAsset(projectId, { kind: 'character', name: '小林' });
+    const shot = assets.createStoryboard({
+      episode_id: episodeId,
+      title: '意外闯入',
+      shot_size: '全景',
+      camera_angle: '平视',
+      camera_movement: '固定',
+      composition: '办公室门口构图',
+      lighting: '冷白顶光',
+      mood: '错愕',
+      sound: '推门声',
+      negative_prompt: '不要多余人物',
+      grid_rows: 3,
+      grid_columns: 3,
+      project_asset_ids: [character.id],
+    });
+    assert.equal(shot.shot_size, '全景');
+    assert.equal(shot.negative_prompt, '不要多余人物');
+    assert.equal(shot.grid_rows, 3);
+    assert.equal(shot.grid_columns, 3);
+    assert.deepEqual(shot.project_asset_ids, [character.id]);
+
+    const empty = assets.createStoryboard({ episode_id: episodeId });
+    assert.equal(empty.title, null);
+    assert.deepEqual(empty.project_asset_ids, []);
+  } finally { db.close(); }
+});

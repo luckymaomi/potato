@@ -103,9 +103,18 @@ export class ProductionWorkflowService {
       return { text: generated, episode_id: episode?.id ?? null };
     }
     const items = parseItems(generated);
-    if (command.action === 'extract-characters') return { characters: this.assets.syncCharacters(command.projectId, items) };
-    if (command.action === 'extract-scenes') return { scenes: this.assets.syncScenes(command.projectId, items) };
-    if (command.action === 'extract-props') return { props: this.assets.syncProps(command.projectId, items) };
+    if (command.action === 'extract-characters') return {
+      characters: this.assets.syncCharacters(command.projectId, items),
+      project_assets: this.assets.syncProjectAssets(command.projectId, 'character', items),
+    };
+    if (command.action === 'extract-scenes') return {
+      scenes: this.assets.syncScenes(command.projectId, items),
+      project_assets: this.assets.syncProjectAssets(command.projectId, 'scene', items),
+    };
+    if (command.action === 'extract-props') return {
+      props: this.assets.syncProps(command.projectId, items),
+      project_assets: this.assets.syncProjectAssets(command.projectId, 'prop', items),
+    };
     const selected = command.storyboardCount ? items.slice(0, command.storyboardCount) : items;
     return { storyboards: episode ? this.assets.syncStoryboards(episode.id, selected) : selected };
   }

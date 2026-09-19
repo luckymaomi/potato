@@ -1,7 +1,7 @@
 import { NotFoundError, ValidationError } from '../errors';
 import type { Logger, SQLiteDatabase } from '../types/core';
 import { asRecord, readNumber, readString } from '../types/core';
-import type { CharacterRow, EpisodeRow, PropRow, SceneRow, StoryboardRow } from '../types/domain';
+import type { AssetKind, AssetLibraryItemRow, CharacterRow, EpisodeRow, ProjectAssetRow, PropRow, SceneRow, StoryboardRow } from '../types/domain';
 
 export class AssetRepository {
   constructor(private readonly db: SQLiteDatabase, private readonly log?: Logger) {}
@@ -21,6 +21,162 @@ export class AssetRepository {
   getStoryboard(id: number): StoryboardRow | undefined {
     const row = this.db.prepare('SELECT * FROM storyboards WHERE id = ?').get(id) as StoryboardRow | undefined;
     return row ? this.hydrateStoryboard(row) : undefined;
+  }
+
+  listLibrary(kind?: AssetKind): AssetLibraryItemRow[] {
+    const rows = (kind
+      ? this.db.prepare('SELECT * FROM asset_library_items WHERE kind = ? ORDER BY updated_at DESC, id DESC').all(kind)
+      : this.db.prepare('SELECT * FROM asset_library_items ORDER BY updated_at DESC, id DESC').all()) as AssetLibraryItemRow[];
+    return rows;
+  }
+
+  getLibraryItem(id: number): AssetLibraryItemRow | undefined {
+    return this.db.prepare('SELECT * FROM asset_library_items WHERE id = ?').get(id) as AssetLibraryItemRow | undefined;
+  }
+
+  createLibraryItem(input: unknown): AssetLibraryItemRow {
+    const body = asRecord(input) ?? {};
+    const kind = assetKind(body.kind);
+    const name = readString(body.name) ?? `未命名${assetLabel(kind)}`;
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`
+      INSERT INTO asset_library_items (kind, name, description, appearance, prompt, visual_description, metadata, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(kind, name, value(body.description), value(body.appearance), value(body.prompt), value(body.visual_description), '{}', now, now);
+    return this.getLibraryItem(Number(result.lastInsertRowid)) as AssetLibraryItemRow;
+  }
+
+  updateLibraryItem(id: number, input: unknown): AssetLibraryItemRow {
+    const current = this.getLibraryItem(id);
+    if (!current) throw new NotFoundError('全局资产不存在');
+    const body = asRecord(input) ?? {};
+    this.db.prepare(`
+      UPDATE asset_library_items SET name = ?, description = ?, appearance = ?, prompt = ?, visual_description = ?, updated_at = ? WHERE id = ?
+    `).run(
+      readString(body.name) ?? current.name,
+      optional(body, 'description', current.description),
+      optional(body, 'appearance', current.appearance),
+      optional(body, 'prompt', current.prompt),
+      optional(body, 'visual_description', current.visual_description),
+      new Date().toISOString(), id,
+    );
+    return this.getLibraryItem(id) as AssetLibraryItemRow;
+  }
+
+  listProjectAssets(projectId: number, kind?: AssetKind): ProjectAssetRow[] {
+    this.requireProject(projectId);
+    const rows = (kind
+      ? this.db.prepare('SELECT * FROM project_assets WHERE drama_id = ? AND kind = ? ORDER BY id').all(projectId, kind)
+      : this.db.prepare('SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id').all(projectId)) as ProjectAssetRow[];
+    return rows.map((row) => this.hydrateProjectAsset(row));
+  }
+
+  getProjectAsset(id: number): ProjectAssetRow | undefined {
+    const row = this.db.prepare('SELECT * FROM project_assets WHERE id = ?').get(id) as ProjectAssetRow | undefined;
+    return row ? this.hydrateProjectAsset(row) : undefined;
+  }
+
+  createProjectAsset(projectId: number, input: unknown): ProjectAssetRow {
+    this.requireProject(projectId);
+    const body = asRecord(input) ?? {};
+    const libraryId = readNumber(body.from_library_item_id) ?? readNumber(body.library_item_id);
+    const library = libraryId ? this.getLibraryItem(libraryId) : undefined;
+    if (libraryId && !library) throw new NotFoundError('全局资产不存在');
+    const kind = library?.kind ?? assetKind(body.kind);
+    const name = readString(body.name) ?? library?.name;
+    const resolvedName = name ?? `未命名${assetLabel(kind)}`;
+    const now = new Date().toISOString();
+    const locked = library?.current_image_generation_id ?? null;
+    const result = this.db.prepare(`
+      INSERT INTO project_assets (
+        drama_id, library_item_id, kind, name, description, appearance, prompt, visual_description,
+        image_url, local_path, locked_image_generation_id, metadata, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+    `).run(
+      projectId, library?.id ?? null, kind, resolvedName,
+      value(body.description) ?? library?.description ?? null,
+      value(body.appearance) ?? library?.appearance ?? null,
+      value(body.prompt) ?? library?.prompt ?? null,
+      value(body.visual_description) ?? library?.visual_description ?? null,
+      library?.image_url ?? null, library?.local_path ?? null, locked, now, now,
+    );
+    const id = Number(result.lastInsertRowid);
+    if (Object.prototype.hasOwnProperty.call(body, 'dependency_asset_ids')) {
+      this.syncProjectAssetDependencies(id, body.dependency_asset_ids);
+    }
+    return this.getProjectAsset(id) as ProjectAssetRow;
+  }
+
+  syncProjectAssets(projectId: number, kind: AssetKind, values: unknown[]): ProjectAssetRow[] {
+    this.requireProject(projectId);
+    const save = this.db.transaction(() => values.map((raw) => {
+      const body = asRecord(raw) ?? {};
+      const requestedName = readString(body.name) ?? readString(body.location) ?? `未命名${assetLabel(kind)}`;
+      const existing = this.listProjectAssets(projectId, kind).find((item) => sameKey(item.name, requestedName));
+      const fields = {
+        name: requestedName,
+        description: readString(body.description),
+        appearance: readString(body.appearance),
+        prompt: readString(body.prompt),
+        visual_description: readString(body.visual_description),
+      };
+      if (existing) return this.updateProjectAsset(existing.id, fields);
+      return this.createProjectAsset(projectId, { kind, ...fields });
+    }));
+    const records = save();
+    this.log?.audit?.('project.assets.synchronized', { projectId, kind, records });
+    return records;
+  }
+
+  updateProjectAsset(id: number, input: unknown): ProjectAssetRow {
+    const current = this.getProjectAsset(id);
+    if (!current) throw new NotFoundError('项目资产不存在');
+    const body = asRecord(input) ?? {};
+    this.db.prepare(`
+      UPDATE project_assets SET name = ?, description = ?, appearance = ?, prompt = ?, visual_description = ?, updated_at = ? WHERE id = ?
+    `).run(
+      readString(body.name) ?? current.name,
+      optional(body, 'description', current.description),
+      optional(body, 'appearance', current.appearance),
+      optional(body, 'prompt', current.prompt),
+      optional(body, 'visual_description', current.visual_description),
+      new Date().toISOString(), id,
+    );
+    if (Object.prototype.hasOwnProperty.call(body, 'dependency_asset_ids')) {
+      this.syncProjectAssetDependencies(id, body.dependency_asset_ids);
+    }
+    return this.getProjectAsset(id) as ProjectAssetRow;
+  }
+
+  deleteProjectAsset(id: number): boolean {
+    const current = this.getProjectAsset(id);
+    if (!current) throw new NotFoundError('项目资产不存在');
+    const result = this.db.prepare('DELETE FROM project_assets WHERE id = ?').run(id);
+    this.log?.audit?.('project.asset.deleted', { id, projectId: current.drama_id, kind: current.kind });
+    return result.changes > 0;
+  }
+
+  lockProjectAsset(id: number): ProjectAssetRow {
+    const current = this.getProjectAsset(id);
+    if (!current) throw new NotFoundError('项目资产不存在');
+    const generationId = current.current_image_generation_id
+      ?? (current.library_item_id ? this.getLibraryItem(current.library_item_id)?.current_image_generation_id : null)
+      ?? null;
+    this.db.prepare('UPDATE project_assets SET locked_image_generation_id = ?, updated_at = ? WHERE id = ?')
+      .run(generationId, new Date().toISOString(), id);
+    return this.getProjectAsset(id) as ProjectAssetRow;
+  }
+
+  upgradeProjectAsset(id: number): ProjectAssetRow {
+    const current = this.getProjectAsset(id);
+    if (!current) throw new NotFoundError('项目资产不存在');
+    if (!current.library_item_id) throw new ValidationError('本地资产没有全局库版本可升级');
+    const library = this.getLibraryItem(current.library_item_id);
+    if (!library) throw new NotFoundError('关联的全局资产不存在');
+    this.db.prepare(`
+      UPDATE project_assets SET image_url = ?, local_path = ?, locked_image_generation_id = ?, updated_at = ? WHERE id = ?
+    `).run(library.image_url, library.local_path, library.current_image_generation_id, new Date().toISOString(), id);
+    return this.getProjectAsset(id) as ProjectAssetRow;
   }
 
   listStoryboards(episodeId: number): StoryboardRow[] {
@@ -167,11 +323,15 @@ export class AssetRepository {
     const result = this.db.prepare(`
       INSERT INTO storyboards (
         episode_id, storyboard_number, title, description, action, dialogue,
-        image_prompt, video_prompt, duration, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        shot_size, camera_angle, camera_movement, composition, lighting, mood, sound,
+        image_prompt, negative_prompt, video_prompt, grid_rows, grid_columns, duration, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       episodeId, number, value(body.title), value(body.description), value(body.action), value(body.dialogue),
-      value(body.image_prompt), value(body.video_prompt), readNumber(body.duration) ?? null, now, now,
+      value(body.shot_size), value(body.camera_angle), value(body.camera_movement), value(body.composition),
+      value(body.lighting), value(body.mood), value(body.sound),
+      value(body.image_prompt), value(body.negative_prompt), value(body.video_prompt),
+      gridRows(body), gridColumns(body), readNumber(body.duration) ?? null, now, now,
     );
     const id = Number(result.lastInsertRowid);
     this.syncStoryboardLinks(id, episode.drama_id, body);
@@ -186,12 +346,18 @@ export class AssetRepository {
     const body = asRecord(input) ?? {};
     this.db.prepare(`
       UPDATE storyboards SET storyboard_number = ?, title = ?, description = ?, action = ?, dialogue = ?,
-        image_prompt = ?, video_prompt = ?, duration = ?, updated_at = ? WHERE id = ?
+        shot_size = ?, camera_angle = ?, camera_movement = ?, composition = ?, lighting = ?, mood = ?, sound = ?,
+        image_prompt = ?, negative_prompt = ?, video_prompt = ?, grid_rows = ?, grid_columns = ?, duration = ?, updated_at = ? WHERE id = ?
     `).run(
       readNumber(body.storyboard_number) ?? current.storyboard_number,
       optional(body, 'title', current.title), optional(body, 'description', current.description),
       optional(body, 'action', current.action), optional(body, 'dialogue', current.dialogue),
-      optional(body, 'image_prompt', current.image_prompt), optional(body, 'video_prompt', current.video_prompt),
+      optional(body, 'shot_size', current.shot_size), optional(body, 'camera_angle', current.camera_angle),
+      optional(body, 'camera_movement', current.camera_movement), optional(body, 'composition', current.composition),
+      optional(body, 'lighting', current.lighting), optional(body, 'mood', current.mood), optional(body, 'sound', current.sound),
+      optional(body, 'image_prompt', current.image_prompt), optional(body, 'negative_prompt', current.negative_prompt),
+      optional(body, 'video_prompt', current.video_prompt),
+      gridRows(body, current.grid_rows), gridColumns(body, current.grid_columns),
       body.duration === undefined ? current.duration : readNumber(body.duration) ?? null,
       new Date().toISOString(), id,
     );
@@ -200,6 +366,10 @@ export class AssetRepository {
     const updated = this.getStoryboard(id) as StoryboardRow;
     this.log?.audit?.('storyboard.updated', { storyboard: updated });
     return updated;
+  }
+
+  deleteStoryboard(id: number): boolean {
+    return this.db.prepare('DELETE FROM storyboards WHERE id = ?').run(id).changes > 0;
   }
 
   syncStoryboards(episodeId: number, values: unknown[]): StoryboardRow[] {
@@ -225,6 +395,48 @@ export class AssetRepository {
     return this.db.prepare('SELECT * FROM characters WHERE drama_id = ? ORDER BY id').all(projectId) as CharacterRow[];
   }
 
+  private requireProject(projectId: number): void {
+    const project = this.db.prepare('SELECT id FROM dramas WHERE id = ?').get(projectId);
+    if (!project) throw new NotFoundError('项目不存在');
+  }
+
+  private hydrateProjectAsset(row: ProjectAssetRow): ProjectAssetRow {
+    return {
+      ...row,
+      dependency_asset_ids: ids(this.db, 'project_asset_dependencies', 'depends_on_asset_id', row.id, 'project_asset_id'),
+    };
+  }
+
+  private syncProjectAssetDependencies(assetId: number, rawIds: unknown): void {
+    const asset = this.getProjectAsset(assetId);
+    if (!asset) throw new NotFoundError('项目资产不存在');
+    const requested = Array.isArray(rawIds)
+      ? [...new Set(rawIds.map(readNumber).filter((id): id is number => Boolean(id && id !== assetId)))]
+      : [];
+    for (const dependencyId of requested) {
+      const dependency = this.getProjectAsset(dependencyId);
+      if (!dependency || dependency.drama_id !== asset.drama_id) throw new ValidationError('资产依赖必须属于同一项目');
+      if (this.dependencyReaches(dependencyId, assetId)) throw new ValidationError('资产依赖不能形成循环');
+    }
+    this.db.prepare('DELETE FROM project_asset_dependencies WHERE project_asset_id = ?').run(assetId);
+    const insert = this.db.prepare('INSERT INTO project_asset_dependencies (project_asset_id, depends_on_asset_id) VALUES (?, ?)');
+    requested.forEach((dependencyId) => insert.run(assetId, dependencyId));
+  }
+
+  private dependencyReaches(startId: number, targetId: number): boolean {
+    const visited = new Set<number>();
+    const pending = [startId];
+    while (pending.length) {
+      const current = pending.pop();
+      if (!current || visited.has(current)) continue;
+      if (current === targetId) return true;
+      visited.add(current);
+      const next = ids(this.db, 'project_asset_dependencies', 'depends_on_asset_id', current, 'project_asset_id');
+      pending.push(...next);
+    }
+    return false;
+  }
+
   private scenes(projectId: number): SceneRow[] {
     return this.db.prepare('SELECT * FROM scenes WHERE drama_id = ? ORDER BY id').all(projectId) as SceneRow[];
   }
@@ -239,6 +451,7 @@ export class AssetRepository {
       character_ids: ids(this.db, 'storyboard_characters', 'character_id', row.id),
       scene_ids: ids(this.db, 'storyboard_scenes', 'scene_id', row.id),
       prop_ids: ids(this.db, 'storyboard_props', 'prop_id', row.id),
+      project_asset_ids: ids(this.db, 'storyboard_project_assets', 'project_asset_id', row.id),
     };
   }
 
@@ -255,12 +468,20 @@ export class AssetRepository {
       const insert = this.db.prepare(`INSERT INTO ${table} (storyboard_id, ${column}) VALUES (?, ?)`);
       values.forEach((id) => insert.run(storyboardId, id));
     }
+    if (Object.prototype.hasOwnProperty.call(body, 'project_asset_ids')) {
+      const projectAssets = Array.isArray(body.project_asset_ids)
+        ? body.project_asset_ids.map(readNumber).filter((id): id is number => Boolean(id && this.getProjectAsset(id)?.drama_id === projectId))
+        : [];
+      this.db.prepare('DELETE FROM storyboard_project_assets WHERE storyboard_id = ?').run(storyboardId);
+      const insert = this.db.prepare('INSERT INTO storyboard_project_assets (storyboard_id, project_asset_id) VALUES (?, ?)');
+      [...new Set(projectAssets)].forEach((id) => insert.run(storyboardId, id));
+    }
   }
 
 }
 
-function ids(db: SQLiteDatabase, table: string, column: string, storyboardId: number): number[] {
-  return (db.prepare(`SELECT ${column} AS id FROM ${table} WHERE storyboard_id = ? ORDER BY ${column}`).all(storyboardId) as Array<{ id: number }>).map((item) => item.id);
+function ids(db: SQLiteDatabase, table: string, column: string, ownerId: number, ownerColumn = 'storyboard_id'): number[] {
+  return (db.prepare(`SELECT ${column} AS id FROM ${table} WHERE ${ownerColumn} = ? ORDER BY ${column}`).all(ownerId) as Array<{ id: number }>).map((item) => item.id);
 }
 
 function resolveIds<T extends { id: number }>(rawIds: unknown, requestedNames: string[], rows: T[], key: keyof T): number[] {
@@ -302,6 +523,28 @@ function optional(body: Record<string, unknown>, key: string, current: string | 
 }
 
 function hasLinkFields(body: Record<string, unknown>): boolean {
-  return ['character_ids', 'scene_ids', 'prop_ids', 'characters', 'character_names', 'scenes', 'scene_names', 'props', 'prop_names']
+  return ['character_ids', 'scene_ids', 'prop_ids', 'project_asset_ids', 'characters', 'character_names', 'scenes', 'scene_names', 'props', 'prop_names']
     .some((key) => Object.prototype.hasOwnProperty.call(body, key));
+}
+
+function gridRows(body: Record<string, unknown>, fallback = 1): number {
+  return boundedGrid(body.grid_rows, fallback);
+}
+
+function gridColumns(body: Record<string, unknown>, fallback = 1): number {
+  return boundedGrid(body.grid_columns, fallback);
+}
+
+function boundedGrid(value: unknown, fallback: number): number {
+  const parsed = readNumber(value);
+  return parsed === undefined ? fallback : Math.max(1, Math.min(8, Math.trunc(parsed)));
+}
+
+function assetKind(value: unknown): AssetKind {
+  if (value === 'character' || value === 'scene' || value === 'prop') return value;
+  throw new ValidationError('资产类型无效');
+}
+
+function assetLabel(kind: AssetKind): string {
+  return { character: '人物', scene: '场景', prop: '道具' }[kind];
 }

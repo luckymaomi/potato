@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS dramas (
   status TEXT NOT NULL DEFAULT 'draft',
   thumbnail TEXT,
   metadata TEXT NOT NULL DEFAULT '{}',
-  canvas_revision INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -64,6 +63,40 @@ CREATE TABLE IF NOT EXISTS props (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS asset_library_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK(kind IN ('character', 'scene', 'prop')),
+  name TEXT NOT NULL,
+  description TEXT,
+  appearance TEXT,
+  prompt TEXT,
+  visual_description TEXT,
+  image_url TEXT,
+  local_path TEXT,
+  current_image_generation_id INTEGER,
+  metadata TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_assets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  drama_id INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE,
+  library_item_id INTEGER REFERENCES asset_library_items(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('character', 'scene', 'prop')),
+  name TEXT NOT NULL,
+  description TEXT,
+  appearance TEXT,
+  prompt TEXT,
+  visual_description TEXT,
+  image_url TEXT,
+  local_path TEXT,
+  current_image_generation_id INTEGER,
+  locked_image_generation_id INTEGER,
+  metadata TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(drama_id, library_item_id)
+);
 CREATE TABLE IF NOT EXISTS storyboards (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
@@ -72,12 +105,22 @@ CREATE TABLE IF NOT EXISTS storyboards (
   description TEXT,
   action TEXT,
   dialogue TEXT,
+  shot_size TEXT,
+  camera_angle TEXT,
+  camera_movement TEXT,
+  composition TEXT,
+  lighting TEXT,
+  mood TEXT,
+  sound TEXT,
   image_prompt TEXT,
+  negative_prompt TEXT,
   video_prompt TEXT,
   image_url TEXT,
   video_url TEXT,
   current_image_generation_id INTEGER,
   current_video_generation_id INTEGER,
+  grid_rows INTEGER NOT NULL DEFAULT 1,
+  grid_columns INTEGER NOT NULL DEFAULT 1,
   duration REAL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -97,6 +140,17 @@ CREATE TABLE IF NOT EXISTS storyboard_props (
   storyboard_id INTEGER NOT NULL REFERENCES storyboards(id) ON DELETE CASCADE,
   prop_id INTEGER NOT NULL REFERENCES props(id) ON DELETE CASCADE,
   PRIMARY KEY(storyboard_id, prop_id)
+);
+CREATE TABLE IF NOT EXISTS storyboard_project_assets (
+  storyboard_id INTEGER NOT NULL REFERENCES storyboards(id) ON DELETE CASCADE,
+  project_asset_id INTEGER NOT NULL REFERENCES project_assets(id) ON DELETE CASCADE,
+  PRIMARY KEY(storyboard_id, project_asset_id)
+);
+CREATE TABLE IF NOT EXISTS project_asset_dependencies (
+  project_asset_id INTEGER NOT NULL REFERENCES project_assets(id) ON DELETE CASCADE,
+  depends_on_asset_id INTEGER NOT NULL REFERENCES project_assets(id) ON DELETE CASCADE,
+  PRIMARY KEY(project_asset_id, depends_on_asset_id),
+  CHECK(project_asset_id <> depends_on_asset_id)
 );
 CREATE TABLE IF NOT EXISTS provider_model_catalog (
   provider TEXT NOT NULL,
@@ -128,7 +182,9 @@ CREATE TABLE IF NOT EXISTS async_tasks (
 );
 CREATE TABLE IF NOT EXISTS image_generations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  drama_id INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE,
+  drama_id INTEGER REFERENCES dramas(id) ON DELETE CASCADE,
+  library_item_id INTEGER REFERENCES asset_library_items(id) ON DELETE SET NULL,
+  project_asset_id INTEGER REFERENCES project_assets(id) ON DELETE SET NULL,
   storyboard_id INTEGER REFERENCES storyboards(id) ON DELETE SET NULL,
   scene_id INTEGER REFERENCES scenes(id) ON DELETE SET NULL,
   character_id INTEGER REFERENCES characters(id) ON DELETE SET NULL,
