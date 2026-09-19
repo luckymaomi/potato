@@ -91,7 +91,6 @@ CREATE TABLE IF NOT EXISTS project_assets (
   image_url TEXT,
   local_path TEXT,
   current_image_generation_id INTEGER,
-  locked_image_generation_id INTEGER,
   metadata TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -145,12 +144,6 @@ CREATE TABLE IF NOT EXISTS storyboard_project_assets (
   storyboard_id INTEGER NOT NULL REFERENCES storyboards(id) ON DELETE CASCADE,
   project_asset_id INTEGER NOT NULL REFERENCES project_assets(id) ON DELETE CASCADE,
   PRIMARY KEY(storyboard_id, project_asset_id)
-);
-CREATE TABLE IF NOT EXISTS project_asset_dependencies (
-  project_asset_id INTEGER NOT NULL REFERENCES project_assets(id) ON DELETE CASCADE,
-  depends_on_asset_id INTEGER NOT NULL REFERENCES project_assets(id) ON DELETE CASCADE,
-  PRIMARY KEY(project_asset_id, depends_on_asset_id),
-  CHECK(project_asset_id <> depends_on_asset_id)
 );
 CREATE TABLE IF NOT EXISTS provider_model_catalog (
   provider TEXT NOT NULL,

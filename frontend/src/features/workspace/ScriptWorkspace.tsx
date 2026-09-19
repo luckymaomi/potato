@@ -14,6 +14,8 @@ export function ScriptWorkspace() {
   const [form] = Form.useForm<ScriptFormValues>()
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const overview = Form.useWatch('overview', form) ?? ''
+  const scriptContent = Form.useWatch('script_content', form) ?? ''
 
   useEffect(() => {
     form.setFieldsValue({ overview: project.description ?? '', script_content: episode.script_content ?? '' })
@@ -59,20 +61,20 @@ export function ScriptWorkspace() {
   }
 
   return (
-    <div className="workspace-column">
+    <div className="workspace-column script-workspace">
       <div className="workspace-section-heading">
-        <div><Typography.Title level={2}>总览与剧本</Typography.Title><Typography.Text type="secondary">总览讲清全剧，剧本讲清这一集如何演。</Typography.Text></div>
+        <Typography.Title level={2}>总览与剧本</Typography.Title>
         <Space><Button icon={<RobotOutlined />} loading={generating} onClick={() => void generateScript()}>AI 生成剧本</Button><Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void save()}>保存</Button></Space>
       </div>
       <Form form={form} layout="vertical" className="script-workspace-grid">
-        <Card title="故事总览" extra={<Typography.Text type="secondary">项目级</Typography.Text>}>
-          <Form.Item name="overview" label="这部作品讲什么">
-            <Input.TextArea autoSize={{ minRows: 12, maxRows: 24 }} placeholder="主要人物、核心冲突、世界观与整体风格。可以留空后再补。" />
+        <Card title="故事总览" extra={<span className="script-editor-count">{overview.length} 字</span>}>
+          <Form.Item name="overview" className="script-editor-field">
+            <Input.TextArea aria-label="故事总览" placeholder="主要人物、核心冲突、世界观与整体风格。" />
           </Form.Item>
         </Card>
-        <Card title={episode.title} extra={<Typography.Text type="secondary">本集文本</Typography.Text>}>
-          <Form.Item name="script_content" label="分场剧本">
-            <Input.TextArea autoSize={{ minRows: 18, maxRows: 34 }} placeholder="场次、动作、对白……可以手写，也可以从总览生成。" />
+        <Card title={episode.title} extra={<span className="script-editor-count">{scriptContent.length} 字</span>}>
+          <Form.Item name="script_content" className="script-editor-field">
+            <Input.TextArea aria-label="本集剧本" placeholder="写下场次、动作和对白，也可以从故事总览生成。" />
           </Form.Item>
         </Card>
       </Form>

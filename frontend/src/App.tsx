@@ -48,9 +48,7 @@ export default function App() {
                 <Route path="/film/:id" element={<ProjectShell />}>
                   <Route index element={<Navigate to="script" replace />} />
                   <Route path="script" element={<ScriptWorkspace />} />
-                  <Route path="characters" element={<AssetWorkspace kind="character" />} />
-                  <Route path="scenes" element={<AssetWorkspace kind="scene" />} />
-                  <Route path="props" element={<AssetWorkspace kind="prop" />} />
+                  <Route path="assets" element={<AssetWorkspace />} />
                   <Route path="assets/library" element={<AssetLibraryWorkspace />} />
                   <Route path="storyboard" element={<StoryboardWorkspace />} />
                   <Route path="produce" element={<ProduceWorkspace />} />

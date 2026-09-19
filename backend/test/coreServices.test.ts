@@ -150,15 +150,14 @@ test('项目归档可由当前 schema 导出并重新导入', async () => {
   } finally { db.close(); }
 });
 
-test('项目归档重建全局资产快照、项目依赖和分镜资产托盘', async () => {
+test('项目归档重建全局资产快照和分镜资产托盘', async () => {
   const { db, services, storageRoot } = setup();
   try {
     const project = services.projects.create({ title: '资产归档测试' });
     const episodeId = project.episodes?.[0]?.id as number;
-    const library = services.assets.createLibraryItem({ kind: 'character', name: '小林', visual_description: '黑色雨衣' });
+    const library = services.assets.createLibraryItem({ kind: 'character', name: '小林', visual_description: '黑色雨衣', tags: ['主角', '雨夜'] });
     const character = services.assets.createProjectAsset(project.id, { from_library_item_id: library.id });
-    const prop = services.assets.createProjectAsset(project.id, { kind: 'prop', name: '外卖箱' });
-    services.assets.updateProjectAsset(prop.id, { dependency_asset_ids: [character.id] });
+    const prop = services.assets.createProjectAsset(project.id, { kind: 'prop', name: '外卖箱', tags: ['随身物品'] });
     services.assets.createStoryboard({ episode_id: episodeId, title: '闯入', project_asset_ids: [character.id, prop.id] });
 
     const archivePath = path.join(storageRoot, 'asset-project.zip');
@@ -168,7 +167,8 @@ test('项目归档重建全局资产快照、项目依赖和分镜资产托盘',
     const importedProp = imported.project_assets?.find((item) => item.name === '外卖箱');
     assert.ok(importedCharacter?.library_item_id);
     assert.ok(importedProp);
-    assert.deepEqual(importedProp.dependency_asset_ids, [importedCharacter.id]);
+    assert.deepEqual(importedCharacter.tags, ['主角', '雨夜']);
+    assert.deepEqual(importedProp.tags, ['随身物品']);
     assert.deepEqual(imported.episodes?.[0]?.storyboards?.[0]?.project_asset_ids.sort((left, right) => left - right), [importedCharacter.id, importedProp.id].sort((left, right) => left - right));
     assert.equal((db.prepare('SELECT name FROM asset_library_items WHERE id = ?').get(importedCharacter.library_item_id) as { name: string }).name, '小林');
   } finally { db.close(); }

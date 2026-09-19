@@ -1,22 +1,21 @@
-import { ArrowLeftOutlined, BookOutlined, EnvironmentOutlined, PictureOutlined, PlayCircleOutlined, TeamOutlined, ToolOutlined } from '@ant-design/icons'
-import { Alert, Button, Select, Spin, Tag } from 'antd'
+import { AppstoreOutlined, ArrowLeftOutlined, BookOutlined, FolderOpenOutlined, PictureOutlined, PlayCircleOutlined, RightOutlined } from '@ant-design/icons'
+import { Alert, Button, Select, Spin } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { NavLink, Outlet, useParams, useSearchParams } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { projectsApi } from '../../api/projects'
 import type { Project } from '../../types/domain'
 import type { ProjectWorkspaceContext } from './workspaceContext'
 
 const tabs = [
-  { path: 'script', phase: '01', label: '总览与剧本', icon: <BookOutlined /> },
-  { path: 'characters', phase: '02', label: '人物', icon: <TeamOutlined /> },
-  { path: 'scenes', phase: '02', label: '场景', icon: <EnvironmentOutlined /> },
-  { path: 'props', phase: '02', label: '道具', icon: <ToolOutlined /> },
-  { path: 'storyboard', phase: '03', label: '分镜台', icon: <PictureOutlined /> },
-  { path: 'produce', phase: '04', label: '生产', icon: <PlayCircleOutlined /> },
+  { path: 'script', phase: '01', label: '总览与剧本', icon: <BookOutlined />, hint: '故事、剧本' },
+  { path: 'assets', phase: '02', label: '资产图', icon: <FolderOpenOutlined />, hint: '人物、场景、道具' },
+  { path: 'storyboard', phase: '03', label: '分镜台', icon: <PictureOutlined />, hint: '按镜头编排' },
+  { path: 'produce', phase: '04', label: '生产', icon: <PlayCircleOutlined />, hint: '出图、出视频、合成' },
 ]
 
 export function ProjectShell() {
   const projectId = Number(useParams().id)
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [project, setProject] = useState<Project>()
   const [error, setError] = useState('')
@@ -44,24 +43,32 @@ export function ProjectShell() {
 
   return (
     <section className="project-workspace">
-      <header className="project-workspace-heading">
-        <div>
-          <Button type="text" icon={<ArrowLeftOutlined />} href="/">返回项目</Button>
-          <h1>{project.title}</h1>
-        </div>
-        <label className="episode-picker">
-          <span>剧集</span>
-          <Select
-            value={episode.id}
-            options={(project.episodes ?? []).map((item) => ({ value: item.id, label: `${item.episode_number}. ${item.title}` }))}
-            onChange={(value) => setSearchParams({ episode_id: String(value) })}
-          />
-        </label>
-      </header>
-      <nav className="project-workspace-tabs" aria-label="项目工作区">
-        {tabs.map((tab) => <NavLink key={tab.path} to={`${tab.path}${query}`}><Tag bordered={false}>{tab.phase}</Tag><span className="workspace-tab-icon">{tab.icon}</span><strong>{tab.label}</strong></NavLink>)}
-      </nav>
-      <div className="project-workspace-body"><Outlet context={context} /></div>
+      <aside className="project-tabbar" aria-label="制作阶段">
+        <div className="project-tabbar-brand"><AppstoreOutlined /></div>
+        <Button className="project-tabbar-back" type="text" icon={<ArrowLeftOutlined />} href="/" aria-label="返回项目" />
+        <nav className="project-stage-nav">
+          {tabs.map((tab) => <NavLink key={tab.path} to={`${tab.path}${query}`} className="project-stage-link">
+            <span className="project-stage-icon">{tab.icon}</span>
+            <span className="project-stage-phase">{tab.phase}</span>
+            <strong>{tab.label}</strong>
+          </NavLink>)}
+        </nav>
+        <div className="project-tabbar-foot"><span className="project-tabbar-dot" /><span>本地项目</span></div>
+      </aside>
+      <main className="project-workspace-main">
+        <header className="project-workspace-heading">
+          <div className="project-breadcrumb"><strong>{project.title}</strong><RightOutlined /><span>{tabs.find((tab) => location.pathname.endsWith(`/${tab.path}`))?.label ?? '总览与剧本'}</span></div>
+          <label className="episode-picker">
+            <span>当前剧集</span>
+            <Select
+              value={episode.id}
+              options={(project.episodes ?? []).map((item) => ({ value: item.id, label: `${item.episode_number}. ${item.title}` }))}
+              onChange={(value) => setSearchParams({ episode_id: String(value) })}
+            />
+          </label>
+        </header>
+        <div className="project-workspace-body"><Outlet context={context} /></div>
+      </main>
     </section>
   )
 }

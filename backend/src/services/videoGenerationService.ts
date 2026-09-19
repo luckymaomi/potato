@@ -114,7 +114,10 @@ export class VideoGenerationService {
     const model = input.model || aiConfig.default_model || aiConfig.model[0];
     if (!model) throw new ValidationError('视频配置没有可用模型');
     const modelSnapshot = this.configs.models(aiConfig.provider, 'video').find((entry) => entry.id === model);
-    const duration = modelSnapshot?.capabilities.supportsDuration ? input.duration : undefined;
+    const declaredDurations = modelSnapshot?.capabilities.supportedDurations;
+    const duration = declaredDurations?.length
+      ? Math.max(...declaredDurations)
+      : modelSnapshot?.capabilities.supportsDuration ? input.duration : undefined;
     const aspectRatio = this.configs.resolveAspectRatio('video', aiConfig.provider, model, input.aspectRatio);
     const adapter = this.registry.require({ kind: 'video', config: aiConfig, model });
     const now = new Date().toISOString();

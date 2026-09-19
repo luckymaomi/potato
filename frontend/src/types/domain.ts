@@ -68,13 +68,12 @@ export interface AssetLibraryItem {
   image_url?: string | null
   local_path?: string | null
   current_image_generation_id?: number | null
+  tags?: string[]
 }
 
 export interface ProjectAsset extends AssetLibraryItem {
   drama_id: number
   library_item_id?: number | null
-  locked_image_generation_id?: number | null
-  dependency_asset_ids?: number[]
 }
 
 export interface Character { id: number; drama_id: number; name: string; description?: string | null; appearance?: string | null; image_url?: string | null; local_path?: string | null; current_image_generation_id?: number | null }

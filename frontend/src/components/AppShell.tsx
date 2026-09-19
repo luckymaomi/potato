@@ -1,9 +1,11 @@
 import { ApiOutlined, AppstoreOutlined, ThunderboltOutlined } from '@ant-design/icons'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
 export function AppShell() {
+  const location = useLocation()
+  const inProject = location.pathname.startsWith('/film/')
   return (
-    <div className="app-shell">
+    <div className={`app-shell${inProject ? ' project-mode' : ''}`}>
       <header className="app-header">
         <div className="app-brand"><span className="brand-mark"><ThunderboltOutlined /></span><span>tomato-ai-drama</span></div>
         <nav className="app-nav" aria-label="主导航">

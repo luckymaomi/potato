@@ -135,6 +135,7 @@ export interface AssetLibraryItemRow {
   image_url: string | null;
   local_path: string | null;
   current_image_generation_id: number | null;
+  tags: string[];
   metadata: string;
   created_at: string;
   updated_at: string;
@@ -153,8 +154,7 @@ export interface ProjectAssetRow {
   image_url: string | null;
   local_path: string | null;
   current_image_generation_id: number | null;
-  locked_image_generation_id: number | null;
-  dependency_asset_ids: number[];
+  tags: string[];
   metadata: string;
   created_at: string;
   updated_at: string;

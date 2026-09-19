@@ -101,8 +101,8 @@ export class ImageGenerationService {
       this.db.prepare('UPDATE asset_library_items SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
         .run(row.image_url, row.local_path, row.id, now, target[1]);
     } else if (target[0] === 'project_assets') {
-      this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, locked_image_generation_id = ?, updated_at = ? WHERE id = ?')
-        .run(row.image_url, row.local_path, row.id, row.id, now, target[1]);
+      this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
+        .run(row.image_url, row.local_path, row.id, now, target[1]);
     } else {
       this.db.prepare(`UPDATE ${target[0]} SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?`)
         .run(row.image_url, row.local_path, row.id, now, target[1]);
@@ -233,7 +233,7 @@ export class ImageGenerationService {
           file_size = ?, failure_stage = NULL, error_msg = NULL, updated_at = ?, completed_at = ? WHERE id = ?
       `).run(archived.publicUrl, sourceUrl, archived.relativePath, archived.mediaType, archived.fileSize, now, now, id);
       if (input.libraryItemId) this.db.prepare('UPDATE asset_library_items SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, archived.relativePath, id, now, input.libraryItemId);
-      if (input.projectAssetId) this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, locked_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, archived.relativePath, id, id, now, input.projectAssetId);
+      if (input.projectAssetId) this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, archived.relativePath, id, now, input.projectAssetId);
       if (input.characterId) this.db.prepare('UPDATE characters SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, archived.relativePath, id, now, input.characterId);
       if (input.sceneId) this.db.prepare('UPDATE scenes SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, archived.relativePath, id, now, input.sceneId);
       if (input.propId) this.db.prepare('UPDATE props SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, archived.relativePath, id, now, input.propId);

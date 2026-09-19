@@ -49,7 +49,7 @@ export class ProjectArchiveService {
     const libraryIds = projectAssets.flatMap((item) => item.library_item_id ? [item.library_item_id] : []);
     const libraryItems = rowsByIds<AssetLibraryItemRow>(this.db, 'asset_library_items', libraryIds);
     const referencedImageIds = new Set<number>([
-      ...projectAssets.flatMap((item) => [item.current_image_generation_id, item.locked_image_generation_id]).filter((id): id is number => Boolean(id)),
+      ...projectAssets.flatMap((item) => item.current_image_generation_id ? [item.current_image_generation_id] : []),
       ...libraryItems.flatMap((item) => item.current_image_generation_id ? [item.current_image_generation_id] : []),
       ...(project.episodes ?? []).flatMap((episode) => (episode.storyboards ?? []).flatMap((shot) => shot.current_image_generation_id ? [shot.current_image_generation_id] : [])),
     ]);
@@ -150,19 +150,12 @@ export class ProjectArchiveService {
   private importProjectAssets(projectId: number, items: ProjectAssetRow[], maps: ImportMaps): void {
     for (const item of items) {
       const libraryItemId = item.library_item_id ? maps.libraryItems.get(item.library_item_id) : undefined;
-      const { dependency_asset_ids: _dependencies, ...fields } = item;
+      const fields = { ...item };
       const created = this.assets.createProjectAsset(projectId, libraryItemId
         ? { ...fields, from_library_item_id: libraryItemId }
         : { ...fields, library_item_id: undefined });
       this.assets.updateProjectAsset(created.id, fields);
       maps.projectAssets.set(item.id, created.id);
-    }
-    for (const item of items) {
-      const targetId = maps.projectAssets.get(item.id);
-      if (!targetId) continue;
-      this.assets.updateProjectAsset(targetId, {
-        dependency_asset_ids: item.dependency_asset_ids.map((id) => maps.projectAssets.get(id)).filter(Boolean),
-      });
     }
   }
 
@@ -253,7 +246,6 @@ export class ProjectArchiveService {
     for (const item of source.project_assets || []) {
       const targetId = maps.projectAssets.get(item.id);
       updateImagePointer(this.db, 'project_assets', targetId, maps.images.get(item.current_image_generation_id ?? 0));
-      updateLockedImagePointer(this.db, targetId, maps.images.get(item.locked_image_generation_id ?? 0));
     }
     for (const episode of source.episodes || []) for (const item of episode.storyboards || []) {
       updateImagePointer(this.db, 'storyboards', maps.storyboards.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
@@ -281,12 +273,6 @@ function updateImagePointer(db: SQLiteDatabase, table: string, targetId: number 
   if (!row) return;
   if (table === 'storyboards') db.prepare('UPDATE storyboards SET image_url = ?, current_image_generation_id = ? WHERE id = ?').run(row.image_url, generationId, targetId);
   else db.prepare(`UPDATE ${table} SET image_url = ?, local_path = ?, current_image_generation_id = ? WHERE id = ?`).run(row.image_url, row.local_path, generationId, targetId);
-}
-
-function updateLockedImagePointer(db: SQLiteDatabase, targetId: number | undefined, generationId: number | undefined): void {
-  if (!targetId || !generationId) return;
-  const completed = db.prepare("SELECT id FROM image_generations WHERE id = ? AND status = 'completed'").get(generationId);
-  if (completed) db.prepare('UPDATE project_assets SET locked_image_generation_id = ? WHERE id = ?').run(generationId, targetId);
 }
 
 function updateVideoPointer(db: SQLiteDatabase, storyboardId: number | undefined, generationId: number | undefined): void {

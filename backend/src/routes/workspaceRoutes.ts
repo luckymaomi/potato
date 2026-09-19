@@ -73,14 +73,6 @@ export function workspaceRoutes(
     const asset = requireProjectAsset(services, idParam(req), positive(req.params.assetId, '项目资产'));
     success(res, { removed: services.assets.deleteProjectAsset(asset.id) });
   });
-  router.post('/dramas/:id/assets/:assetId/lock-current', (req, res) => {
-    const asset = requireProjectAsset(services, idParam(req), positive(req.params.assetId, '项目资产'));
-    success(res, services.assets.lockProjectAsset(asset.id));
-  });
-  router.post('/dramas/:id/assets/:assetId/upgrade-lock', (req, res) => {
-    const asset = requireProjectAsset(services, idParam(req), positive(req.params.assetId, '项目资产'));
-    success(res, services.assets.upgradeProjectAsset(asset.id));
-  });
   router.post('/dramas/:id/assets/:assetId/generate-image', (req, res) => {
     const projectId = idParam(req);
     const asset = requireProjectAsset(services, projectId, positive(req.params.assetId, '项目资产'));
@@ -92,10 +84,7 @@ export function workspaceRoutes(
       provider: readString(body.provider),
       model: readString(body.model),
       aspectRatio: readString(body.aspect_ratio),
-      referenceImages: [...new Set([
-        ...lockedAssetImages(services, projectId, asset.dependency_asset_ids),
-        ...stringArray(body.reference_images),
-      ])],
+      referenceImages: stringArray(body.reference_images),
     }));
   });
   router.post('/dramas/:id/assets/extract', (req, res) => {
@@ -120,7 +109,7 @@ export function workspaceRoutes(
     const kind = optionalKind(body.kind);
     const requested = new Set(Array.isArray(body.asset_ids) ? body.asset_ids.map(readNumber).filter((id): id is number => Boolean(id)) : []);
     const assetIds = services.assets.listProjectAssets(projectId, kind)
-      .filter((asset) => (!requested.size || requested.has(asset.id)) && !asset.locked_image_generation_id)
+      .filter((asset) => !requested.size || requested.has(asset.id))
       .map((asset) => asset.id);
     const taskId = services.tasks.run('asset_image_batch', String(projectId), (reporter) => runAssetImageBatch(
       services, projectId, assetIds, body, reporter,
@@ -238,7 +227,7 @@ async function runAssetImageBatch(
   reporter: TaskReporter,
   reportProgress = true,
 ): Promise<Record<string, unknown>> {
-  const pending = new Set(dependencyClosure(services, projectId, requestedIds).filter((id) => !assetImageReady(services, id)));
+  const pending = new Set(requestedIds.filter((id) => !assetImageReady(services, id)));
   const total = pending.size;
   const failed = new Set<number>();
   const outcomes: Array<Record<string, unknown>> = [];
@@ -247,20 +236,13 @@ async function runAssetImageBatch(
     const ready: number[] = [];
     for (const id of [...pending]) {
       const asset = requireProjectAsset(services, projectId, id);
-      const failedDependency = asset.dependency_asset_ids.find((dependencyId) => failed.has(dependencyId));
-      if (failedDependency) {
-        failed.add(id);
-        pending.delete(id);
-        outcomes.push({ target_id: id, status: 'blocked', error: '依赖资产生成失败' });
-        continue;
-      }
-      if (asset.dependency_asset_ids.every((dependencyId) => assetImageReady(services, dependencyId))) ready.push(id);
+      ready.push(asset.id);
     }
     if (!ready.length) {
-      for (const id of pending) outcomes.push({ target_id: id, status: 'blocked', error: '图片依赖尚未完成' });
+      for (const id of pending) outcomes.push({ target_id: id, status: 'blocked', error: '资产图未能进入生成队列' });
       break;
     }
-    reporter.stage(`正在并发生成 ${ready.length} 个依赖已满足的资产图`);
+    reporter.stage(`正在并发生成 ${ready.length} 个资产图`);
     const running = ready.flatMap((id) => {
       pending.delete(id);
       const asset = requireProjectAsset(services, projectId, id);
@@ -272,7 +254,7 @@ async function runAssetImageBatch(
           provider: readString(body.provider),
           model: readString(body.model),
           aspectRatio: readString(body.aspect_ratio),
-          referenceImages: lockedAssetImages(services, projectId, asset.dependency_asset_ids),
+          referenceImages: [],
         });
         return generation.task_id ? [{ targetId: id, taskId: generation.task_id }] : [];
       } catch (error) {
@@ -326,31 +308,14 @@ async function runStoryboardImageBatch(
   return {
     total: shots.length,
     completed: outcomes.filter((item) => item.status === 'completed').length,
-    asset_dependencies: assetResults,
+    required_assets: assetResults,
     items: outcomes,
   };
 }
 
-function dependencyClosure(
-  services: Pick<ServiceContainer, 'assets'>,
-  projectId: number,
-  requestedIds: number[],
-): number[] {
-  const collected = new Set<number>();
-  const pending = [...requestedIds];
-  while (pending.length) {
-    const id = pending.pop();
-    if (!id || collected.has(id)) continue;
-    const asset = requireProjectAsset(services, projectId, id);
-    collected.add(id);
-    pending.push(...asset.dependency_asset_ids);
-  }
-  return [...collected];
-}
-
 function assetImageReady(services: Pick<ServiceContainer, 'assets' | 'images'>, assetId: number): boolean {
   const asset = services.assets.getProjectAsset(assetId);
-  const generation = asset?.locked_image_generation_id ? services.images.get(asset.locked_image_generation_id) : undefined;
+  const generation = asset?.current_image_generation_id ? services.images.get(asset.current_image_generation_id) : undefined;
   return Boolean(generation?.status === 'completed' && generation.image_url);
 }
 
@@ -374,7 +339,10 @@ function createStoryboardImage(
   shot: StoryboardRow,
   body: Record<string, unknown>,
 ) {
-  const references = lockedAssetImages(services, projectId, shot.project_asset_ids);
+  const references = shot.project_asset_ids.flatMap((id) => {
+    const asset = requireProjectAsset(services, projectId, id);
+    return asset.image_url ? [asset.image_url] : [];
+  });
   const prompt = readString(body.prompt) ?? imagePrompt(shot);
   return services.images.create({
     dramaId: projectId,
@@ -402,26 +370,12 @@ function createStoryboardVideo(
     prompt: readString(body.prompt) ?? shot.video_prompt ?? shot.description ?? '',
     provider: readString(body.provider),
     model: readString(body.model),
-    duration: readNumber(body.duration) ?? shot.duration ?? undefined,
+    // 工作台不接受任意秒数；视频服务根据所选模型目录能力决定固定时长。
+    duration: undefined,
     aspectRatio: readString(body.aspect_ratio),
     image: image.image_url,
     firstFrame: image.image_url,
     referenceImages: [image.image_url],
-  });
-}
-
-function lockedAssetImages(
-  services: Pick<ServiceContainer, 'assets' | 'images'>,
-  projectId: number,
-  ids: number[],
-): string[] {
-  return ids.map((id) => {
-    const asset = requireProjectAsset(services, projectId, id);
-    const generation = asset.locked_image_generation_id ? services.images.get(asset.locked_image_generation_id) : undefined;
-    if (!generation?.image_url || generation.status !== 'completed') {
-      throw new ValidationError(`依赖资产“${asset.name}”还没有完成并锁定的标准图`);
-    }
-    return generation.image_url;
   });
 }
 

@@ -14,6 +14,7 @@ import type {
 import type { SQLiteDatabase } from '../types/core';
 import { NotFoundError, ValidationError } from '../errors';
 import { MediaArchiveService } from './mediaArchiveService';
+import { assetTagsFromMetadata } from './assetRepository';
 
 export interface DramaListInput { page: number; pageSize: number; keyword?: string }
 
@@ -57,8 +58,7 @@ export class ProjectService {
     drama.project_assets = (this.db.prepare('SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id').all(id) as ProjectAssetRow[])
       .map((asset) => ({
         ...asset,
-        dependency_asset_ids: (this.db.prepare('SELECT depends_on_asset_id AS id FROM project_asset_dependencies WHERE project_asset_id = ? ORDER BY depends_on_asset_id')
-          .all(asset.id) as Array<{ id: number }>).map((item) => item.id),
+        tags: assetTagsFromMetadata(asset.metadata),
       }));
     drama.media_lifecycle = {
       images: this.mediaLifecycle('image_generations', 'image_url', id),

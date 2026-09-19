@@ -61,55 +61,53 @@ test('资产仓库不会把其他项目的 ID 写入分镜关系', () => {
   } finally { db.close(); }
 });
 
-test('全局资产加入项目时锁定版本且库更新不污染既有项目', () => {
+test('全局资产加入项目时复制当前图片与标签', () => {
   const { db, projectId, assets } = setup();
   try {
-    const library = assets.createLibraryItem({ kind: 'character', name: '小林', visual_description: '黑色雨衣，短发' });
+    const library = assets.createLibraryItem({ kind: 'character', name: '小林', visual_description: '黑色雨衣，短发', tags: ['主角', '雨夜', '主角'] });
     db.prepare('UPDATE asset_library_items SET current_image_generation_id = 11, image_url = ? WHERE id = ?')
       .run('/static/library/11.png', library.id);
     const bound = assets.createProjectAsset(projectId, { from_library_item_id: library.id });
-    assert.equal(bound.locked_image_generation_id, 11);
+    assert.equal(bound.current_image_generation_id, null);
     assert.equal(bound.visual_description, '黑色雨衣，短发');
+    assert.deepEqual(bound.tags, ['主角', '雨夜']);
+
+    const tagged = assets.updateProjectAsset(bound.id, { tags: [' 外卖员 ', '主角', '外卖员'] });
+    assert.deepEqual(tagged.tags, ['外卖员', '主角']);
 
     db.prepare('UPDATE asset_library_items SET current_image_generation_id = 12, image_url = ? WHERE id = ?')
       .run('/static/library/12.png', library.id);
-    assert.equal(assets.getProjectAsset(bound.id)?.locked_image_generation_id, 11);
-
-    const upgraded = assets.upgradeProjectAsset(bound.id);
-    assert.equal(upgraded.locked_image_generation_id, 12);
-    assert.equal(upgraded.image_url, '/static/library/12.png');
+    assert.equal(assets.getProjectAsset(bound.id)?.image_url, '/static/library/11.png');
   } finally { db.close(); }
 });
 
-test('项目资产依赖只允许同项目无环关系', () => {
+test('项目资产不保存资产间依赖', () => {
   const { db, projectId, assets } = setup();
   try {
     const base = assets.createProjectAsset(projectId, { kind: 'character', name: '标准人物' });
     const derived = assets.createProjectAsset(projectId, { kind: 'character', name: '换装人物' });
-    const updated = assets.updateProjectAsset(derived.id, { dependency_asset_ids: [base.id] });
-    assert.deepEqual(updated.dependency_asset_ids, [base.id]);
-    assert.throws(() => assets.updateProjectAsset(base.id, { dependency_asset_ids: [derived.id] }), /循环/u);
+    const updated = assets.updateProjectAsset(derived.id, { description: '独立资产' });
+    assert.equal(updated.description, '独立资产');
 
     const now = new Date().toISOString();
     const otherProject = Number(db.prepare(`
       INSERT INTO dramas (title, metadata, created_at, updated_at) VALUES ('其他项目', '{}', ?, ?)
     `).run(now, now).lastInsertRowid);
     const foreign = assets.createProjectAsset(otherProject, { kind: 'prop', name: '越界道具' });
-    assert.throws(() => assets.updateProjectAsset(derived.id, { dependency_asset_ids: [foreign.id] }), /同一项目/u);
+    assert.equal(assets.getProjectAsset(foreign.id)?.drama_id, otherProject);
   } finally { db.close(); }
 });
 
-test('删除项目资产会清理分镜托盘和依赖关系', () => {
+test('删除项目资产会清理分镜托盘', () => {
   const { db, projectId, episodeId, assets } = setup();
   try {
     const base = assets.createProjectAsset(projectId, { kind: 'character', name: '基础人物' });
-    const derived = assets.createProjectAsset(projectId, { kind: 'prop', name: '人物道具', dependency_asset_ids: [base.id] });
+    const derived = assets.createProjectAsset(projectId, { kind: 'prop', name: '人物道具' });
     const [shot] = assets.syncStoryboards(episodeId, [{ title: '删除边界', project_asset_ids: [base.id, derived.id] }]);
     assert.ok(shot);
 
     assert.equal(assets.deleteProjectAsset(base.id), true);
     assert.equal(assets.getProjectAsset(base.id), undefined);
-    assert.deepEqual(assets.getProjectAsset(derived.id)?.dependency_asset_ids, []);
     assert.deepEqual(assets.getStoryboard(shot.id)?.project_asset_ids, [derived.id]);
     assert.throws(() => assets.deleteProjectAsset(base.id), /项目资产不存在/u);
   } finally { db.close(); }

@@ -27,11 +27,12 @@ export class AssetRepository {
     const rows = (kind
       ? this.db.prepare('SELECT * FROM asset_library_items WHERE kind = ? ORDER BY updated_at DESC, id DESC').all(kind)
       : this.db.prepare('SELECT * FROM asset_library_items ORDER BY updated_at DESC, id DESC').all()) as AssetLibraryItemRow[];
-    return rows;
+    return rows.map((row) => hydrateLibraryItem(row));
   }
 
   getLibraryItem(id: number): AssetLibraryItemRow | undefined {
-    return this.db.prepare('SELECT * FROM asset_library_items WHERE id = ?').get(id) as AssetLibraryItemRow | undefined;
+    const row = this.db.prepare('SELECT * FROM asset_library_items WHERE id = ?').get(id) as AssetLibraryItemRow | undefined;
+    return row ? hydrateLibraryItem(row) : undefined;
   }
 
   createLibraryItem(input: unknown): AssetLibraryItemRow {
@@ -42,7 +43,10 @@ export class AssetRepository {
     const result = this.db.prepare(`
       INSERT INTO asset_library_items (kind, name, description, appearance, prompt, visual_description, metadata, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(kind, name, value(body.description), value(body.appearance), value(body.prompt), value(body.visual_description), '{}', now, now);
+    `).run(
+      kind, name, value(body.description), value(body.appearance), value(body.prompt), value(body.visual_description),
+      assetMetadata(body.metadata, body.tags), now, now,
+    );
     return this.getLibraryItem(Number(result.lastInsertRowid)) as AssetLibraryItemRow;
   }
 
@@ -51,13 +55,14 @@ export class AssetRepository {
     if (!current) throw new NotFoundError('全局资产不存在');
     const body = asRecord(input) ?? {};
     this.db.prepare(`
-      UPDATE asset_library_items SET name = ?, description = ?, appearance = ?, prompt = ?, visual_description = ?, updated_at = ? WHERE id = ?
+      UPDATE asset_library_items SET name = ?, description = ?, appearance = ?, prompt = ?, visual_description = ?, metadata = ?, updated_at = ? WHERE id = ?
     `).run(
       readString(body.name) ?? current.name,
       optional(body, 'description', current.description),
       optional(body, 'appearance', current.appearance),
       optional(body, 'prompt', current.prompt),
       optional(body, 'visual_description', current.visual_description),
+      assetMetadata(current.metadata, Object.prototype.hasOwnProperty.call(body, 'tags') ? body.tags : current.tags),
       new Date().toISOString(), id,
     );
     return this.getLibraryItem(id) as AssetLibraryItemRow;
@@ -86,24 +91,22 @@ export class AssetRepository {
     const name = readString(body.name) ?? library?.name;
     const resolvedName = name ?? `未命名${assetLabel(kind)}`;
     const now = new Date().toISOString();
-    const locked = library?.current_image_generation_id ?? null;
+    const tags = Object.prototype.hasOwnProperty.call(body, 'tags') ? body.tags : library?.tags;
+    const metadata = assetMetadata(body.metadata ?? library?.metadata, tags);
     const result = this.db.prepare(`
       INSERT INTO project_assets (
         drama_id, library_item_id, kind, name, description, appearance, prompt, visual_description,
-        image_url, local_path, locked_image_generation_id, metadata, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+        image_url, local_path, metadata, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       projectId, library?.id ?? null, kind, resolvedName,
       value(body.description) ?? library?.description ?? null,
       value(body.appearance) ?? library?.appearance ?? null,
       value(body.prompt) ?? library?.prompt ?? null,
       value(body.visual_description) ?? library?.visual_description ?? null,
-      library?.image_url ?? null, library?.local_path ?? null, locked, now, now,
+      library?.image_url ?? null, library?.local_path ?? null, metadata, now, now,
     );
     const id = Number(result.lastInsertRowid);
-    if (Object.prototype.hasOwnProperty.call(body, 'dependency_asset_ids')) {
-      this.syncProjectAssetDependencies(id, body.dependency_asset_ids);
-    }
     return this.getProjectAsset(id) as ProjectAssetRow;
   }
 
@@ -133,18 +136,16 @@ export class AssetRepository {
     if (!current) throw new NotFoundError('项目资产不存在');
     const body = asRecord(input) ?? {};
     this.db.prepare(`
-      UPDATE project_assets SET name = ?, description = ?, appearance = ?, prompt = ?, visual_description = ?, updated_at = ? WHERE id = ?
+      UPDATE project_assets SET name = ?, description = ?, appearance = ?, prompt = ?, visual_description = ?, metadata = ?, updated_at = ? WHERE id = ?
     `).run(
       readString(body.name) ?? current.name,
       optional(body, 'description', current.description),
       optional(body, 'appearance', current.appearance),
       optional(body, 'prompt', current.prompt),
       optional(body, 'visual_description', current.visual_description),
+      assetMetadata(current.metadata, Object.prototype.hasOwnProperty.call(body, 'tags') ? body.tags : current.tags),
       new Date().toISOString(), id,
     );
-    if (Object.prototype.hasOwnProperty.call(body, 'dependency_asset_ids')) {
-      this.syncProjectAssetDependencies(id, body.dependency_asset_ids);
-    }
     return this.getProjectAsset(id) as ProjectAssetRow;
   }
 
@@ -154,29 +155,6 @@ export class AssetRepository {
     const result = this.db.prepare('DELETE FROM project_assets WHERE id = ?').run(id);
     this.log?.audit?.('project.asset.deleted', { id, projectId: current.drama_id, kind: current.kind });
     return result.changes > 0;
-  }
-
-  lockProjectAsset(id: number): ProjectAssetRow {
-    const current = this.getProjectAsset(id);
-    if (!current) throw new NotFoundError('项目资产不存在');
-    const generationId = current.current_image_generation_id
-      ?? (current.library_item_id ? this.getLibraryItem(current.library_item_id)?.current_image_generation_id : null)
-      ?? null;
-    this.db.prepare('UPDATE project_assets SET locked_image_generation_id = ?, updated_at = ? WHERE id = ?')
-      .run(generationId, new Date().toISOString(), id);
-    return this.getProjectAsset(id) as ProjectAssetRow;
-  }
-
-  upgradeProjectAsset(id: number): ProjectAssetRow {
-    const current = this.getProjectAsset(id);
-    if (!current) throw new NotFoundError('项目资产不存在');
-    if (!current.library_item_id) throw new ValidationError('本地资产没有全局库版本可升级');
-    const library = this.getLibraryItem(current.library_item_id);
-    if (!library) throw new NotFoundError('关联的全局资产不存在');
-    this.db.prepare(`
-      UPDATE project_assets SET image_url = ?, local_path = ?, locked_image_generation_id = ?, updated_at = ? WHERE id = ?
-    `).run(library.image_url, library.local_path, library.current_image_generation_id, new Date().toISOString(), id);
-    return this.getProjectAsset(id) as ProjectAssetRow;
   }
 
   listStoryboards(episodeId: number): StoryboardRow[] {
@@ -403,38 +381,8 @@ export class AssetRepository {
   private hydrateProjectAsset(row: ProjectAssetRow): ProjectAssetRow {
     return {
       ...row,
-      dependency_asset_ids: ids(this.db, 'project_asset_dependencies', 'depends_on_asset_id', row.id, 'project_asset_id'),
+      tags: assetTagsFromMetadata(row.metadata),
     };
-  }
-
-  private syncProjectAssetDependencies(assetId: number, rawIds: unknown): void {
-    const asset = this.getProjectAsset(assetId);
-    if (!asset) throw new NotFoundError('项目资产不存在');
-    const requested = Array.isArray(rawIds)
-      ? [...new Set(rawIds.map(readNumber).filter((id): id is number => Boolean(id && id !== assetId)))]
-      : [];
-    for (const dependencyId of requested) {
-      const dependency = this.getProjectAsset(dependencyId);
-      if (!dependency || dependency.drama_id !== asset.drama_id) throw new ValidationError('资产依赖必须属于同一项目');
-      if (this.dependencyReaches(dependencyId, assetId)) throw new ValidationError('资产依赖不能形成循环');
-    }
-    this.db.prepare('DELETE FROM project_asset_dependencies WHERE project_asset_id = ?').run(assetId);
-    const insert = this.db.prepare('INSERT INTO project_asset_dependencies (project_asset_id, depends_on_asset_id) VALUES (?, ?)');
-    requested.forEach((dependencyId) => insert.run(assetId, dependencyId));
-  }
-
-  private dependencyReaches(startId: number, targetId: number): boolean {
-    const visited = new Set<number>();
-    const pending = [startId];
-    while (pending.length) {
-      const current = pending.pop();
-      if (!current || visited.has(current)) continue;
-      if (current === targetId) return true;
-      visited.add(current);
-      const next = ids(this.db, 'project_asset_dependencies', 'depends_on_asset_id', current, 'project_asset_id');
-      pending.push(...next);
-    }
-    return false;
   }
 
   private scenes(projectId: number): SceneRow[] {
@@ -547,4 +495,37 @@ function assetKind(value: unknown): AssetKind {
 
 function assetLabel(kind: AssetKind): string {
   return { character: '人物', scene: '场景', prop: '道具' }[kind];
+}
+
+function hydrateLibraryItem(row: AssetLibraryItemRow): AssetLibraryItemRow {
+  return { ...row, tags: assetTagsFromMetadata(row.metadata) };
+}
+
+function assetMetadata(rawMetadata: unknown, rawTags: unknown): string {
+  const parsed = typeof rawMetadata === 'string' ? safeMetadata(rawMetadata) : asRecord(rawMetadata) ?? {};
+  return JSON.stringify({ ...parsed, tags: normalizeTags(rawTags ?? parsed.tags) });
+}
+
+function safeMetadata(value: string): Record<string, unknown> {
+  try { return asRecord(JSON.parse(value)) ?? {}; }
+  catch { return {}; }
+}
+
+export function assetTagsFromMetadata(metadata: string): string[] {
+  return normalizeTags(safeMetadata(metadata).tags);
+}
+
+function normalizeTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const tag = item.trim();
+    const key = tag.toLocaleLowerCase();
+    if (!tag || seen.has(key)) continue;
+    seen.add(key);
+    result.push(tag);
+  }
+  return result;
 }

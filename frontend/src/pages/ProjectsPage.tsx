@@ -140,7 +140,7 @@ export function ProjectsPage() {
   }
 
   return (
-    <>
+    <section className="projects-page">
       <header className="page-heading projects-heading">
         <div><h1>项目</h1></div>
         <Space wrap>
@@ -162,10 +162,11 @@ export function ProjectsPage() {
         <span>{projects.length} 个项目</span>
       </div>
 
-      <Spin spinning={loading}>
-        {projects.length ? (
-          <div className="project-grid">
-            {projects.map((project) => (
+      <div className="project-list-scroll">
+        <Spin spinning={loading}>
+          {projects.length ? (
+            <div className="project-grid">
+              {projects.map((project) => (
               <Card
                 className="project-card"
                 key={project.id}
@@ -211,16 +212,17 @@ export function ProjectsPage() {
                   </div>
                 </div>
               </Card>
-            ))}
-          </div>
-        ) : !loading ? (
-          <div className="empty-band">
-            <Empty description="没有找到项目">
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>创建第一个项目</Button>
-            </Empty>
-          </div>
-        ) : null}
-      </Spin>
+              ))}
+            </div>
+          ) : !loading ? (
+            <div className="empty-band">
+              <Empty description="没有找到项目">
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>创建第一个项目</Button>
+              </Empty>
+            </div>
+          ) : null}
+        </Spin>
+      </div>
 
       <Modal
         title={editing ? '编辑项目' : '新建项目'}
@@ -238,6 +240,6 @@ export function ProjectsPage() {
           <Form.Item name="description" label="说明"><Input.TextArea rows={4} maxLength={500} showCount /></Form.Item>
         </Form>
       </Modal>
-    </>
+    </section>
   )
 }
