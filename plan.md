@@ -83,7 +83,7 @@
 - [x] 将 Demo 改为《雾港来信》5 镜头悬疑版本，主角为女性调查记者。
 - [x] 同步 `spec.md`、`README.md`、`history.md`。
 - [x] 运行后端定向/全量测试、typecheck、build；运行前端测试、lint、build。
-- [ ] 检查 diff、敏感信息、生成物、`git diff --check`，按授权提交并尝试 push。
+- [x] 检查 diff、敏感信息、生成物、`git diff --check`，按授权提交并尝试 push。
 
 ## 验证计划
 
@@ -96,8 +96,8 @@
 
 ## 收口
 
-- 完成事实：assembler、生成入口、Demo、文档和正向回归已完成；待 diff 审查、提交与 push。
-- 实际命令：`backend npm.cmd test`、`backend npm.cmd run typecheck`、`frontend npm.cmd test`、`frontend npm.cmd run lint`、`frontend npm.cmd run build` 已通过。
+- 完成事实：assembler、生成入口、Demo、文档和正向回归已完成；文本 AI 工作区入口已移除，生产 HTTP 入口明确拒绝；commit 与 push 已完成。
+- 实际命令：`backend npm.cmd test`、`backend npm.cmd run typecheck`、`backend npm.cmd run build`、`frontend npm.cmd test`、`frontend npm.cmd run lint`、`frontend npm.cmd run build`、`git diff --check`、`git push origin master` 已通过。
 - 未验证项：真实供应商、浏览器人工视觉、外部付费生成。
 - 剩余风险：视频模型是否实际合成声音取决于供应商合同；旧 grid 字段仍可能需要后续断裂式清理；参考图 URL 的供应商可达性需外部验收。
-- commit/push：按 owner 本轮授权执行；未授权部署。
+- commit/push：`89d357c` 已提交并成功推送到 `origin/master`；未执行部署或关机。
