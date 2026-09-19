@@ -1,109 +1,292 @@
 # 当前任务
 
-## 追加任务：未知模型能力放行与固定选择
+## 任务标题
 
-- owner 已确认 `gpt-image-2` 的目录没有声明画幅比例不等于不支持；未知模式、参考图上限和画幅能力均应交由供应商验证，只有目录明确冲突时才本地拒绝。
-- 节点显式模型和 AI 配置页全局预设是固定选择，不得经过兼容性过滤后静默切换；仅两者均为空时自动择模，自动路径优先已确认兼容模型，也允许回退到未知能力模型。
-- 检查器对未知比例模型保留当前值并显示通用比例集合，不因目录缺字段禁用比例控件。
-- [x] 建立旧实现失败测试
-- [x] 修正后端三态能力与模型选择优先级
-- [x] 修正前端模型过滤与比例控件
-- [x] 同步 `spec.md` 当前事实
-- [x] 完整回归、差异检查与交付记录
+断裂式信息架构重建：剧本台 / 资产库（人物·场景·道具）/ 分镜台 / 生产成片；废除“纯 DAG 画布吞掉全部短剧阶段”。
+
+## 审核与授权状态
+
+- **Owner 已口头确认（2026-09-19）**：方向通过；跨项目资产采用锁定版本；生产区 v1 不以无限画布为主路径；顶栏人物/场景/道具三个入口；实施期允许清空 `backend/data`；保留统一默认供应商与全局模型预设。
+- 交流时用短重点；**本文件保持尽量详细**，作为唯一执行合同。
+- **未开始改产品代码前**：以本文件为准；实施启动需再确认“现在开干”。
+- 上一份 PearAPI / 未知模型能力 `plan.md` 已完成，事实在 `history.md` / `spec.md`；本文件整份替换，不混写。
+
+---
 
 ## 需求
 
-### 2026-09-18 官方 PearAPI 文档补充
+### 产品要解决的问题
 
-- 以 owner 提供的 PearAPI 官方 OpenAPI 文档为准：Grok Imagine Video 使用 `POST /v1/video/generations` 创建任务，使用 `GET /v1/video/generations/{task_id}` 轮询。
-- 请求使用 `Authorization: Bearer sk-...`；Grok Imagine Video 1.5 专栏请求字段包含 `model`、`prompt`、`mode`、`seconds`、`aspect_ratio` 和 `images`。文档列出的时长为 `4/6/8/10/12/15` 秒。
-- 本次实现不得调用初始化脚本、删除或重置 `backend/data`，不得覆盖已有图片、生成历史和画布数据。
+当前打开项目几乎只有 `/film/:id/canvas`，把故事、提取、资产、分镜、视频、合成全画成节点与连线。用户心智是短剧制作（剧本 → 可复用资产 → 分镜说明书 → 逐镜生成 → 成片），产品却像 ComfyUI 工作流台。领域表其实已有剧集/角色/场景/道具/分镜，UI 没有按对象组织。
 
-- 视频模型能力必须区分计费方式与时长参数能力。PearAPI Grok 模型按次计费但支持时长参数，其中官方文档列出 `4/6/8/10/12/15` 秒；检查器应显示这些真实时长，不得把“按次”误判成“不支持时长”。
+### 目标用户路径（可观察）
 
-- Provider 文本、图片和视频生成请求不设置本地 HTTP 等待上限；已经取得供应商任务 ID 的异步生成也不设置累计失败截止线。
-- 节点生成期间在画布顶部、节点卡片和检查器显示按秒递增的真实耗时；没有供应商百分比时仍只显示阶段，不用耗时伪造百分比。
-- 节点进入完成、失败或取消终态时保存本次结束时间；完成后节点卡片与检查器持续显示固定耗时。旧节点没有完整起止时间时显示“耗时未知”，不得反推。
-- PearAPI 工作台仍在生成时，本地不能因为一次 `fetch failed` 提前标记失败，应继续等待到供应商明确成功、明确失败或用户主动停止。
-- 节点增加“标记为已完成”开关；开启后所有运行范围自动跳过，关闭后恢复正常执行。
-- 已有成功结果的节点重新运行后若停止或失败，旧结果仍保持可用，不能因此落入“运行未完成”。
+1. 项目列表新建或打开项目。
+2. 进入项目壳，顶栏进入：**剧本 | 人物 | 场景 | 道具 | 分镜 | 生产**。
+3. **剧本台**：编辑故事梗概与本集剧本；可手动保存；可走 AI 扩写/改写（消费全局默认文本模型，可覆盖）。
+4. **人物 / 场景 / 道具**：维护本项目资产；可从剧本提取；可文生图、图生图；可切换历史版本并锁定当前标准图；可打开全局库把已有资产**以锁定版本加入本项目**。
+5. **分镜台**：有序镜头表；每镜绑定出场人物/场景/道具、剧情与提示词；可 AI 从剧本拆镜。
+6. **生产**：按分镜列表单镜或批量生成分镜图、镜头视频；按序整集合成。v1 **不做**生产无限画布主路径。
+7. AI 配置页的文本/图片/视频**全局默认模型**继续作为全站统一默认；各处生成可显式覆盖，不得另起一套供应商心智。
+
+### 成功标准
+
+- 主路径不再依赖“36 节点 DAG 才能看懂资产复用”。
+- 同一全局资产可被多个项目引用；旧项目绑定的 generation 不因全局后来换图而静默变脸（锁定版本）。
+- 资产页可完成文生图与图生图，结果写入资产当前指针与历史。
+- 《雨夜外卖》类 Demo 以剧本 + 资产库 + 分镜表 + 空生产结果呈现，不初始化旧 canvas 主图。
+- Provider、任务、本地归档、Everything 日志、项目 ZIP、全局模型预设行为不回退。
+
+---
 
 ## 当前事实
 
-- 2026-09-18 真实失败记录 `rain-delivery-shot-1-video` 使用 PearAPI `grok-imagine-video-1.5`，任务失败原因为供应商明确返回“当前模型不支持该时长，请调整后重试”。此前检查器/服务把该模型标为按次并删除了 `duration`，PearAPI 适配器还走旧 `/api/video_generate` 合同。
-- owner 提供的 PearAPI 官方 OpenAPI 文档确认 Grok Imagine Video 1.5 合同为 `/v1/video/generations`、Bearer `sk-`、`mode=image2video`、`seconds` 与 `images`，支持 `4/6/8/10/12/15` 秒。
+### 路由与 UI
 
-- 修改前 Provider HTTP 为 10 分钟、异步图片轮询为 10 分钟、前端任务轮询约 20 分钟、视频默认轮询为 30 分钟；这些本地截止线会在供应商仍运行时错误失败。
-- 节点执行状态只有阶段和可选真实百分比，没有开始时间；画布顶部、节点卡片和检查器无法显示真实经过时间。
-- 当前工作区包含尚未提交的全局模型预设与供应商无关 Demo v17 改动，必须在其上增量实现。
-- PearAPI 图片适配器从 `config.yaml` 读取 `task_type`，当前真实配置为 `sync`；同步 POST 会一直等待生成结果。
-- 修改前 Provider 应用超时为 600000ms，但 Node 内置 fetch 的响应头超时先在约 300 秒触发。
-- `isReusableProductionNode` 同时承担“有可消费输出”和“运行范围已完成”两种职责；取消会覆盖节点 `status`，导致旧结果失去完成资格。
+- 现：`/`、`/ai-config`、`/film/:id/canvas`。打开项目 ≈ 纯画布。
+- `spec.md` 仍写 DAG 为核心用户路径；`reference/README.md` 曾记录“拒绝阶段表单、坚持纯画布”——本任务正式推翻该 UI 取舍。
 
-## 失败测试或失败证据
+### 数据
 
-- Everything 任务 `a0b648dc-1239-4198-97ec-ca6834409ff1` 于 2026-09-18 10:09:37 提交，10:14:42 因 `HeadersTimeoutError` 失败；同期 PearAPI 工作台仍显示 95%。
-- 剧本任务 `75161846-899a-478e-8f27-d0b465cf3f8e` 在已有预写结果时被重跑，8 秒后停止；画布快照保留旧文本但状态变成 `cancelled`，随后被视为未完成。
+- 已有：`dramas`、`episodes.script_content`、`characters` / `scenes` / `props`（均 `drama_id`）、`storyboards`、分镜–资产关联表、`image_generations` / `video_generations`、`ai_model_presets`、`canvas_revision` + `metadata.canvas_layout`。
+- **缺口**：无全局资产库；资产不能跨项目；UI 真相在 canvas_layout，与领域表双轨。
+- 快速开发期：`schema.ts` 唯一结构 owner；无生产迁移义务；owner 已允许实施时清空 `backend/data`。
+
+### 生成与配置（保留）
+
+- 资产插件已支持 `text-to-image` / `image-to-image`。
+- 模型选择优先级已是：显式选择 → **AI 配置页全局预设** → 自动选择。本任务不改这条优先级，只让新工作区统一遵守。
+- Agnes / PearAPI、异步任务、本地媒体归档、历史 generation、Everything 日志继续作为基础设施。
+
+### 参考（只读学习，不复制代码）
+
+- 魔因：`剧本 → 角色 → 场景 → 导演分镜 → 批量出片`（板块划分主参考，不抄死 UI）。
+- 火宝：改写 → 提取资产出图 → 拆分镜 → 视频 → 合成。
+- dramai / micro-drama / ai-story 等：同一内容主链的不同外壳。
+- 学习态度：**学成熟骨架，不把某一家的屏幕布局、命名、Agent 数量、画布形态固定成唯一正确答案。**
+
+---
+
+## 失败证据
+
+- Owner 多次反馈页面组织不像短剧制作；概念主链已对齐，产品仍是一张 DAG。
+- 起步模板与 Demo 对提取→资产→分镜的边不一致；Demo 资产不连提取且无分镜清单节点。
+- 用连线表达资产一对多导致蛛网；折叠方案又因 React Flow 稳定性删除——说明**用图表达领域关系是错误载体**。
+- `characters.drama_id` 等使跨项目复用在合同上不成立。
+
+---
 
 ## 目标
 
-- 模型目录持久化 `durationMode`（`duration`、`per-request`、`unknown`）；Agnes 视频由适配器声明为按时长，PearAPI 优先读取目录明确字段，并对已核验 Grok 模型声明按次，证据不足时保持未知。前端按当前模型能力显示时长输入和标签，未知时不伪造。
-- Demo 视频提示词不再包含固定时长文字；按次模型运行不因节点默认时长配置触发供应商时长错误。
+### 信息架构（已拍板）
 
-- 文本、图片和视频生成 HTTP 请求不设置本地超时；目录等非生成查询继续保持短超时。已经取得任务 ID 后，图片、视频和前端任务状态持续轮询到供应商明确成功/失败或用户主动停止，不因本地累计时长失败。
-- 运行中耗时由本地开始时间和当前时钟计算，每秒刷新；终态耗时由持久化起止时间计算并保持不变。耗时不写入伪造进度。
-- PearAPI 图片始终异步提交，得到供应商任务 ID 后轮询；轮询瞬时网络错误按有界策略重试。
-- Provider 传输层显式关闭应用、响应头和响应体的本地生成超时，不再被 Node 默认等待上限截断。
-- 手动完成是独立持久字段，只影响执行范围，不伪造上游输出。
-- 重跑失败或停止时，有旧有效结果的节点恢复为可用完成态并保留可见提示。
+```text
+/                         项目列表
+/ai-config                AI 配置（全局默认供应商/模型）——保留并全站统一消费
+/film/:id                 项目壳 → 默认进剧本
+/film/:id/script          剧本台
+/film/:id/characters      人物资产
+/film/:id/scenes          场景资产
+/film/:id/props           道具资产
+/film/:id/assets/library  全局资产库（选用并锁定版本到本项目）
+/film/:id/storyboard      分镜台
+/film/:id/produce         生产成片（列表 + 批量 + 合成）
+```
+
+- **废除** `/film/:id/canvas` 作为主入口（可 301/重定向到 script 或 produce；v1 不提供生产无限画布页）。
+- 顶栏六个入口（已拍板）：剧本、人物、场景、道具、分镜、生产。
+
+### 对象模型（已拍板：全局库 + 项目绑定锁定版本）
+
+| 对象 | 说明 |
+|------|------|
+| Drama / Episode | 项目与剧集；剧集持有剧本正文与成片指针 |
+| `asset_library_items` | 全局资产：kind=character\|scene\|prop；描述；`current_image_generation_id` |
+| `project_assets` | 本项目绑定：`drama_id` + `library_item_id` + **`locked_image_generation_id`**（绑定时锁定的外观版本）+ 可选本地覆盖字段 |
+| Storyboard | 有序镜头；文本字段；关联 `project_assets`；`current_image_generation_id` / `current_video_generation_id` |
+| Generations / Tasks | 沿用现有图片视频 generation 与异步任务 |
+
+**锁定版本语义（必须测）：**
+
+- 加入项目时：写入 `locked_image_generation_id = 当时库的 current`（若无图可为 null）。
+- 全局库后来换新标准图：**不自动**改已绑定项目的 `locked_*`。
+- 项目资产详情提供显式动作「升级到库最新版」才会更新锁定指针。
+- 生产取参考图：优先 `project_assets.locked_image_generation_id`，而非每次读库最新。
+
+### 生成合同修订
+
+| 旧 | 新 |
+|----|----|
+| 画布节点面板完整输入；连线追加；仓库不暗取 | 工作区表单完整输入；**分镜/资产生产按显式 ID 取锁定标准图与文本** |
+| DAG 表达依赖 | 数据关系表达依赖 |
+| 默认供应商仅节点/配置页 | **所有工作区**统一：显式 → 全局预设 → 自动 |
+
+### 各区职责
+
+**剧本台**
+
+- 字段：故事（项目描述或独立字段）、本集剧本。
+- 动作：保存；AI 生成/改写（`write-script` / `generate-text` 等现有文本动作）。
+- 不在此区生成图片视频。
+
+**人物 / 场景 / 道具**
+
+- 列表 + 详情。
+- 创建：手建 / 从剧本提取（可复用 extract agents 的文本能力，结果落 `project_assets` 并可选同时写入/关联 library）。
+- 生图：文生图、图生图（参考图上传）；历史与当前指针；锁定。
+- 入口「从全局库添加」→ library 页多选 → 创建 `project_assets` 行并锁定版本。
+
+**分镜台**
+
+- 有序表（拖拽排序）；增删改。
+- 每镜：标题、描述/动作、对白、时长、image_prompt、video_prompt、出场资产多选（按 kind 过滤）。
+- AI 拆镜：读本集剧本 + 本项目资产列表，写出分镜并建议绑定（可先绑定名称匹配，人工可改）。
+- 不在此区直接拼成片；可「去生产该镜」。
+
+**生产**
+
+- 行=分镜：分镜图状态、视频状态、单镜生图、单镜生视频。
+- 批量：未完成分镜图 / 未完成视频。
+- 整集合成：按分镜顺序收集可用视频 URL/本地路径。
+- 组装生图输入：分镜 prompts + 该镜绑定资产的**锁定版**标准图列表 + 全局/显式图片模型。
+- v1 无画布页。
+
+### Demo
+
+- 初始化脚本改写：写剧本、全局或项目资产、10 条分镜与关联；不写旧 canvas_layout 主图；不调用供应商。
+- 验收：对象计数与关联正确，而非 36 节点 56 边。
+
+### 删除与降级
+
+- 删除起步 DAG 模板、旧 Demo 节点工作区作为主交付。
+- `catalog.ts` 收缩为工作区可调用的生产动作（或拆 script/asset/shot actions）；删除“舞台=画布泳道”心智。
+- 旧 `characters/scenes/props` 表由新 library + project_assets 取代（空库重建，不清迁移）。
+- 旧 canvas 保存 API 可暂时保留只读或删除；以实施时影响面最小为准，但主路径不得再依赖。
+
+---
 
 ## 不做范围
 
-- 不提交真实供应商任务，不重跑《雨夜外卖》，不修改或清理 `backend/data`。
-- 不尝试回收已经因同步请求断连而丢失响应的历史供应商任务。
+- 不复制 reference 源码/品牌/皮肤；不引入 Toonflow。
+- v1 不做：生产无限画布、完整 NLE、口型、配音必达、多人协作、Electron 新壳、旧画布自动迁移。
+- 不改“无凭据不伪造成功”；不浏览器直连供应商。
+- 不另建第二套默认供应商配置。
 
-## 设计
+---
 
-### 官方合同收口
+## 设计细节
 
-- Provider 模型能力同时保留计费标签和 `supportsDuration`/`supportedDurations`；Grok 继续显示“按次”，但支持时长输入并返回 `[4, 6, 8, 10, 12, 15]`。
-- PearAPI 视频适配器固定使用官方 `/v1/video/generations` 创建/查询接口和 `Authorization: Bearer ${api_key}`，提交 `mode`、`seconds`、`aspect_ratio` 与 `images`；移除 `generation_key`、可配置旧端点、`duration` 与 `reference_contents` 兼容路径。
-- Demo 视频默认时长改为 15 秒；已有数据库中的图片、历史、任务和画布不做任何清理或重建。
+### API 草案（实施时可微调路径，职责锁定）
 
-- 后端生成 HTTP 与前端 API 都用 `0` 表示不设置本地超时；Undici 的响应头和响应体超时同步显式关闭。图片、视频及前端任务状态轮询删除默认最大次数/累计分钟数；暂时性查询错误继续等待，显式供应商失败仍立即失败。
-- `execution.startedAt` / `execution.finishedAt` 是节点本次执行的持久化起止时间。运行中显示组件只在本地每秒计算经过时间，不每秒写 Zustand；节点终态写入一次 `finishedAt`，重新打开后从快照恢复固定耗时。旧快照缺少任一时间时显示“耗时未知”。整组顶部使用当前节点的 `WorkflowRunProgress.startedAt`，整集合成使用自己的开始时间。
-- PearAPI 图片请求固定发送 `task_type: async`；移除 `config.yaml` 中的可变模型/任务方式心智负担。
-- Provider transport 使用可配置 Undici dispatcher，使生成请求的 headers/body timeout 均为 `0`；网络重试仅在调用方明确声明安全时启用。
-- 图片/视频轮询捕获 `retryable` ProviderError，记录结构化重试事件并继续轮询；供应商明确失败仍立即返回。
-- 节点数据新增 `manuallyCompleted`。执行范围统一过滤该字段；上下文仍只消费真实可复用结果。
-- 工作流启动前保存节点旧结果可复用事实；失败/停止时若旧结果有效，恢复 `completed` 并显示“继续使用已有结果”。
+- `GET/PUT /api/v1/dramas/:id/script` — 故事+剧本
+- `GET/POST /api/v1/asset-library` — 全局库
+- `GET/PATCH /api/v1/asset-library/:id`
+- `POST /api/v1/asset-library/:id/generate-image` — 文生/图生，写库当前指针与历史
+- `GET/POST /api/v1/dramas/:id/assets` — 本项目资产；POST 可 `from_library_item_id` 并锁定
+- `POST /api/v1/dramas/:id/assets/:id/generate-image`
+- `POST /api/v1/dramas/:id/assets/:id/upgrade-lock` — 升到库最新
+- `POST /api/v1/dramas/:id/assets/extract` — 从剧本提取
+- `GET/PUT /api/v1/dramas/:id/storyboards` — 列表与排序
+- `POST /api/v1/dramas/:id/storyboards/split` — AI 拆镜
+- `POST /api/v1/dramas/:id/storyboards/:id/generate-image|generate-video`
+- `POST /api/v1/dramas/:id/produce/batch` — 批量范围
+- `POST /api/v1/dramas/:id/episodes/:eid/compose` — 整集合成
+
+生产命令仍可汇入现有 `ProductionWorkflowService`，但 **target 从 canvas node 改为 domain id**。
+
+### 前端模块建议
+
+- `features/project-shell` — 顶栏与出口
+- `features/script` — 剧本台
+- `features/assets` — 人物/场景/道具/全局库
+- `features/storyboard` — 分镜台
+- `features/produce` — 生产列表与批量
+- 大幅删除或归档 `features/canvas` 主路径依赖；执行器能力下沉到 shared production API 客户端
+
+### 统一模型选择（已拍板保留）
+
+所有生成入口共用同一解析函数：
+
+1. 请求体显式 `provider`+`model`（若有）
+2. 否则 `ai_model_presets` 对应 text/image/video
+3. 否则实时目录自动选择（现有规则：固定选择不静默切换；仅空时自动）
+
+UI：工作区显示“当前使用：全局默认 xxx / 已覆盖 yyy”，避免用户以为各区各有供应商。
+
+### 影响面
+
+- 前端路由、几乎全部 canvas 页面与测试、Demo/starter、catalog/executor/contextResolver
+- 后端 schema、AssetRepository、分镜与生产入口、Demo init、ZIP 导入导出（需认识新表与锁定字段）
+- 文档：`spec.md` 核心路径重写、`README.md`、`history.md`、本 plan 收口
+- 保留：`backend/src/providers/**`、任务、媒体归档、Everything、AI 配置页
+
+### 实施波次
+
+1. **清库授权确认后**：停服务 → 删 `backend/data` → 新 schema  
+2. API：library / project_assets / script / storyboards  
+3. 项目壳 + 六入口空壳可导航  
+4. 剧本台可写 + AI 文本  
+5. 三资产页 + 全局库 + 文生/图生 + 锁定/升级  
+6. 分镜台 + AI 拆镜 + 绑定  
+7. 生产单镜/批量/合成  
+8. 删旧 canvas 主路径；重写 Demo；全量测试；同步 spec/README/history  
+
+每波交付应可演示，避免长期半新半旧。
+
+---
+
+## 不做的“死板”边界（执行纪律）
+
+- 不要求 UI 像素级像魔因/火宝。
+- 不要求必须上 Agent 框架或必须上时间线。
+- 不要求分镜字段一次上齐所有电影术语；可先标题/描述/对白/时长/双提示词/资产绑定，再迭代景别运镜。
+- 不把“列表 vs 轻微可视化”上升为宗教；v1 列表优先是为减范围，不是永久禁止画布。
+
+---
 
 ## 实施任务
 
-- [x] 调查
-- [x] 核对 PearAPI 官方 OpenAPI 文档
-- [x] 按官方视频合同实现并补回归测试
-- [x] 实现视频计费/时长能力合同
-- [x] 实现前端按模型显示时长输入
-- [x] 补充按次模型与 Demo 提示词回归测试
-- [x] 测试
-- [x] 文档同步
-- [x] 验证与收口
+- [ ] Owner 确认「现在开干」（本文件决策已通过，仅差启动令）
+- [ ] 停服务并清空 `backend/data`（启动令后执行）
+- [ ] 断裂更新 `schema.ts`：library、project_assets（含 locked generation）、storyboards 关联新资产
+- [ ] Script / Asset / Storyboard / Produce API
+- [ ] 前端项目壳与六入口路由
+- [ ] 剧本台
+- [ ] 人物/场景/道具 + 全局库 + 文生图/图生图 + 锁定/升级
+- [ ] 分镜台
+- [ ] 生产列表/批量/合成（无画布）
+- [ ] 统一模型选择接线到所有新入口
+- [ ] 重写 Demo；移除旧 canvas 主路径与旧起步 DAG
+- [ ] 测试与 spec/README/history；本 plan 收口勾选
+
+---
 
 ## 验证计划
 
-- 模型目录测试覆盖 Agnes 视频 `duration`、PearAPI 视频 `per-request` 与旧/缺失字段 `unknown`。
-- 前端检查器/能力标签测试覆盖按次模型仍按独立能力显示时长；PearAPI 适配器请求体使用 `seconds`/`images` 且不含 `duration`/`reference_contents`。
+### 确定性
 
-- Provider 测试：PearAPI 图片固定异步；响应头可超过五分钟配置；轮询网络错误继续、耗尽后失败、取消立即结束。
-- 超时测试：Provider 生成请求和前端 API 不设置本地超时；默认图片、视频和前端任务轮询没有累计截止线；前端暂时性查询错误后能继续获得完成结果。
-- 计时测试：开始时间在同一节点执行期间稳定保留；终态写入结束时间；秒、分、小时格式正确；旧节点显示“耗时未知”；起止时间随画布快照保存与恢复；运行中计时器只更新显示状态，不每秒写画布 Store。
-- 前端测试：手动完成在单节点、运行全部、运行未完成中跳过；关闭后可运行；无输出的手动完成不注入下游；旧结果重跑停止/失败仍可用。
-- 全量运行前端 test/lint/build 与后端 test/typecheck/build，执行 `git diff --check` 和残留扫描。
+- 后端 typecheck / test / build；前端 test / lint / build  
+- 契约：两项目引用同一 library item；A 升级库图后 B 未点升级则 locked 不变  
+- 分镜生产组装包含锁定版参考图 URL/路径  
+- Demo init 无供应商调用；无旧 36 节点断言  
+
+### 真实外部（另授权）
+
+- 资产文生、图生各 ≥1；一分镜图→视频；合成  
+- 全局默认模型未设时行为与现合同一致  
+
+### 人工
+
+- 顶栏六入口是否好懂  
+- 跨项目选用与升级是否符合预期  
+- 是否仍感觉“在做短剧”而不是“搭工作流”
+
+---
 
 ## 收口
 
-- 完成事实：生成请求本地超时与全部累计轮询截止线已删除；运行中真实耗时、PearAPI 异步续等、手动完成与旧结果恢复已完成；视频模型按次/按时长能力、检查器显示和 Demo 提示词已收口。
-- 实际命令：后端 65/65 测试、strict typecheck、build 通过；前端 17 个测试文件 59/59、lint、build 通过。前端构建仍有既有的单包超过 500 kB 提示。
-- 未验证项：真实 PearAPI 长任务与浏览器人工交互由 owner 验收；本轮没有调用 Agnes/PearAPI、没有运行 Demo 初始化、没有修改 `backend/data`。
-- 剩余风险：历史同步请求失败后没有供应商任务 ID，无法自动认领其结果；异步初次提交若在供应商受理后、任务 ID 返回前发生网络中断，也不能安全重发，只能如实失败以避免重复扣费。
+- 完成事实：计划已按 owner 拍板决策重写为详细执行合同；**产品代码未改。**
+- 实际命令：无。
+- 未验证项：全部实现项。
+- 剩余风险：启动令未下则不得清库；ZIP 格式随 schema 断裂需同步。
+- 待 owner：回复「现在开干」后进入波次 1；若需先 commit 本 `plan.md`，请一并授权。

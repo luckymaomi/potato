@@ -14,6 +14,23 @@
 
 所有仓库使用 `--depth 1 --filter=blob:none` 浅克隆。以上提交是 2026-09-16 本地调研时的快照，不代表未来上游状态。
 
+## 2026-09-19：AI 短剧样本补充
+
+本节记录 owner 要求调研并浅克隆的 AI 短剧 / 影视工作台样本。本地目录仍由 `.gitignore` 的 `reference/*/` 排除，不进入产品主干。
+
+| 本地目录 | 上游 | 调研提交 | 主要观察 |
+| --- | --- | --- | --- |
+| `open-ai-canvas/` | `ddcat-ai/open-ai-canvas` | `0a06783` | 影策：无限画布 + 短剧项目空间、角色资产、结构化分镜、异步生成与 Agent |
+| `open-ai-micro-drama/` | `Anil-matcha/Open-AI-Micro-Drama-Generator` | `94ef2a6` | 多智能体流水线：编剧 → 分镜 → 帧 → 视频拼接 |
+| `wind-comic/` | `eshfybeh/wind-comic` | `081e396` | 一句话到短剧成片；角色一致性、分镜、配音与时间线 |
+| `dramai/` | `torns/dramai` | `2ec3810` | 纯浏览器短剧工作台；文本→分镜→图→视频→剪映草稿 |
+| `ai-short-drama/` | `Averdim/ai-short-drama` | `d84c5c6` | 小说/剧本→分镜→图/视频→配音→成片的自托管工作室 |
+| `ai-story/` | `xhongc/ai_story` | `6072cc8` | 主题→改写→分镜→生图→运镜→视频的 Pipeline 责任链 |
+| `zjt/` | `jeffstric/ZJT` | `fb4eb5c` | 智剧通：剧本/分镜/无限画布与短剧生产平台 |
+| `moyin-creator/` | `MemeCalculate/moyin-creator` | `7e5c565` | 本地已有参考样本（本轮一并登记） |
+
+明确不收入：`HBAI-Ltd/Toonflow-app`（owner 因评价不佳放弃）、`xuanyustudio/LocalMiniDrama`（owner 明确不再继续克隆）。本轮部分仓库因 GitHub 连接重置改用 `--depth 1` 完成；未改产品代码，也未把第三方源码复制进主干。
+
 ## 画布稳定性与选择显示专项调研
 
 本节记录 2026-09-17 对点击白屏的根因核验。owner 随后明确要求不再等待 n8n 克隆，因此本节不把未完成的 n8n 下载当作证据，结论只采用 React Flow 官方源码与本地 ComfyUI frontend。
