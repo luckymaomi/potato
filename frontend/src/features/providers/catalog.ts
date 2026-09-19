@@ -8,8 +8,6 @@ const modelModeLabels: Record<ProviderModelMode, string> = {
   'image-to-video': '图生视频',
 }
 
-const commonAspectRatios = ['9:16', '16:9', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9']
-
 export function supportsService(capabilities: ProviderCapabilities, serviceType: ServiceType): boolean {
   if (serviceType === 'text') return capabilities.text
   if (serviceType === 'image') return capabilities.textToImage || capabilities.imageToImage
@@ -50,8 +48,10 @@ export function modelCapabilityLabels(model: ProviderModel): string[] {
   if (model.capabilities.maxReferenceImages === null) labels.push('参考图上限未知')
   else if (model.capabilities.maxReferenceImages > 0) labels.push(`参考图最多 ${model.capabilities.maxReferenceImages} 张`)
   else labels.push('不支持参考图')
-  if (model.capabilities.aspectRatios === null) labels.push('画幅比例未知')
-  else if (model.capabilities.aspectRatios.length) labels.push(`画幅 ${model.capabilities.aspectRatios.join('、')}`)
+  const aspectKind = model.kind === 'video' ? '视频画幅' : '图片画幅'
+  if (model.capabilities.aspectRatios === null) labels.push(`${aspectKind}未知`)
+  else if (model.capabilities.aspectRatios.length) labels.push(`${aspectKind} ${model.capabilities.aspectRatios.join('、')}`)
+  else labels.push(`${aspectKind}目录未声明`)
   if (model.kind === 'video') {
     if (model.capabilities.billingMode === 'duration') labels.push('按时长')
     else if (model.capabilities.billingMode === 'per-request') labels.push('按次')
@@ -68,7 +68,12 @@ export function modelSupportsDuration(model: ProviderModel | undefined): boolean
 export function modelDurationOptions(model: ProviderModel | undefined): number[] {
   return model?.capabilities.supportedDurations?.length
     ? model.capabilities.supportedDurations
-    : modelSupportsDuration(model) ? [4, 6, 8, 10, 12, 15] : []
+    : []
+}
+
+/** 只返回该模型目录声明的画幅；未知能力不伪造通用列表。 */
+export function modelAspectRatioOptions(model: ProviderModel | undefined): string[] {
+  return model?.capabilities.aspectRatios?.length ? model.capabilities.aspectRatios : []
 }
 
 export function modelCapabilitySummary(model: ProviderModel): string {
@@ -84,19 +89,19 @@ export function modelSupportsAspectRatio(model: ProviderModel, aspectRatio: stri
   return model.capabilities.aspectRatios === null || model.capabilities.aspectRatios.includes(aspectRatio)
 }
 
+/** 只合并各模型目录已声明的画幅；能力未知时最多保留当前已选值，不注入写死的通用比例。 */
 export function aspectRatiosFor(models: ProviderModel[], current?: string): string[] {
   const hasUnknownCapabilities = models.some((model) => model.capabilities.aspectRatios === null)
   const declared = models.flatMap((model) => model.capabilities.aspectRatios || [])
   return [...new Set([
     ...(hasUnknownCapabilities && current ? [current] : []),
     ...declared,
-    ...(hasUnknownCapabilities ? commonAspectRatios : []),
   ])]
 }
 
 export function preferredAspectRatio(aspectRatios: string[], current?: string): string | undefined {
   if (current && aspectRatios.includes(current)) return current
-  return ['9:16', '16:9', '1:1'].find((ratio) => aspectRatios.includes(ratio)) || aspectRatios[0]
+  return aspectRatios[0]
 }
 
 export function aspectRatioLabel(aspectRatio: string): string {

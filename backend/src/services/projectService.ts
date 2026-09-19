@@ -33,7 +33,18 @@ export class ProjectService {
     const rows = this.db.prepare(`
       SELECT * FROM dramas ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?
     `).all(...params, input.pageSize, (input.page - 1) * input.pageSize) as DramaRow[];
-    return { items: rows.map(normalizeDrama), total: totalRow.total };
+    const episodeStatement = this.db.prepare(`
+      SELECT id, drama_id, episode_number, title, status, updated_at
+      FROM episodes WHERE drama_id = ? ORDER BY episode_number
+    `);
+    return {
+      items: rows.map((row) => {
+        const drama = normalizeDrama(row);
+        drama.episodes = episodeStatement.all(row.id) as EpisodeRow[];
+        return drama;
+      }),
+      total: totalRow.total,
+    };
   }
 
   get(id: number): Drama | undefined {
@@ -139,7 +150,17 @@ export class ProjectService {
         const item = asRecord(raw) ?? {};
         const number = readNumber(item.episode_number);
         if (!number || number < 1) throw new ValidationError('集数必须是大于 0 的数字');
-        const title = readString(item.title) ?? `第 ${number} 集`;
+        const existing = this.db.prepare('SELECT * FROM episodes WHERE drama_id = ? AND episode_number = ?')
+          .get(dramaId, number) as EpisodeRow | undefined;
+        const title = readString(item.title) ?? existing?.title ?? `第 ${number} 集`;
+        const duration = item.duration === undefined ? (existing?.duration ?? 0) : (readNumber(item.duration) ?? 0);
+        const script = item.script_content === undefined
+          ? (existing?.script_content ?? '')
+          : (readString(item.script_content) ?? '');
+        const description = item.description === undefined
+          ? (existing?.description ?? null)
+          : (readString(item.description) ?? null);
+        const status = readString(item.status) ?? existing?.status ?? 'draft';
         this.db.prepare(`
           INSERT INTO episodes (drama_id, episode_number, title, duration, script_content, description, status, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -150,17 +171,7 @@ export class ProjectService {
             description = excluded.description,
             status = excluded.status,
             updated_at = excluded.updated_at
-        `).run(
-          dramaId,
-          number,
-          title,
-          readNumber(item.duration) ?? 0,
-          readString(item.script_content) ?? '',
-          readString(item.description) ?? null,
-          readString(item.status) ?? 'draft',
-          now,
-          now,
-        );
+        `).run(dramaId, number, title, duration, script, description, status, now, now);
       }
     });
     save();
@@ -170,10 +181,61 @@ export class ProjectService {
     return episodes;
   }
 
+  updateEpisode(dramaId: number, episodeId: number, input: unknown): EpisodeRow {
+    this.require(dramaId);
+    const current = this.requireEpisode(dramaId, episodeId);
+    const body = asRecord(input) ?? {};
+    const title = readString(body.title);
+    if (title !== undefined && !title.trim()) throw new ValidationError('剧集名称不能为空');
+    const nextNumber = body.episode_number === undefined ? current.episode_number : readNumber(body.episode_number);
+    if (!nextNumber || nextNumber < 1) throw new ValidationError('集数必须是大于 0 的数字');
+    if (nextNumber !== current.episode_number) {
+      const clash = this.db.prepare('SELECT id FROM episodes WHERE drama_id = ? AND episode_number = ? AND id != ?')
+        .get(dramaId, nextNumber, episodeId) as { id: number } | undefined;
+      if (clash) throw new ValidationError(`第 ${nextNumber} 集已存在`);
+    }
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE episodes SET episode_number = ?, title = ?, description = ?, status = ?, updated_at = ?
+      WHERE id = ? AND drama_id = ?
+    `).run(
+      nextNumber,
+      title ?? current.title,
+      body.description === undefined ? current.description : (readString(body.description) ?? null),
+      readString(body.status) ?? current.status,
+      now,
+      episodeId,
+      dramaId,
+    );
+    this.touch(dramaId);
+    const updated = this.requireEpisode(dramaId, episodeId);
+    this.log?.audit?.('project.episode.updated', { projectId: dramaId, episodeId, title: updated.title, episodeNumber: updated.episode_number });
+    return updated;
+  }
+
+  removeEpisode(dramaId: number, episodeId: number): boolean {
+    this.require(dramaId);
+    this.requireEpisode(dramaId, episodeId);
+    const total = (this.db.prepare('SELECT COUNT(*) AS total FROM episodes WHERE drama_id = ?').get(dramaId) as { total: number }).total;
+    if (total <= 1) throw new ValidationError('项目至少保留一集，不能删除最后一集');
+    const removed = this.db.prepare('DELETE FROM episodes WHERE id = ? AND drama_id = ?').run(episodeId, dramaId).changes > 0;
+    if (removed) {
+      this.touch(dramaId);
+      this.log?.audit?.('project.episode.deleted', { projectId: dramaId, episodeId });
+    }
+    return removed;
+  }
+
   require(id: number): Drama {
     const project = this.get(id);
     if (!project) throw new NotFoundError('项目不存在');
     return project;
+  }
+
+  private requireEpisode(dramaId: number, episodeId: number): EpisodeRow {
+    const episode = this.db.prepare('SELECT * FROM episodes WHERE id = ? AND drama_id = ?').get(episodeId, dramaId) as EpisodeRow | undefined;
+    if (!episode) throw new NotFoundError('剧集不存在');
+    return episode;
   }
 
   private touch(id: number): void {

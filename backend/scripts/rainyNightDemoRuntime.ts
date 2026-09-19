@@ -8,7 +8,7 @@ export function initializeRainyNightDemo(
   services: ServiceContainer,
   log?: Logger,
 ): Drama {
-  log?.audit?.('demo.rainy-night.initialize.started', { demoContract: RAINY_NIGHT_DEMO.contract });
+  log?.audit?.('demo.mist-harbor.initialize.started', { demoContract: RAINY_NIGHT_DEMO.contract });
   const initialize = db.transaction(() => {
     const existing = services.projects.list({ page: 1, pageSize: 200 }).items;
     const demo = existing.find((item) => item.metadata.demo === true);
@@ -30,8 +30,8 @@ export function initializeRainyNightDemo(
       : services.projects.create(definition);
     const episode = services.projects.saveEpisodes(project.id, [{
       episode_number: 1,
-      title: '第 1 集｜雨夜外卖',
-      duration: 150,
+      title: '第 1 集｜雾港来信',
+      duration: RAINY_NIGHT_DEMO.storyboards.length * RAINY_NIGHT_DEMO.media.duration,
       script_content: RAINY_NIGHT_DEMO.script,
     }])[0];
     if (!episode) throw new Error('Demo 剧集初始化失败。');
@@ -71,7 +71,7 @@ export function initializeRainyNightDemo(
   });
 
   const project = initialize();
-  log?.audit?.('demo.rainy-night.initialize.completed', {
+  log?.audit?.('demo.mist-harbor.initialize.completed', {
     projectId: project.id,
     demoContract: RAINY_NIGHT_DEMO.contract,
     projectAssets: project.project_assets?.length ?? 0,

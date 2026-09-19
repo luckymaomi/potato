@@ -115,9 +115,7 @@ export class VideoGenerationService {
     if (!model) throw new ValidationError('视频配置没有可用模型');
     const modelSnapshot = this.configs.models(aiConfig.provider, 'video').find((entry) => entry.id === model);
     const declaredDurations = modelSnapshot?.capabilities.supportedDurations;
-    const duration = declaredDurations?.length
-      ? Math.max(...declaredDurations)
-      : modelSnapshot?.capabilities.supportsDuration ? input.duration : undefined;
+    const duration = resolveVideoDuration(input.duration, declaredDurations, modelSnapshot?.capabilities.supportsDuration === true);
     const aspectRatio = this.configs.resolveAspectRatio('video', aiConfig.provider, model, input.aspectRatio);
     const adapter = this.registry.require({ kind: 'video', config: aiConfig, model });
     const now = new Date().toISOString();
@@ -335,6 +333,22 @@ export class VideoGenerationService {
 
 export function videoReferences(row: VideoGenerationRow): string[] {
   return parseJson<string[]>(row.reference_image_urls, []);
+}
+
+function resolveVideoDuration(
+  requested: number | undefined,
+  declaredDurations: number[] | null | undefined,
+  supportsDuration: boolean,
+): number | undefined {
+  if (declaredDurations?.length) {
+    if (requested === undefined) return declaredDurations[0];
+    if (!declaredDurations.includes(requested)) {
+      throw new ValidationError(`当前模型不支持该时长，可选：${declaredDurations.join('、')} 秒`);
+    }
+    return requested;
+  }
+  if (!supportsDuration) return undefined;
+  return requested;
 }
 
 async function wait(milliseconds: number, signal: AbortSignal): Promise<void> {

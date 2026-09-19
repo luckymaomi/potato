@@ -1,6 +1,6 @@
-import { ReloadOutlined, SaveOutlined } from '@ant-design/icons'
+import { ReloadOutlined } from '@ant-design/icons'
 import { App as AntdApp, Button, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { aiConfigsApi } from '../api/aiConfigs'
 import { userErrorMessage } from '../errors/appError'
 import type { AiModelPresets, ProviderCatalogStatus, ProviderModel, ServiceType } from '../types/domain'
@@ -18,6 +18,12 @@ export function AiConfigPage() {
   const [refreshing, setRefreshing] = useState<string[]>([])
   const [presets, setPresets] = useState<AiModelPresets>(emptyModelPresets)
   const [savingPresets, setSavingPresets] = useState(false)
+  const saveTimer = useRef<number>()
+  const presetsRef = useRef(presets)
+
+  useEffect(() => {
+    presetsRef.current = presets
+  }, [presets])
 
   useEffect(() => {
     let active = true
@@ -32,6 +38,10 @@ export function AiConfigPage() {
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [message])
+
+  useEffect(() => () => {
+    if (saveTimer.current) window.clearTimeout(saveTimer.current)
+  }, [])
 
   const refresh = async (provider: ProviderCatalogStatus) => {
     setRefreshing((current) => [...current, provider.id])
@@ -61,16 +71,23 @@ export function AiConfigPage() {
     ]),
   ) as Record<ServiceType, ReturnType<typeof modelPresetOptions>>, [models, presets, providers])
 
-  const savePresets = async () => {
-    setSavingPresets(true)
-    try {
-      setPresets(await aiConfigsApi.saveModelPresets(presets))
-      message.success('默认模型预设已保存')
-    } catch (error) {
-      message.error(userErrorMessage(error))
-    } finally {
-      setSavingPresets(false)
-    }
+  const queueSavePresets = (next: AiModelPresets) => {
+    setPresets(next)
+    if (saveTimer.current) window.clearTimeout(saveTimer.current)
+    saveTimer.current = window.setTimeout(() => {
+      void (async () => {
+        setSavingPresets(true)
+        try {
+          const saved = await aiConfigsApi.saveModelPresets(presetsRef.current)
+          setPresets(saved)
+          message.success('默认模型已自动保存')
+        } catch (error) {
+          message.error(userErrorMessage(error))
+        } finally {
+          setSavingPresets(false)
+        }
+      })()
+    }, 280)
   }
 
   return (
@@ -82,8 +99,8 @@ export function AiConfigPage() {
         <div className="model-preset-heading">
           <div>
             <h2>默认模型预设</h2>
+            <Typography.Text type="secondary">{savingPresets ? '正在保存…' : '选择后自动保存'}</Typography.Text>
           </div>
-          <Button type="primary" icon={<SaveOutlined />} loading={savingPresets} disabled={loading} onClick={() => void savePresets()}>保存预设</Button>
         </div>
         <div className="model-preset-grid">
           {(Object.keys(serviceLabels) as ServiceType[]).map((type) => (
@@ -97,7 +114,7 @@ export function AiConfigPage() {
                 value={modelPresetKey(presets[type])}
                 options={presetOptions[type]}
                 placeholder="不预设（自动选择）"
-                onChange={(value) => setPresets((current) => ({ ...current, [type]: modelPresetFromKey(value) }))}
+                onChange={(value) => queueSavePresets({ ...presets, [type]: modelPresetFromKey(value) })}
               />
             </label>
           ))}

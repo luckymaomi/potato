@@ -1,16 +1,32 @@
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Router } from 'express';
+import multer from 'multer';
 import { NotFoundError, ValidationError } from '../errors';
 import type { ServiceContainer } from '../services/container';
 import type { AssetKind, EpisodeRow, StoryboardRow } from '../types/domain';
+import type { AppConfig } from '../types/core';
 import { asRecord, readNumber, readString } from '../types/core';
 import { created, success } from '../response';
-import { bodyRecord, idParam } from './http';
-import type { TaskReporter } from '../services/taskService';
+import { assembleStoryboardPrompts } from '../services/storyboardPromptAssembler';
+import { asyncRoute, bodyRecord, idParam } from './http';
 
 export function workspaceRoutes(
   services: Pick<ServiceContainer, 'projects' | 'assets' | 'images' | 'videos' | 'production' | 'composition' | 'tasks'>,
+  config: AppConfig,
 ): Router {
   const router = Router();
+  const uploadDirectory = path.join(path.resolve(config.storage?.local_path ?? './data/storage'), 'uploads');
+  fs.mkdirSync(uploadDirectory, { recursive: true });
+  const upload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, callback) => callback(null, uploadDirectory),
+      filename: (_req, file, callback) => callback(null, `${randomUUID()}${imageExtension(file)}`),
+    }),
+    limits: { fileSize: 16 * 1024 * 1024 },
+    fileFilter: (_req, file, callback) => callback(null, /^image\/(?:jpeg|png|gif|webp)$/u.test(file.mimetype)),
+  });
 
   router.get('/dramas/:id/script', (req, res) => {
     const project = services.projects.require(idParam(req));
@@ -87,36 +103,21 @@ export function workspaceRoutes(
       referenceImages: stringArray(body.reference_images),
     }));
   });
-  router.post('/dramas/:id/assets/extract', (req, res) => {
+  router.post('/dramas/:id/assets/:assetId/upload-image', upload.single('file'), asyncRoute(async (req, res) => {
     const projectId = idParam(req);
-    const body = bodyRecord(req);
-    const kind = requiredKind(body.kind);
-    const episode = selectEpisode(services.projects.require(projectId).episodes ?? [], body.episode_id);
-    success(res, services.production.execute({
-      kind: 'ai-text',
-      projectId,
-      episodeId: episode.id,
-      action: kind === 'character' ? 'extract-characters' : kind === 'scene' ? 'extract-scenes' : 'extract-props',
-      sourceText: readString(body.source_text) ?? episode.script_content ?? '',
-      systemPrompt: readString(body.system_prompt),
-      provider: readString(body.provider),
-      model: readString(body.model),
-    }));
-  });
-  router.post('/dramas/:id/assets/generate-batch', (req, res) => {
-    const projectId = idParam(req);
-    const body = bodyRecord(req);
-    const kind = optionalKind(body.kind);
-    const requested = new Set(Array.isArray(body.asset_ids) ? body.asset_ids.map(readNumber).filter((id): id is number => Boolean(id)) : []);
-    const assetIds = services.assets.listProjectAssets(projectId, kind)
-      .filter((asset) => !requested.size || requested.has(asset.id))
-      .map((asset) => asset.id);
-    const taskId = services.tasks.run('asset_image_batch', String(projectId), (reporter) => runAssetImageBatch(
-      services, projectId, assetIds, body, reporter,
-    ));
-    success(res, { status: 'pending', task_id: taskId, queued: assetIds.length });
-  });
-
+    const asset = requireProjectAsset(services, projectId, positive(req.params.assetId, '项目资产'));
+    if (!req.file) throw new ValidationError('请选择 JPEG、PNG、GIF 或 WebP 图片');
+    try {
+      created(res, await services.images.importLocal({
+        dramaId: projectId,
+        projectAssetId: asset.id,
+        sourcePath: req.file.path,
+        prompt: typeof req.body?.prompt === 'string' ? req.body.prompt : '本地上传',
+      }));
+    } finally {
+      await fs.promises.rm(req.file.path, { force: true });
+    }
+  }));
   router.get('/dramas/:id/storyboards', (req, res) => {
     const project = services.projects.require(idParam(req));
     const episode = selectEpisode(project.episodes ?? [], req.query.episode_id);
@@ -144,65 +145,38 @@ export function workspaceRoutes(
     const storyboard = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
     success(res, { removed: services.assets.deleteStoryboard(storyboard.id) });
   });
-  router.post('/dramas/:id/storyboards/split', (req, res) => {
-    const projectId = idParam(req);
-    const project = services.projects.require(projectId);
-    const body = bodyRecord(req);
-    const episode = selectEpisode(project.episodes ?? [], body.episode_id);
-    success(res, services.production.execute({
-      kind: 'ai-text',
-      projectId,
-      episodeId: episode.id,
-      action: 'split-storyboards',
-      sourceText: readString(body.source_text) ?? episode.script_content ?? '',
-      systemPrompt: readString(body.system_prompt),
-      storyboardCount: readNumber(body.storyboard_count),
-      provider: readString(body.provider),
-      model: readString(body.model),
-    }));
-  });
   router.post('/dramas/:id/storyboards/:storyboardId/generate-image', (req, res) => {
     const projectId = idParam(req);
     const shot = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
     const body = bodyRecord(req);
     created(res, createStoryboardImage(services, projectId, shot, body));
   });
+  router.post('/dramas/:id/storyboards/:storyboardId/upload-image', upload.single('file'), asyncRoute(async (req, res) => {
+    const projectId = idParam(req);
+    const shot = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
+    if (!req.file) throw new ValidationError('请选择 JPEG、PNG、GIF 或 WebP 图片');
+    try {
+      created(res, await services.images.importLocal({
+        dramaId: projectId,
+        storyboardId: shot.id,
+        sourcePath: req.file.path,
+        prompt: typeof req.body?.prompt === 'string' ? req.body.prompt : '本地上传',
+      }));
+    } finally {
+      await fs.promises.rm(req.file.path, { force: true });
+    }
+  }));
+  router.delete('/dramas/:id/storyboards/:storyboardId/current-image', (req, res) => {
+    const projectId = idParam(req);
+    const shot = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
+    services.images.clearStoryboardImage(shot.id);
+    success(res, { cleared: true, storyboard: services.assets.getStoryboard(shot.id) });
+  });
   router.post('/dramas/:id/storyboards/:storyboardId/generate-video', (req, res) => {
     const projectId = idParam(req);
     const shot = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
     const body = bodyRecord(req);
     success(res, createStoryboardVideo(services, projectId, shot, body));
-  });
-  router.post('/dramas/:id/produce/batch', (req, res) => {
-    const projectId = idParam(req);
-    const project = services.projects.require(projectId);
-    const body = bodyRecord(req);
-    const episode = selectEpisode(project.episodes ?? [], body.episode_id);
-    const target = readString(body.target);
-    if (target !== 'images' && target !== 'videos') throw new ValidationError('批量目标必须是 images 或 videos');
-    if (target === 'videos' && body.confirm_cost !== true) throw new ValidationError('批量生成视频前必须明确确认费用');
-    if (target === 'images') {
-      const taskId = services.tasks.run('storyboard_image_batch', String(episode.id), (reporter) => runStoryboardImageBatch(
-        services, projectId, episode.id, body, reporter,
-      ));
-      success(res, { status: 'pending', task_id: taskId });
-      return;
-    }
-    const submissions: Array<Record<string, unknown>> = [];
-    for (const shot of services.assets.listStoryboards(episode.id)) {
-      try {
-        if (shot.current_image_generation_id && !shot.current_video_generation_id) {
-          submissions.push({ target_id: shot.id, submission_status: 'submitted', ...createStoryboardVideo(services, projectId, shot, body) });
-        }
-      } catch (error) {
-        submissions.push({
-          target_id: shot.id,
-          submission_status: 'rejected',
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    success(res, { target, submitted: submissions.filter((item) => item.submission_status === 'submitted').length, items: submissions });
   });
   router.post('/dramas/:id/episodes/:episodeId/compose', (req, res) => {
     const projectId = idParam(req);
@@ -219,144 +193,35 @@ export function workspaceRoutes(
   return router;
 }
 
-async function runAssetImageBatch(
-  services: Pick<ServiceContainer, 'assets' | 'images' | 'tasks'>,
-  projectId: number,
-  requestedIds: number[],
-  body: Record<string, unknown>,
-  reporter: TaskReporter,
-  reportProgress = true,
-): Promise<Record<string, unknown>> {
-  const pending = new Set(requestedIds.filter((id) => !assetImageReady(services, id)));
-  const total = pending.size;
-  const failed = new Set<number>();
-  const outcomes: Array<Record<string, unknown>> = [];
-  while (pending.size) {
-    reporter.throwIfCancelled();
-    const ready: number[] = [];
-    for (const id of [...pending]) {
-      const asset = requireProjectAsset(services, projectId, id);
-      ready.push(asset.id);
-    }
-    if (!ready.length) {
-      for (const id of pending) outcomes.push({ target_id: id, status: 'blocked', error: '资产图未能进入生成队列' });
-      break;
-    }
-    reporter.stage(`正在并发生成 ${ready.length} 个资产图`);
-    const running = ready.flatMap((id) => {
-      pending.delete(id);
-      const asset = requireProjectAsset(services, projectId, id);
-      try {
-        const generation = services.images.create({
-          dramaId: projectId,
-          projectAssetId: asset.id,
-          prompt: asset.prompt ?? '',
-          provider: readString(body.provider),
-          model: readString(body.model),
-          aspectRatio: readString(body.aspect_ratio),
-          referenceImages: [],
-        });
-        return generation.task_id ? [{ targetId: id, taskId: generation.task_id }] : [];
-      } catch (error) {
-        failed.add(id);
-        outcomes.push({ target_id: id, status: 'rejected', error: error instanceof Error ? error.message : String(error) });
-        return [];
-      }
-    });
-    const completed = await Promise.all(running.map(async ({ targetId, taskId }) => ({ targetId, task: await waitForLocalTask(services, taskId, reporter) })));
-    for (const { targetId, task } of completed) {
-      if (task.status === 'completed') outcomes.push({ target_id: targetId, status: 'completed', task_id: task.id });
-      else {
-        failed.add(targetId);
-        outcomes.push({ target_id: targetId, status: task.status, task_id: task.id, error: task.error });
-      }
-    }
-    if (reportProgress && total) reporter.progress(Math.round(((total - pending.size) / total) * 100), `已处理 ${total - pending.size}/${total} 个资产图`);
-  }
-  return { total, completed: outcomes.filter((item) => item.status === 'completed').length, items: outcomes };
-}
-
-async function runStoryboardImageBatch(
-  services: Pick<ServiceContainer, 'assets' | 'images' | 'tasks'>,
-  projectId: number,
-  episodeId: number,
-  body: Record<string, unknown>,
-  reporter: TaskReporter,
-): Promise<Record<string, unknown>> {
-  const shots = services.assets.listStoryboards(episodeId).filter((shot) => !shot.current_image_generation_id);
-  const dependencies = [...new Set(shots.flatMap((shot) => shot.project_asset_ids))];
-  const assetResults = await runAssetImageBatch(services, projectId, dependencies, body, reporter, false);
-  reporter.throwIfCancelled();
-  reporter.stage(`正在并发生成 ${shots.length} 张分镜图`);
-  const outcomes: Array<Record<string, unknown>> = [];
-  const running = shots.flatMap((shot) => {
-    try {
-      const generation = createStoryboardImage(services, projectId, shot, body);
-      return generation.task_id ? [{ targetId: shot.id, taskId: generation.task_id }] : [];
-    } catch (error) {
-      outcomes.push({ target_id: shot.id, status: 'blocked', error: error instanceof Error ? error.message : String(error) });
-      return [];
-    }
-  });
-  let finished = 0;
-  await Promise.all(running.map(async ({ targetId, taskId }) => {
-    const task = await waitForLocalTask(services, taskId, reporter);
-    finished += 1;
-    if (shots.length) reporter.progress(Math.round((finished / shots.length) * 100), `已处理 ${finished}/${shots.length} 张分镜图`);
-    outcomes.push({ target_id: targetId, status: task.status, task_id: task.id, error: task.error });
-  }));
-  return {
-    total: shots.length,
-    completed: outcomes.filter((item) => item.status === 'completed').length,
-    required_assets: assetResults,
-    items: outcomes,
-  };
-}
-
-function assetImageReady(services: Pick<ServiceContainer, 'assets' | 'images'>, assetId: number): boolean {
-  const asset = services.assets.getProjectAsset(assetId);
-  const generation = asset?.current_image_generation_id ? services.images.get(asset.current_image_generation_id) : undefined;
-  return Boolean(generation?.status === 'completed' && generation.image_url);
-}
-
-async function waitForLocalTask(
-  services: Pick<ServiceContainer, 'tasks'>,
-  taskId: string,
-  reporter: TaskReporter,
-) {
-  for (;;) {
-    reporter.throwIfCancelled();
-    const task = services.tasks.get(taskId);
-    if (!task) throw new Error('本地生成任务不存在');
-    if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') return task;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
-
 function createStoryboardImage(
   services: Pick<ServiceContainer, 'assets' | 'images'>,
   projectId: number,
   shot: StoryboardRow,
   body: Record<string, unknown>,
 ) {
-  const references = shot.project_asset_ids.flatMap((id) => {
+  const assets = shot.project_asset_ids.flatMap((id) => {
     const asset = requireProjectAsset(services, projectId, id);
-    return asset.image_url ? [asset.image_url] : [];
+    return [asset];
   });
-  const prompt = readString(body.prompt) ?? imagePrompt(shot);
+  const assembled = assembleStoryboardPrompts({
+    shot,
+    assets,
+    imagePromptOverride: readString(body.prompt),
+  });
   return services.images.create({
     dramaId: projectId,
     storyboardId: shot.id,
-    prompt,
+    prompt: assembled.imagePrompt,
+    negativePrompt: assembled.imageNegativePrompt,
     provider: readString(body.provider),
     model: readString(body.model),
     aspectRatio: readString(body.aspect_ratio),
-    referenceImages: references,
+    referenceImages: assembled.imageReferences,
   });
 }
 
 function createStoryboardVideo(
-  services: Pick<ServiceContainer, 'images' | 'videos'>,
+  services: Pick<ServiceContainer, 'assets' | 'images' | 'videos'>,
   projectId: number,
   shot: StoryboardRow,
   body: Record<string, unknown>,
@@ -364,25 +229,25 @@ function createStoryboardVideo(
   const generationId = shot.current_image_generation_id;
   const image = generationId ? services.images.get(generationId) : undefined;
   if (!image?.image_url || image.status !== 'completed') throw new ValidationError('请先完成并选择这一镜的分镜图');
+  const assets = shot.project_asset_ids.map((id) => requireProjectAsset(services, projectId, id));
+  const assembled = assembleStoryboardPrompts({
+    shot,
+    assets,
+    videoPromptOverride: readString(body.prompt),
+    storyboardImageUrl: image.image_url,
+  });
   return services.videos.create({
     dramaId: projectId,
     storyboardId: shot.id,
-    prompt: readString(body.prompt) ?? shot.video_prompt ?? shot.description ?? '',
+    prompt: assembled.videoPrompt,
     provider: readString(body.provider),
     model: readString(body.model),
-    // 工作台不接受任意秒数；视频服务根据所选模型目录能力决定固定时长。
-    duration: undefined,
+    duration: readNumber(body.duration),
     aspectRatio: readString(body.aspect_ratio),
-    image: image.image_url,
-    firstFrame: image.image_url,
-    referenceImages: [image.image_url],
+    image: assembled.videoReferences[0],
+    firstFrame: assembled.videoReferences[0],
+    referenceImages: assembled.videoReferences,
   });
-}
-
-function imagePrompt(shot: StoryboardRow): string {
-  const base = shot.image_prompt ?? shot.description ?? shot.title ?? '';
-  if (shot.grid_rows === 1 && shot.grid_columns === 1) return base;
-  return `${base}\n构图要求：同一镜头使用 ${shot.grid_rows}×${shot.grid_columns} 网格故事板呈现连续关键画面；这是单张分镜图，不拆分为多个镜头。`;
 }
 
 function assetPrompt(item: { name: string; description: string | null; appearance: string | null; prompt: string | null }): string {
@@ -436,4 +301,14 @@ function positive(value: unknown, label: string): number {
   const parsed = typeof value === 'string' ? Number(value) : readNumber(value);
   if (!parsed || !Number.isInteger(parsed) || parsed < 1) throw new ValidationError(`${label} ID 无效`);
   return parsed;
+}
+
+function imageExtension(file: Express.Multer.File): string {
+  const byMime: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+  };
+  return byMime[file.mimetype] ?? (path.extname(file.originalname).toLowerCase() || '.png');
 }

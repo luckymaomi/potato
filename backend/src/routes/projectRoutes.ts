@@ -53,6 +53,17 @@ export function projectRoutes(
     success(res, { episodes: services.projects.saveEpisodes(idParam(req), body.episodes) });
   });
 
+  router.patch('/dramas/:id/episodes/:episodeId', (req, res) => {
+    success(res, services.projects.updateEpisode(idParam(req), episodeIdParam(req), req.body));
+  });
+
+  router.delete('/dramas/:id/episodes/:episodeId', (req, res) => {
+    if (!services.projects.removeEpisode(idParam(req), episodeIdParam(req))) {
+      throw new NotFoundError('剧集不存在');
+    }
+    success(res, { removed: true });
+  });
+
   router.get('/dramas/:id/export', asyncRoute(async (req, res) => {
     const temporary = path.join(archiveDirectory, `${randomUUID()}.zip`);
     try {
@@ -84,4 +95,10 @@ function storageRoot(config: AppConfig): string {
 function positiveInt(value: unknown, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function episodeIdParam(req: { params: { episodeId?: string } }): number {
+  const parsed = Number(req.params.episodeId);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new ValidationError('剧集 ID 无效');
+  return parsed;
 }

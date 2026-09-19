@@ -3,6 +3,7 @@ import { App, Button, Card, Empty, Form, Image, Input, Modal, Select, Tag, Typog
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { workspaceApi } from '../../api/workspace'
+import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
 import type { AssetKind, AssetLibraryItem } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { useProjectWorkspace } from './workspaceContext'
@@ -12,7 +13,7 @@ type AssetFilter = 'all' | AssetKind
 const labels: Record<AssetKind, string> = { character: '人物', scene: '场景', prop: '道具' }
 
 export function AssetLibraryWorkspace() {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const { project, episode } = useProjectWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
   const [kind, setKind] = useState<AssetFilter>(() => parseKind(searchParams.get('kind')))
@@ -24,8 +25,8 @@ export function AssetLibraryWorkspace() {
 
   const load = useCallback(async () => {
     try { setItems((await workspaceApi.library(kind === 'all' ? undefined : kind)).items) }
-    catch (reason) { message.error(reason instanceof Error ? reason.message : '全局资产库加载失败') }
-  }, [kind, message])
+    catch (reason) { notifyAppError({ message, modal }, reason) }
+  }, [kind, message, modal])
   useEffect(() => { void load() }, [load])
 
   const changeKind = (value: AssetFilter) => {
@@ -37,9 +38,9 @@ export function AssetLibraryWorkspace() {
     setAdding((current) => [...current, item.id])
     try {
       await workspaceApi.createAsset(project.id, { from_library_item_id: item.id })
-      message.success(`已把“${item.name}”以当前版本加入项目`)
+      notifyAppSuccess(message, `已把“${item.name}”以当前版本加入项目`)
     } catch (reason) {
-      message.error(reason instanceof Error ? reason.message : '加入项目失败')
+      notifyAppError({ message, modal }, reason)
     } finally {
       setAdding((current) => current.filter((id) => id !== item.id))
     }
@@ -52,8 +53,9 @@ export function AssetLibraryWorkspace() {
       setCreating(false)
       form.resetFields()
       await load()
+      notifyAppSuccess(message, '全局资产已创建')
     } catch (reason) {
-      message.error(reason instanceof Error ? reason.message : '创建全局资产失败')
+      notifyAppError({ message, modal }, reason)
     }
   }
 

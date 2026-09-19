@@ -18,23 +18,23 @@ export default function App() {
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#4868a7',
-          colorInfo: '#4868a7',
-          colorSuccess: '#34765b',
-          colorWarning: '#a6652d',
-          colorError: '#b94d48',
-          colorText: '#222629',
-          colorTextSecondary: '#697078',
-          colorBorder: '#d9dde2',
-          colorBgLayout: '#f3f4f5',
-          borderRadius: 7,
+          colorPrimary: '#5b9bd4',
+          colorInfo: '#5b9bd4',
+          colorSuccess: '#3d8f6e',
+          colorWarning: '#c4873a',
+          colorError: '#c45b56',
+          colorText: '#243039',
+          colorTextSecondary: '#6a7a88',
+          colorBorder: '#d5e2ef',
+          colorBgLayout: '#f3f7fb',
+          borderRadius: 8,
           fontFamily: 'Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
         },
         components: {
           Button: { controlHeight: 36, fontWeight: 600 },
-          Card: { borderRadiusLG: 8 },
-          Modal: { borderRadiusLG: 8 },
-          Table: { headerBg: '#f5f6f7', headerColor: '#535b63' },
+          Card: { borderRadiusLG: 10 },
+          Modal: { borderRadiusLG: 10 },
+          Table: { headerBg: '#eef4fa', headerColor: '#5a6b7a' },
         },
       }}
     >

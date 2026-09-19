@@ -91,30 +91,16 @@ export class ProductionWorkflowService {
     });
   }
 
-  private persistTextResult(
-    command: Extract<ProductionCommand, { kind: 'ai-text' }>,
-    episode: EpisodeRow | undefined,
-    generated: string,
-  ): Record<string, unknown> {
+  private persistTextResult(command: Extract<ProductionCommand, { kind: 'ai-text' }>, episode: EpisodeRow | undefined, generated: string): Record<string, unknown> {
     if (command.action === 'generate-text') return { text: generated };
     if (command.action === 'write-script') {
-      if (episode) this.db.prepare('UPDATE episodes SET script_content = ?, updated_at = ? WHERE id = ?')
-        .run(generated, new Date().toISOString(), episode.id);
+      if (episode) this.db.prepare('UPDATE episodes SET script_content = ?, updated_at = ? WHERE id = ?').run(generated, new Date().toISOString(), episode.id);
       return { text: generated, episode_id: episode?.id ?? null };
     }
     const items = parseItems(generated);
-    if (command.action === 'extract-characters') return {
-      characters: this.assets.syncCharacters(command.projectId, items),
-      project_assets: this.assets.syncProjectAssets(command.projectId, 'character', items),
-    };
-    if (command.action === 'extract-scenes') return {
-      scenes: this.assets.syncScenes(command.projectId, items),
-      project_assets: this.assets.syncProjectAssets(command.projectId, 'scene', items),
-    };
-    if (command.action === 'extract-props') return {
-      props: this.assets.syncProps(command.projectId, items),
-      project_assets: this.assets.syncProjectAssets(command.projectId, 'prop', items),
-    };
+    if (command.action === 'extract-characters') return { characters: this.assets.syncCharacters(command.projectId, items), project_assets: this.assets.syncProjectAssets(command.projectId, 'character', items) };
+    if (command.action === 'extract-scenes') return { scenes: this.assets.syncScenes(command.projectId, items), project_assets: this.assets.syncProjectAssets(command.projectId, 'scene', items) };
+    if (command.action === 'extract-props') return { props: this.assets.syncProps(command.projectId, items), project_assets: this.assets.syncProjectAssets(command.projectId, 'prop', items) };
     const selected = command.storyboardCount ? items.slice(0, command.storyboardCount) : items;
     return { storyboards: episode ? this.assets.syncStoryboards(episode.id, selected) : selected };
   }
@@ -217,12 +203,8 @@ function extractionAction(action: TextPromptKey): boolean {
 
 function textProgress(action: TextPromptKey): string {
   return {
-    'generate-text': '正在生成文本',
-    'write-script': '正在生成剧本',
-    'extract-characters': '正在提取角色',
-    'extract-scenes': '正在提取场景',
-    'extract-props': '正在提取道具',
-    'split-storyboards': '正在拆分分镜',
+    'generate-text': '正在生成文本', 'write-script': '正在生成剧本', 'extract-characters': '正在提取角色',
+    'extract-scenes': '正在提取场景', 'extract-props': '正在提取道具', 'split-storyboards': '正在拆分分镜',
   }[action];
 }
 

@@ -34,10 +34,10 @@ export function createServices(
 ): ServiceContainer {
   const aiConfigs = new AiConfigService(db, registry, config, log);
   const tasks = new TaskService(db, log);
+  const text = new TextGenerationService(aiConfigs, registry, log);
   const mediaArchive = new MediaArchiveService(config, log);
   const projects = new ProjectService(db, mediaArchive, log);
   const assets = new AssetRepository(db, log);
-  const text = new TextGenerationService(aiConfigs, registry, log);
   const mediaReferences = new MediaReferenceService(config, db);
   const images = new ImageGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);
   const videos = new VideoGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);

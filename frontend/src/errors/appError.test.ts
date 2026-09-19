@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { AppError, presentError } from './appError'
+import { describe, expect, it, vi } from 'vitest'
+import { AppError, notifyAppError, presentError } from './appError'
 
 describe('统一错误展示', () => {
   it.each([
@@ -24,5 +24,28 @@ describe('统一错误展示', () => {
   it('识别没有结构化状态的限流和网络错误', () => {
     expect(presentError(new Error('rate limit exceeded')).status).toBe(429)
     expect(presentError(new Error('Network Error')).code).toBe('NETWORK_ERROR')
+  })
+
+  it('把 API Key 与模型目录问题收成配置指引', () => {
+    const key = presentError(new Error('Agnes 尚未配置 API Key'))
+    expect(key.title).toBe('API Key 未配置')
+    expect(key.guidance).toBe('config')
+    expect(key.action).toContain('AI 配置')
+
+    const catalog = presentError(new Error('尚未同步可用的图片模型，请先打开 AI 配置刷新模型目录'))
+    expect(catalog.title).toBe('模型目录未就绪')
+    expect(catalog.guidance).toBe('config')
+    expect(catalog.action).toContain('刷新')
+  })
+
+  it('配置类错误用弹窗，其它用顶部提示', () => {
+    const message = { error: vi.fn() }
+    const modal = { warning: vi.fn() }
+    notifyAppError({ message, modal }, new Error('PearAPI 尚未配置 API Key'))
+    expect(modal.warning).toHaveBeenCalledOnce()
+    expect(message.error).not.toHaveBeenCalled()
+
+    notifyAppError({ message, modal }, new Error('Network Error'))
+    expect(message.error).toHaveBeenCalledOnce()
   })
 })

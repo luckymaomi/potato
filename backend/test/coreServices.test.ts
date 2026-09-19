@@ -136,6 +136,27 @@ test('新项目自动建立起步剧集并支持更新与级联删除', () => {
   } finally { db.close(); }
 });
 
+test('剧集可重命名、可删除，但至少保留一集且重命名不丢剧本', () => {
+  const { db, services } = setup();
+  try {
+    const project = services.projects.create({ title: '剧集CRUD' });
+    const first = project.episodes?.[0];
+    assert.ok(first);
+    services.projects.saveEpisodes(project.id, [{ episode_number: 1, title: '第一集', script_content: '雨夜剧本' }]);
+    services.projects.saveEpisodes(project.id, [{ episode_number: 2, title: '第二集' }]);
+    const second = services.projects.require(project.id).episodes?.find((item) => item.episode_number === 2);
+    assert.ok(second);
+    const renamed = services.projects.updateEpisode(project.id, second.id, { title: '雨夜续章' });
+    assert.equal(renamed.title, '雨夜续章');
+    assert.equal(services.projects.require(project.id).episodes?.find((item) => item.id === first.id)?.script_content, '雨夜剧本');
+    services.projects.saveEpisodes(project.id, [{ episode_number: 1, title: '只改标题' }]);
+    assert.equal(services.projects.require(project.id).episodes?.find((item) => item.id === first.id)?.script_content, '雨夜剧本');
+    assert.equal(services.projects.removeEpisode(project.id, second.id), true);
+    assert.equal(services.projects.require(project.id).episodes?.length, 1);
+    assert.throws(() => services.projects.removeEpisode(project.id, first.id), /至少保留一集/u);
+  } finally { db.close(); }
+});
+
 test('项目归档可由当前 schema 导出并重新导入', async () => {
   const { db, services, storageRoot } = setup();
   try {
@@ -647,6 +668,27 @@ test('视频服务按独立时长能力传参，不把按次计费误判为不�
     await taskDone(() => services.tasks.get(durationTaskId));
     assert.equal(receivedDurations[1], 15);
     assert.equal(services.videos.list(project.id).find((row) => row.model === 'agnes-video-per-request-duration')?.duration, 15);
+
+    const defaultTaskId = submittedTaskId(services.production.execute({
+      kind: 'video', projectId: project.id, mode: 'text-to-video', prompt: '未指定时长时取目录首档',
+      provider: 'agnes', model: 'agnes-video-per-request-duration', aspectRatio: '16:9', referenceImages: [],
+    }));
+    await taskDone(() => services.tasks.get(defaultTaskId));
+    assert.equal(receivedDurations[2], 4);
+    assert.equal(services.videos.list(project.id).find((row) => row.prompt === '未指定时长时取目录首档')?.duration, 4);
+
+    assert.throws(
+      () => services.videos.create({
+        dramaId: project.id,
+        prompt: '非法时长',
+        provider: 'agnes',
+        model: 'agnes-video-per-request-duration',
+        duration: 7,
+        aspectRatio: '16:9',
+        referenceImages: [],
+      }),
+      /当前模型不支持该时长/u,
+    );
   } finally { db.close(); }
 });
 
@@ -676,6 +718,60 @@ test('分镜图以直接连线传入的参考图为准，不额外混入仓库�
     }));
     await taskDone(() => services.tasks.get(taskId));
     assert.deepEqual(receivedReferences, [TEST_PNG]);
+  } finally { db.close(); }
+});
+
+test('本地上传可直接成为项目资产标准图并进入历史', async () => {
+  const { db, services, storageRoot } = setup();
+  try {
+    const project = services.projects.create({ title: '上传标准图' });
+    const asset = services.assets.createProjectAsset(project.id, { kind: 'character', name: '小林' });
+    const source = path.join(storageRoot, 'upload-source.png');
+    fs.writeFileSync(source, Buffer.from(TEST_PNG.split(',')[1] as string, 'base64'));
+    const uploaded = await services.images.importLocal({
+      dramaId: project.id,
+      projectAssetId: asset.id,
+      sourcePath: source,
+      prompt: '本地角色标准图',
+    });
+    assert.equal(uploaded.status, 'completed');
+    assert.equal(uploaded.provider, 'local-upload');
+    assert.ok(uploaded.local_path);
+    assert.equal(uploaded.available, true);
+    assert.ok(fs.existsSync(path.join(storageRoot, uploaded.local_path as string)));
+    const current = services.assets.getProjectAsset(asset.id);
+    assert.equal(current?.current_image_generation_id, uploaded.id);
+    assert.equal(current?.image_url, uploaded.image_url);
+    assert.equal(services.images.list(project.id).length, 1);
+  } finally { db.close(); }
+});
+
+test('本地上传可直接成为分镜图并支持清除当前图', async () => {
+  const { db, services, storageRoot } = setup();
+  try {
+    const project = services.projects.create({ title: '上传分镜图' });
+    const episode = project.episodes?.[0];
+    assert.ok(episode);
+    const shot = services.assets.createStoryboard({ episode_id: episode.id, title: '第一镜' });
+    const source = path.join(storageRoot, 'storyboard-upload.png');
+    fs.writeFileSync(source, Buffer.from(TEST_PNG.split(',')[1] as string, 'base64'));
+    const uploaded = await services.images.importLocal({
+      dramaId: project.id,
+      storyboardId: shot.id,
+      sourcePath: source,
+      prompt: '本地分镜图',
+    });
+    assert.equal(uploaded.status, 'completed');
+    assert.equal(uploaded.provider, 'local-upload');
+    assert.equal(uploaded.storyboard_id, shot.id);
+    const current = services.assets.getStoryboard(shot.id);
+    assert.equal(current?.current_image_generation_id, uploaded.id);
+    assert.equal(current?.image_url, uploaded.image_url);
+    services.images.clearStoryboardImage(shot.id);
+    const cleared = services.assets.getStoryboard(shot.id);
+    assert.equal(cleared?.image_url, null);
+    assert.equal(cleared?.current_image_generation_id, null);
+    assert.equal(services.images.get(uploaded.id)?.status, 'completed');
   } finally { db.close(); }
 });
 

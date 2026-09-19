@@ -347,7 +347,27 @@ export class AssetRepository {
   }
 
   deleteStoryboard(id: number): boolean {
-    return this.db.prepare('DELETE FROM storyboards WHERE id = ?').run(id).changes > 0;
+    const current = this.getStoryboard(id);
+    if (!current) return false;
+    const removed = this.db.transaction(() => {
+      const changed = this.db.prepare('DELETE FROM storyboards WHERE id = ?').run(id).changes > 0;
+      if (!changed) return false;
+      const remaining = this.db.prepare(
+        'SELECT id FROM storyboards WHERE episode_id = ? ORDER BY storyboard_number, id',
+      ).all(current.episode_id) as Array<{ id: number }>;
+      // UNIQUE(episode_id, storyboard_number) 要求先挪开再写回
+      remaining.forEach((row, index) => {
+        this.db.prepare('UPDATE storyboards SET storyboard_number = ? WHERE id = ?')
+          .run(-(index + 1), row.id);
+      });
+      remaining.forEach((row, index) => {
+        this.db.prepare('UPDATE storyboards SET storyboard_number = ?, updated_at = ? WHERE id = ?')
+          .run(index + 1, new Date().toISOString(), row.id);
+      });
+      return true;
+    })();
+    if (removed) this.log?.audit?.('storyboard.deleted', { storyboardId: id, episodeId: current.episode_id });
+    return removed;
   }
 
   syncStoryboards(episodeId: number, values: unknown[]): StoryboardRow[] {

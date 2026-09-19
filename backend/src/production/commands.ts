@@ -124,17 +124,17 @@ function auditContext(value: unknown): ProductionAuditContext | undefined {
   return Object.values(audit).some(Boolean) ? audit : undefined;
 }
 
+function imageMode(value: unknown): 'text-to-image' | 'image-to-image' {
+  const mode = readString(value);
+  if (mode !== 'text-to-image' && mode !== 'image-to-image') throw new ValidationError('未知图片生成方式');
+  return mode;
+}
+
 function textAction(value: unknown): TextPromptKey {
   const action = readString(value);
   const supported: TextPromptKey[] = ['generate-text', 'write-script', 'extract-characters', 'extract-scenes', 'extract-props', 'split-storyboards'];
   if (!supported.includes(action as TextPromptKey)) throw new ValidationError('未知 AI 文本操作');
   return action as TextPromptKey;
-}
-
-function imageMode(value: unknown): 'text-to-image' | 'image-to-image' {
-  const mode = readString(value);
-  if (mode !== 'text-to-image' && mode !== 'image-to-image') throw new ValidationError('未知图片生成方式');
-  return mode;
 }
 
 function videoMode(value: unknown): 'text-to-video' | 'image-to-video' {
@@ -173,11 +173,6 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
-function boundedCount(value: unknown): number | undefined {
-  const count = readNumber(value);
-  return count === undefined ? undefined : Math.max(1, Math.min(20, Math.trunc(count)));
-}
-
 function optionalId(value: unknown): number | undefined {
   const id = readNumber(value);
   return id && id > 0 ? id : undefined;
@@ -187,6 +182,11 @@ function requiredId(value: unknown, label: string): number {
   const id = optionalId(value);
   if (!id) throw new ValidationError(`${label} ID 无效`);
   return id;
+}
+
+function boundedCount(value: unknown): number | undefined {
+  const count = readNumber(value);
+  return count === undefined ? undefined : Math.max(1, Math.min(20, Math.trunc(count)));
 }
 
 function requiredText(value: unknown, label: string): string {

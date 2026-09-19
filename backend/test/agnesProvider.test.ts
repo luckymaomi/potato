@@ -48,6 +48,7 @@ test('Agnes 图片适配器保留 size、ratio 和 extra_body 契约', async () 
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     assert.equal(body.size, '2K');
     assert.equal(body.ratio, '9:16');
+    assert.equal(body.negative_prompt, 'watermark');
     assert.deepEqual(body.extra_body, {
       response_format: 'url',
       image: ['data:image/png;base64,cmVmZXJlbmNl'],
@@ -67,6 +68,7 @@ test('Agnes 图片适配器保留 size、ratio 和 extra_body 契约', async () 
     model: 'agnes-image-2.5-flash',
     size: '2K',
     aspectRatio: '9:16',
+    negativePrompt: 'watermark',
     referenceImages: ['https://cdn.test/reference.png'],
   });
   assert.deepEqual(result, { status: 'completed', imageUrl: 'https://cdn.test/generated.png' });

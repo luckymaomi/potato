@@ -143,3 +143,21 @@ test('分镜完整规格全部可选并能保存项目资产托盘与网格提�
     assert.deepEqual(empty.project_asset_ids, []);
   } finally { db.close(); }
 });
+
+test('删除镜头后重排镜号', () => {
+  const { db, episodeId, assets } = setup();
+  try {
+    const a = assets.createStoryboard({ episode_id: episodeId, title: '一' });
+    const b = assets.createStoryboard({ episode_id: episodeId, title: '二' });
+    const c = assets.createStoryboard({ episode_id: episodeId, title: '三' });
+    assert.equal(a.storyboard_number, 1);
+    assert.equal(b.storyboard_number, 2);
+    assert.equal(c.storyboard_number, 3);
+    assert.equal(assets.deleteStoryboard(b.id), true);
+    const remaining = assets.listStoryboards(episodeId);
+    assert.deepEqual(remaining.map((item) => [item.id, item.storyboard_number, item.title]), [
+      [a.id, 1, '一'],
+      [c.id, 2, '三'],
+    ]);
+  } finally { db.close(); }
+});

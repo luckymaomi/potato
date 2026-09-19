@@ -4,13 +4,14 @@ import type { Logger, SQLiteDatabase } from '../types/core';
 import { parseJson } from '../types/core';
 import { AiConfigService } from './aiConfigService';
 import { TaskService } from './taskService';
-import { ConflictError, ValidationError } from '../errors';
+import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveError, MediaArchiveService } from './mediaArchiveService';
 
 export interface ImageGenerationInput {
   dramaId?: number | null;
   prompt: string;
+  negativePrompt?: string;
   model?: string;
   provider?: string;
   size?: string;
@@ -110,6 +111,84 @@ export class ImageGenerationService {
     return row;
   }
 
+  async importLocal(input: {
+    dramaId: number;
+    projectAssetId?: number;
+    storyboardId?: number;
+    sourcePath: string;
+    prompt?: string;
+  }): Promise<ImageGenerationRow> {
+    if (!input.projectAssetId && !input.storyboardId) {
+      throw new ValidationError('本地上传必须指定项目资产或分镜');
+    }
+    if (input.projectAssetId && input.storyboardId) {
+      throw new ValidationError('本地上传不能同时指定项目资产和分镜');
+    }
+    this.assertTargetAvailable({
+      dramaId: input.dramaId,
+      projectAssetId: input.projectAssetId,
+      storyboardId: input.storyboardId,
+      prompt: input.prompt ?? '本地上传',
+      referenceImages: [],
+    });
+    const now = new Date().toISOString();
+    const prompt = (input.prompt ?? '本地上传').trim() || '本地上传';
+    const insert = this.db.prepare(`
+      INSERT INTO image_generations (
+        drama_id, project_asset_id, storyboard_id, provider, prompt, reference_images, status, created_at, updated_at
+      ) VALUES (?, ?, ?, 'local-upload', ?, '[]', 'pending', ?, ?)
+    `).run(input.dramaId, input.projectAssetId ?? null, input.storyboardId ?? null, prompt, now, now);
+    const id = Number(insert.lastInsertRowid);
+    this.log.audit?.('image.generation.upload.started', {
+      generationId: id,
+      projectId: input.dramaId,
+      projectAssetId: input.projectAssetId,
+      storyboardId: input.storyboardId,
+    });
+    try {
+      const archived = await this.mediaArchive.importFile({
+        projectId: input.dramaId,
+        generationId: id,
+        kind: 'image',
+        sourcePath: input.sourcePath,
+      });
+      this.complete(id, 'local-upload', archived, {
+        dramaId: input.dramaId,
+        projectAssetId: input.projectAssetId,
+        storyboardId: input.storyboardId,
+        prompt,
+        referenceImages: [],
+      });
+      this.log.audit?.('image.generation.upload.completed', {
+        generationId: id,
+        projectId: input.dramaId,
+        projectAssetId: input.projectAssetId,
+        storyboardId: input.storyboardId,
+        archived,
+      });
+      return this.get(id) as ImageGenerationRow;
+    } catch (error) {
+      this.fail(id, error, 'archive');
+      this.log.audit?.('image.generation.upload.failed', {
+        generationId: id,
+        projectId: input.dramaId,
+        projectAssetId: input.projectAssetId,
+        storyboardId: input.storyboardId,
+        error,
+      });
+      throw error;
+    }
+  }
+
+  clearStoryboardImage(storyboardId: number): void {
+    const now = new Date().toISOString();
+    const changed = this.db.prepare(
+      'UPDATE storyboards SET image_url = NULL, current_image_generation_id = NULL, updated_at = ? WHERE id = ?',
+    ).run(now, storyboardId).changes;
+    if (!changed) throw new NotFoundError('分镜不存在');
+    this.log.audit?.('image.generation.cleared', { storyboardId });
+  }
+
   create(input: ImageGenerationInput): ImageGenerationRow {
     this.assertTargetAvailable(input);
     const references = unique(input.referenceImages);
@@ -171,6 +250,7 @@ export class ImageGenerationService {
           resolveMediaReference: this.mediaReferences.resolve,
         }, {
           prompt: input.prompt,
+          negativePrompt: input.negativePrompt,
           model,
           size: input.size,
           aspectRatio,
