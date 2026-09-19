@@ -30,7 +30,7 @@ export function initializeRainyNightDemo(
       : services.projects.create(definition);
     const episode = services.projects.saveEpisodes(project.id, [{
       episode_number: 1,
-      title: '第 1 集｜雾港来信',
+      title: '第 1 集｜红女王',
       duration: RAINY_NIGHT_DEMO.storyboards.length * RAINY_NIGHT_DEMO.media.duration,
       script_content: RAINY_NIGHT_DEMO.script,
     }])[0];
@@ -51,13 +51,13 @@ export function initializeRainyNightDemo(
     const assetIds = new Map(projectAssets.map((item) => [`${item.kind}:${item.name}`, item.id]));
     services.assets.syncStoryboards(episode.id, RAINY_NIGHT_DEMO.storyboards.map((item) => ({
       ...item,
-      shot_size: shotSize(item.description),
-      camera_angle: '平视',
-      camera_movement: '固定镜头，可按动作节奏轻微推进',
-      composition: item.description,
-      lighting: item.scenes.includes('雨夜街道') ? '雨夜路灯与湿地反光' : '冷色室内光',
-      mood: '都市偶遇中的紧张与意外',
-      sound: '环境声、动作声与现场对白',
+      shot_size: item.shot_size ?? shotSize(item.description),
+      camera_angle: item.camera_angle ?? '平视',
+      camera_movement: item.camera_movement ?? '固定镜头，可按动作节奏轻微推进',
+      composition: item.composition ?? item.description,
+      lighting: item.lighting ?? '冷色室内光',
+      mood: item.mood ?? '悬疑与压迫',
+      sound: item.sound ?? '环境声、动作声与现场对白',
       negative_prompt: '避免人物身份、服装和场景空间关系漂移，避免多余人物与文字水印',
       grid_rows: 3,
       grid_columns: 3,

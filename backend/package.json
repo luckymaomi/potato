@@ -7,6 +7,7 @@
     "start": "tsx src/server.ts",
     "start:dist": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
+    "init:demo": "tsx scripts/initializeRainyNightDemo.ts",
     "init:rainy-night-demo": "tsx scripts/initializeRainyNightDemo.ts",
     "accept:rainy-night-demo": "tsx scripts/initializeRainyNightDemo.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",

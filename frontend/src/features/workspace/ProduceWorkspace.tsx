@@ -1,6 +1,6 @@
-import { StopOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { App, Button, Image, Select, Space, Tag, Typography } from 'antd'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { aiConfigsApi } from '../../api/aiConfigs'
 import { tasksApi } from '../../api/tasks'
 import { workspaceApi } from '../../api/workspace'
@@ -31,6 +31,9 @@ export function ProduceWorkspace() {
   const [aspectOptions, setAspectOptions] = useState<string[]>([])
   const [shotDurations, setShotDurations] = useState<Record<number, number>>({})
   const [shotAspects, setShotAspects] = useState<Record<number, string>>({})
+  const [videoQueue, setVideoQueue] = useState<{ total: number; completed: number; current?: string; stopping?: boolean }>()
+  const stopVideoQueueRef = useRef(false)
+  const currentVideoQueueKeyRef = useRef<string>()
   const tracker = useGenerationTracker(project.id)
   useAnnounceGenerationOutcomes(tracker.tracks)
 
@@ -123,7 +126,7 @@ export function ProduceWorkspace() {
     }
   }
 
-  const generateVideo = async (shotId: number) => {
+  const generateVideo = async (shotId: number, announce = true): Promise<boolean> => {
     const duration = durationOptions.length ? shotDurations[shotId] : undefined
     const aspectRatio = aspectOptions.length ? shotAspects[shotId] : undefined
     try {
@@ -132,24 +135,69 @@ export function ProduceWorkspace() {
         aspect_ratio: aspectRatio,
       })
       if (!generation.task_id) {
-        notifyAppError({ message, modal }, new Error('已提交但未返回任务号，请打开「AI 配置」确认密钥与视频模型后重试'))
-        return
+        if (announce) notifyAppError({ message, modal }, new Error('已提交但未返回任务号，请打开「AI 配置」确认密钥与视频模型后重试'))
+        return false
       }
       tracker.watch({
         key: storyboardVideoKey(shotId),
         taskId: generation.task_id,
         generationId: generation.id,
         kind: 'video',
+        label: items.find((item) => item.id === shotId)?.title || `镜头 ${items.find((item) => item.id === shotId)?.storyboard_number ?? shotId}`,
         startedAt: generation.created_at,
       })
       const parts = [
         duration ? `${duration} 秒` : null,
         aspectRatio || null,
       ].filter(Boolean)
-      notifyAppSuccess(message, parts.length ? `已开始生成视频（${parts.join(' · ')}），可随时停止` : '已开始生成视频，可随时停止')
+      if (announce) notifyAppSuccess(message, parts.length ? `已开始生成视频（${parts.join(' · ')}），可随时停止` : '已开始生成视频，可随时停止')
+      return true
     } catch (reason) {
-      notifyAppError({ message, modal }, reason)
+      if (announce) notifyAppError({ message, modal }, reason)
+      return false
     }
+  }
+
+  const generatePendingVideos = async () => {
+    if (videoQueue) return
+    const pending = items.filter((item) => item.image_url && !item.video_url)
+    if (!pending.length) {
+      message.info('没有待生成的镜头视频')
+      return
+    }
+    stopVideoQueueRef.current = false
+    setVideoQueue({ total: pending.length, completed: 0 })
+    try {
+      for (const item of pending) {
+        if (stopVideoQueueRef.current) break
+        setVideoQueue((current) => current ? { ...current, current: item.title || `镜头 ${item.storyboard_number}` } : current)
+        const key = storyboardVideoKey(item.id)
+        currentVideoQueueKeyRef.current = key
+        try {
+          const started = await generateVideo(item.id, false)
+          if (started) {
+            if (stopVideoQueueRef.current) await tracker.cancel(key)
+            await tracker.waitForTerminal(key)
+          } else if (!stopVideoQueueRef.current) {
+            notifyAppError({ message, modal }, new Error(`${item.title || `镜头 ${item.storyboard_number}`} 视频提交失败`))
+          }
+        } finally {
+          currentVideoQueueKeyRef.current = undefined
+          setVideoQueue((current) => current ? { ...current, completed: current.completed + 1 } : current)
+        }
+      }
+    } finally {
+      currentVideoQueueKeyRef.current = undefined
+      setVideoQueue(undefined)
+      await load()
+    }
+  }
+
+  const stopPendingVideos = async () => {
+    stopVideoQueueRef.current = true
+    setVideoQueue((current) => current ? { ...current, stopping: true } : current)
+    const key = currentVideoQueueKeyRef.current
+    if (key) await tracker.cancel(key)
   }
 
   const imageCount = items.filter((item) => item.image_url).length
@@ -169,9 +217,14 @@ export function ProduceWorkspace() {
       <div className="workspace-section-heading production-heading">
         <div><Typography.Title level={2}>生产</Typography.Title></div>
         <Space wrap className="production-heading-actions">
+          {videoQueue
+            ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingVideos()}>停止逐项生成视频</Button>
+            : <Button icon={<PlayCircleOutlined />} onClick={() => void generatePendingVideos()}>生成未完成视频</Button>}
           <Button type="primary" disabled={!readyToCompose} loading={composeRunning} onClick={() => void compose()}>合成整集</Button>
         </Space>
       </div>
+
+      {videoQueue ? <div className="generation-queue-status"><Tag color={videoQueue.stopping ? 'warning' : 'processing'}>{videoQueue.stopping ? '正在停止' : '视频逐项生成中'}</Tag><span>{videoQueue.current ?? '准备中'} · 已处理 {Math.min(videoQueue.completed, videoQueue.total)}/{videoQueue.total}</span></div> : null}
 
       <div className="production-status-strip">
         <div><span>{episode.episode_number}. {episode.title}</span><strong>{roomState}</strong></div>

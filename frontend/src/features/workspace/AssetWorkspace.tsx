@@ -3,13 +3,14 @@ import {
   DeleteOutlined,
   DownOutlined,
   HistoryOutlined,
+  PlayCircleOutlined,
   PlusOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
   StopOutlined,
 } from '@ant-design/icons'
 import { App, Button, Dropdown, Empty, Form, Image, Input, List, Popconfirm, Select, Space, Spin, Tag, Typography, Upload, type FormInstance } from 'antd'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mediaHistoryApi, uploadsApi, type MediaGenerationHistory } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
@@ -38,6 +39,9 @@ export function AssetWorkspace() {
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [references, setReferences] = useState<string[]>([])
+  const [assetQueue, setAssetQueue] = useState<{ total: number; completed: number; current?: string; stopping?: boolean }>()
+  const stopAssetQueueRef = useRef(false)
+  const currentAssetQueueKeyRef = useRef<string>()
   const [form] = Form.useForm<Partial<ProjectAsset>>()
   const tracker = useGenerationTracker(project.id)
   useAnnounceGenerationOutcomes(tracker.tracks)
@@ -119,12 +123,57 @@ export function AssetWorkspace() {
         taskId: generation.task_id,
         generationId: generation.id,
         kind: 'image',
+        label: selected.name,
         startedAt: generation.created_at,
       })
       notifyAppSuccess(message, '已开始生成资产图，可随时停止')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
     }
+  }
+
+  const generatePendingAssets = async () => {
+    if (assetQueue) return
+    const pending = allAssets.filter((item) => !item.image_url)
+    if (!pending.length) {
+      message.info('没有待生成的资产图')
+      return
+    }
+    stopAssetQueueRef.current = false
+    setAssetQueue({ total: pending.length, completed: 0 })
+    try {
+      for (const item of pending) {
+        if (stopAssetQueueRef.current) break
+        setAssetQueue((current) => current ? { ...current, current: item.name } : current)
+        const key = assetImageKey(item.id)
+        currentAssetQueueKeyRef.current = key
+        try {
+          const generation = await workspaceApi.generateAssetImage(project.id, item.id, {
+            prompt: item.prompt ?? item.visual_description ?? item.description ?? '',
+          })
+          if (!generation.task_id) throw new Error('未返回任务号')
+          tracker.watch({ key, taskId: generation.task_id, generationId: generation.id, kind: 'image', label: item.name, startedAt: generation.created_at })
+          if (stopAssetQueueRef.current) await tracker.cancel(key)
+          await tracker.waitForTerminal(key)
+        } catch (reason) {
+          if (!stopAssetQueueRef.current) notifyAppError({ message, modal }, reason)
+        } finally {
+          currentAssetQueueKeyRef.current = undefined
+          setAssetQueue((current) => current ? { ...current, completed: current.completed + 1 } : current)
+        }
+      }
+    } finally {
+      currentAssetQueueKeyRef.current = undefined
+      setAssetQueue(undefined)
+      await load()
+    }
+  }
+
+  const stopPendingAssets = async () => {
+    stopAssetQueueRef.current = true
+    setAssetQueue((current) => current ? { ...current, stopping: true } : current)
+    const key = currentAssetQueueKeyRef.current
+    if (key) await tracker.cancel(key)
   }
 
   const remove = async () => {
@@ -186,11 +235,16 @@ export function AssetWorkspace() {
       <div className="workspace-section-heading">
         <Typography.Title level={2}>资产图</Typography.Title>
         <Space wrap>
+          {assetQueue
+            ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingAssets()}>停止逐项生成</Button>
+            : <Button icon={<PlayCircleOutlined />} onClick={() => void generatePendingAssets()}>生成未完成资产图</Button>}
           <Dropdown menu={{ items: kindItems, onClick: ({ key }) => void create(key as AssetKind) }}>
             <Button type="primary" icon={<PlusOutlined />}>新建资产 <DownOutlined /></Button>
           </Dropdown>
         </Space>
       </div>
+
+      {assetQueue ? <div className="generation-queue-status"><Tag color={assetQueue.stopping ? 'warning' : 'processing'}>{assetQueue.stopping ? '正在停止' : '逐项生成中'}</Tag><span>{assetQueue.current ?? '准备中'} · 已处理 {Math.min(assetQueue.completed, assetQueue.total)}/{assetQueue.total}</span></div> : null}
 
       <div className="asset-panel-layout">
         <div className="asset-panel-content">

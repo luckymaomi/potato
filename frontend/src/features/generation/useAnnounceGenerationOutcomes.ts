@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { notifyAppError } from '../../errors/appError'
 import type { TrackedGeneration } from '../generation/useGenerationTracker'
 
-/** 任务终态只提示一次：失败弹友好原因，停止给轻提示，成功确认结果。 */
+/** 所有媒体任务的终态都从这里投影，页面只负责提交任务和展示进行中状态。 */
 export function useAnnounceGenerationOutcomes(tracks: Record<string, TrackedGeneration>) {
   const { message, modal } = App.useApp()
   const announced = useRef(new Set<string>())
@@ -15,12 +15,13 @@ export function useAnnounceGenerationOutcomes(tracks: Record<string, TrackedGene
       const stamp = `${track.key}:${track.status}:${track.finishedAt}`
       if (announced.current.has(stamp)) continue
       announced.current.add(stamp)
+      const subject = track.label || (track.kind === 'video' ? '视频' : '图片')
       if (track.status === 'failed') {
-        notifyAppError({ message, modal }, new Error(track.message || '生成失败'))
+        notifyAppError({ message, modal }, new Error(`${subject}生成失败：${track.message || '供应商未返回具体原因'}`))
       } else if (track.status === 'cancelled') {
-        message.info(track.kind === 'video' ? '已停止视频生成' : '已停止图片生成')
+        message.info(`已停止${subject}生成`)
       } else {
-        message.success(track.kind === 'video' ? '视频生成完成' : '图片生成完成')
+        message.success(`${subject}生成完成`)
       }
     }
   }, [message, modal, tracks])

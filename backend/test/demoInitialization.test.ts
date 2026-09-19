@@ -42,14 +42,16 @@ test('半成品 Demo 会原位补齐为结构化短剧工作区且重复初始�
     const repaired = initializeRainyNightDemo(db, services, logger);
     assert.equal(repaired.id, half.id);
     assert.equal(rainyNightDemoComplete(repaired), true);
+    assert.equal(repaired.title, '《红女王》制作 Demo');
     assert.equal(services.projects.list({ page: 1, pageSize: 20 }).total, 1);
     assert.equal(repaired.metadata.demo_provider, undefined);
-    assert.equal(repaired.project_assets?.length, 7);
+    assert.equal(repaired.project_assets?.length, 9);
     assert.equal(repaired.episodes?.[0]?.storyboards?.length, 5);
     assert.equal(repaired.episodes?.[0]?.storyboards?.every((shot) => shot.project_asset_ids.length > 0), true);
     assert.equal(repaired.episodes?.[0]?.storyboards?.every((shot) => shot.grid_rows === 3 && shot.grid_columns === 3), true);
     assert.equal(repaired.episodes?.[0]?.storyboards?.every((shot) => Boolean(shot.shot_size && shot.camera_angle && shot.composition && shot.image_prompt)), true);
     assert.equal(repaired.episodes?.[0]?.duration, 30);
+    assert.equal(repaired.episodes?.[0]?.storyboards?.[4]?.dialogue, '这座城，从来不是你的。');
 
     const repeated = initializeRainyNightDemo(db, services, logger);
     assert.equal(repeated.id, half.id);

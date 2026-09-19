@@ -9,6 +9,7 @@ export interface TrackedGeneration {
   taskId: string
   generationId?: number
   kind: 'image' | 'video'
+  label?: string
   startedAt: string
   finishedAt?: string
   status: GenerationTaskStatus
@@ -40,7 +41,11 @@ export function useGenerationTracker(projectId: number) {
   }, [tracks])
 
   const upsert = useCallback((track: TrackedGeneration) => {
-    setTracks((current) => ({ ...current, [track.key]: track }))
+    setTracks((current) => {
+      const next = { ...current, [track.key]: track }
+      tracksRef.current = next
+      return next
+    })
   }, [])
 
   const stopPolling = useCallback((key: string) => {
@@ -81,6 +86,7 @@ export function useGenerationTracker(projectId: number) {
     taskId: string
     generationId?: number
     kind: 'image' | 'video'
+    label?: string
     startedAt?: string
   }) => {
     const track: TrackedGeneration = {
@@ -88,6 +94,7 @@ export function useGenerationTracker(projectId: number) {
       taskId: input.taskId,
       generationId: input.generationId,
       kind: input.kind,
+      label: input.label,
       startedAt: input.startedAt ?? new Date().toISOString(),
       status: 'processing',
       message: '正在生成',
@@ -109,6 +116,14 @@ export function useGenerationTracker(projectId: number) {
       stopPolling(key)
     }
   }, [stopPolling, upsert])
+
+  const waitForTerminal = useCallback(async (key: GenerationTrackKey): Promise<TrackedGeneration | undefined> => {
+    for (;;) {
+      const track = tracksRef.current[key]
+      if (track && !activeStatuses.has(track.status)) return track
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 100))
+    }
+  }, [])
 
   const resumeFromHistory = useCallback(async () => {
     const [images, videos] = await Promise.all([
@@ -134,7 +149,7 @@ export function useGenerationTracker(projectId: number) {
     }
   }, [resumeFromHistory])
 
-  return { tracks, watch, cancel, get: (key: GenerationTrackKey) => tracks[key] }
+  return { tracks, watch, cancel, waitForTerminal, get: (key: GenerationTrackKey) => tracks[key] }
 }
 
 function historyTrack(item: MediaGenerationHistory, kind: 'image' | 'video'): TrackedGeneration | undefined {

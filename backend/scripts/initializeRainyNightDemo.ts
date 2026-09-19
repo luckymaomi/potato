@@ -14,8 +14,8 @@ async function main(): Promise<void> {
     initializeDatabase(db);
     const services = createServices(db, config, providerRegistry, logger);
     const project = initializeRainyNightDemo(db, services, logger);
-    console.log(`《雨夜外卖》Demo 已初始化：项目 ID ${project.id}`);
-    console.log('故事总览、项目资产和十条完整分镜规格已写入；未调用供应商或生成媒体。');
+    console.log(`《红女王》Demo 已初始化：项目 ID ${project.id}`);
+    console.log('故事总览、项目资产和五条完整分镜规格已写入；未调用供应商或生成媒体。');
   } finally {
     closeDb();
   }
