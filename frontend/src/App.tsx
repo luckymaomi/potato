@@ -6,7 +6,6 @@ import { UiErrorBoundary } from './components/UiErrorBoundary'
 import { AiConfigPage } from './pages/AiConfigPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { AssetWorkspace } from './features/workspace/AssetWorkspace'
-import { ProduceWorkspace } from './features/workspace/ProduceWorkspace'
 import { ProjectShell } from './features/workspace/ProjectShell'
 import { ScriptWorkspace } from './features/workspace/ScriptWorkspace'
 import { StoryboardWorkspace } from './features/workspace/StoryboardWorkspace'
@@ -17,7 +16,7 @@ export default function App() {
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#5b9bd4',
+          colorPrimary: '#1b2730',
           colorInfo: '#5b9bd4',
           colorSuccess: '#3d8f6e',
           colorWarning: '#c4873a',
@@ -49,7 +48,6 @@ export default function App() {
                   <Route path="script" element={<ScriptWorkspace />} />
                   <Route path="assets" element={<AssetWorkspace />} />
                   <Route path="storyboard" element={<StoryboardWorkspace />} />
-                  <Route path="produce" element={<ProduceWorkspace />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

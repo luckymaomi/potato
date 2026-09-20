@@ -4,6 +4,11 @@ export interface DramaRow {
   id: number;
   title: string;
   description: string | null;
+  story_hook: string;
+  worldview: string;
+  storyline: string;
+  tone: string;
+  reference_setting: string;
   genre: string | null;
   style: string;
   status: string;
@@ -40,6 +45,11 @@ export interface EpisodeRow {
   duration: number;
   script_content: string | null;
   description: string | null;
+  episode_goal: string;
+  conflict: string;
+  turning_point: string;
+  ending_hook: string;
+  scene_notes: string;
   video_url: string | null;
   current_video_generation_id: number | null;
   status: string;

@@ -42,7 +42,9 @@ test('半成品 Demo 会原位补齐为结构化短剧工作区且重复初始�
     const repaired = initializeRainyNightDemo(db, services, logger);
     assert.equal(repaired.id, half.id);
     assert.equal(rainyNightDemoComplete(repaired), true);
-    assert.equal(repaired.title, '《红女王》制作 Demo');
+    assert.equal(repaired.title, '《红女王》制作示例');
+    assert.equal(repaired.story_hook, '十年前被推下城墙的红女王，在雨夜带着旧证据回到夜城，让每个背叛者重新面对她。');
+    assert.equal(repaired.worldview.includes('夜城'), true);
     assert.equal(services.projects.list({ page: 1, pageSize: 20 }).total, 1);
     assert.equal(repaired.metadata.demo_provider, undefined);
     assert.equal(repaired.project_assets?.length, 9);
@@ -54,6 +56,8 @@ test('半成品 Demo 会原位补齐为结构化短剧工作区且重复初始�
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'prop')?.output_type, 'prop-multi-angle');
     assert.equal(repaired.episodes?.[0]?.storyboards?.every((shot) => Boolean(shot.shot_size && shot.camera_angle && shot.composition && shot.image_prompt)), true);
     assert.equal(repaired.episodes?.[0]?.duration, 30);
+    assert.equal(repaired.episodes?.[0]?.episode_goal, '红女王完成归城、进入王厅，并让摄政公爵在众人面前失去体面。');
+    assert.equal(repaired.episodes?.[0]?.ending_hook.includes('下一步'), true);
     assert.equal(repaired.episodes?.[0]?.storyboards?.[4]?.dialogue, '这座城，从来不是你的。');
 
     const repeated = initializeRainyNightDemo(db, services, logger);

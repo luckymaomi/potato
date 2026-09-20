@@ -8,6 +8,7 @@ import { created, success } from '../response';
 import type { ServiceContainer } from '../services/container';
 import { assembleAssetOutputPrompt } from '../services/assetOutputPromptAssembler';
 import { normalizeOutputType, normalizeStringArray, normalizeTextProfile } from '../services/assetRepository';
+import { assembleScriptScenes } from '../services/scriptAssembler';
 import { assembleStoryboardRecipes } from '../services/storyboardPromptAssembler';
 import type { AppConfig } from '../types/core';
 import { readNumber, readString } from '../types/core';
@@ -33,7 +34,7 @@ export function workspaceRoutes(
   router.get('/dramas/:id/script', (req, res) => {
     const project = services.projects.require(idParam(req));
     const episode = selectEpisode(project.episodes ?? [], req.query.episode_id);
-    success(res, { overview: project.description ?? '', episode, episodes: project.episodes ?? [] });
+    success(res, { overview: storyOverview(project), episode, episodes: project.episodes ?? [] });
   });
 
   router.put('/dramas/:id/script', (req, res) => {
@@ -41,16 +42,31 @@ export function workspaceRoutes(
     const project = services.projects.require(projectId);
     const body = bodyRecord(req);
     const episode = selectEpisode(project.episodes ?? [], body.episode_id);
-    services.projects.update(projectId, { description: readString(body.overview) ?? '' });
+    const overview = body.overview && typeof body.overview === 'object' ? body.overview as Record<string, unknown> : {};
+    services.projects.update(projectId, {
+      story_hook: readString(overview.story_hook) ?? '',
+      worldview: readString(overview.worldview) ?? '',
+      storyline: readString(overview.storyline) ?? '',
+      tone: readString(overview.tone) ?? '',
+      reference_setting: readString(overview.reference_setting) ?? '',
+    });
     const episodes = services.projects.saveEpisodes(projectId, [{
       ...episode,
       script_content: readString(body.script_content) ?? '',
+      ...(body.episode_plan && typeof body.episode_plan === 'object' ? body.episode_plan : {}),
     }]);
     success(res, {
-      overview: services.projects.require(projectId).description ?? '',
+      overview: storyOverview(services.projects.require(projectId)),
       episode: episodes.find((item) => item.id === episode.id) ?? episode,
       episodes,
     });
+  });
+
+  router.post('/dramas/:id/script/assemble', (req, res) => {
+    const project = services.projects.require(idParam(req));
+    const body = bodyRecord(req);
+    selectEpisode(project.episodes ?? [], body.episode_id);
+    success(res, { script_content: assembleScriptScenes(body.scenes) });
   });
 
   router.get('/dramas/:id/assets', (req, res) => {
@@ -210,6 +226,16 @@ export function workspaceRoutes(
   });
 
   return router;
+}
+
+function storyOverview(project: { story_hook: string; worldview: string; storyline: string; tone: string; reference_setting: string }) {
+  return {
+    story_hook: project.story_hook ?? '',
+    worldview: project.worldview ?? '',
+    storyline: project.storyline ?? '',
+    tone: project.tone ?? '',
+    reference_setting: project.reference_setting ?? '',
+  };
 }
 
 function selectEpisode(episodes: EpisodeRow[], rawId: unknown): EpisodeRow {

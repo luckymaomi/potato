@@ -33,6 +33,7 @@ export function initializeRainyNightDemo(
       title: '第 1 集｜红女王',
       duration: RAINY_NIGHT_DEMO.storyboards.length * RAINY_NIGHT_DEMO.media.duration,
       script_content: RAINY_NIGHT_DEMO.script,
+      ...RAINY_NIGHT_DEMO.episodePlan,
     }])[0];
     if (!episode) throw new Error('Demo 剧集初始化失败。');
 

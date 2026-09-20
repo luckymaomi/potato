@@ -95,6 +95,43 @@ test('项目服务持久化多集、项目资产和各集分镜', () => {
   } finally { db.close(); }
 });
 
+test('总览与本集结构按项目和剧集分别保存并在读取时保持对应关系', () => {
+  const { db, services } = setup();
+  try {
+    const first = services.projects.create({
+      title: '夜城归来',
+      story_hook: '十年前失踪的人带着证据回来。',
+      worldview: '夜城由旧王室和贵族共同控制。',
+      storyline: '红女王逐场揭开旧案。',
+      tone: '冷峻悬疑',
+      reference_setting: '雨夜、黑曜王厅、红金烛光。',
+    });
+    services.projects.saveEpisodes(first.id, [{
+      episode_number: 1,
+      episode_goal: '完成归城并进入王厅。',
+      conflict: '摄政公爵试图阻止她。',
+      turning_point: '旧印章被摆上长桌。',
+      ending_hook: '下一集追查共谋者。',
+      scene_notes: '城门、王厅、密档室。',
+      script_content: '第一场：雨夜归城。',
+    }]);
+    const second = services.projects.create({ title: '另一部剧', story_hook: '另一条故事钩子。' });
+    services.projects.saveEpisodes(second.id, [{ episode_number: 1, episode_goal: '另一集目标。' }]);
+
+    const saved = services.projects.require(first.id);
+    assert.deepEqual(
+      [saved.story_hook, saved.worldview, saved.storyline, saved.tone, saved.reference_setting],
+      ['十年前失踪的人带着证据回来。', '夜城由旧王室和贵族共同控制。', '红女王逐场揭开旧案。', '冷峻悬疑', '雨夜、黑曜王厅、红金烛光。'],
+    );
+    assert.deepEqual(
+      saved.episodes?.[0] && [saved.episodes[0].episode_goal, saved.episodes[0].conflict, saved.episodes[0].turning_point, saved.episodes[0].ending_hook, saved.episodes[0].scene_notes, saved.episodes[0].script_content],
+      ['完成归城并进入王厅。', '摄政公爵试图阻止她。', '旧印章被摆上长桌。', '下一集追查共谋者。', '城门、王厅、密档室。', '第一场：雨夜归城。'],
+    );
+    assert.equal(services.projects.require(second.id).story_hook, '另一条故事钩子。');
+    assert.equal(services.projects.require(second.id).episodes?.[0]?.episode_goal, '另一集目标。');
+  } finally { db.close(); }
+});
+
 test('资产标准图生成消费用户保存的可见提示词和资产卡输入参考图', async () => {
   let receivedPrompt = '';
   let receivedReferences: string[] = [];
@@ -377,7 +414,15 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
   const { db, services, storageRoot } = setup();
   try {
     await services.aiConfigs.refresh('agnes');
-    const project = services.projects.create({ title: '归档往返', metadata: { aspect_ratio: '9:16' } });
+    const project = services.projects.create({
+      title: '归档往返',
+      metadata: { aspect_ratio: '9:16' },
+      story_hook: '归档后仍然能继续写作。',
+      worldview: '归档世界观。',
+      storyline: '归档主线。',
+      tone: '归档基调。',
+      reference_setting: '归档参考设定。',
+    });
     const episode = project.episodes?.[0];
     assert.ok(episode);
     const uploads = path.join(storageRoot, 'uploads');
@@ -400,6 +445,15 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
       referenceImages: asset.input_reference_images,
     });
     await taskDone(() => services.tasks.get(assetImage.task_id as string));
+    services.projects.saveEpisodes(project.id, [{
+      episode_number: episode.episode_number,
+      episode_goal: '归档本集目标。',
+      conflict: '归档主要冲突。',
+      turning_point: '归档转折。',
+      ending_hook: '归档结尾钩子。',
+      scene_notes: '归档场次节拍。',
+      script_content: '归档人工剧本。',
+    }]);
     const shot = services.assets.createStoryboard({
       episode_id: episode.id,
       title: '归来',
@@ -430,6 +484,11 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
     const imported = await services.projectArchives.import(archivePath);
     const importedAsset = imported.project_assets?.[0];
     const importedShot = imported.episodes?.[0]?.storyboards?.[0];
+    assert.equal(imported.story_hook, '归档后仍然能继续写作。');
+    assert.equal(imported.worldview, '归档世界观。');
+    assert.equal(imported.episodes?.[0]?.episode_goal, '归档本集目标。');
+    assert.equal(imported.episodes?.[0]?.ending_hook, '归档结尾钩子。');
+    assert.equal(imported.episodes?.[0]?.script_content, '归档人工剧本。');
     assert.deepEqual(importedAsset?.text_profile, { occupation: '记者' });
     assert.equal(importedAsset?.output_type, 'character-layout-c');
     assert.equal(importedAsset?.output_prompt, '用户确认的林岚 4+3 标准图提示词。');
@@ -449,9 +508,21 @@ test('全新 schema 支持项目资产卡和分镜额外参考图', () => {
   const db = new Database(':memory:');
   try {
     initializeDatabase(db);
+    const dramaColumns = db.prepare('PRAGMA table_info(dramas)').all() as Array<{ name: string }>;
+    const episodeColumns = db.prepare('PRAGMA table_info(episodes)').all() as Array<{ name: string }>;
     const assetColumns = db.prepare('PRAGMA table_info(project_assets)').all() as Array<{ name: string }>;
     const storyboardColumns = db.prepare('PRAGMA table_info(storyboards)').all() as Array<{ name: string }>;
     const imageColumns = db.prepare('PRAGMA table_info(image_generations)').all() as Array<{ name: string }>;
+    assert.equal(dramaColumns.some((column) => column.name === 'story_hook'), true);
+    assert.equal(dramaColumns.some((column) => column.name === 'worldview'), true);
+    assert.equal(dramaColumns.some((column) => column.name === 'storyline'), true);
+    assert.equal(dramaColumns.some((column) => column.name === 'tone'), true);
+    assert.equal(dramaColumns.some((column) => column.name === 'reference_setting'), true);
+    assert.equal(episodeColumns.some((column) => column.name === 'episode_goal'), true);
+    assert.equal(episodeColumns.some((column) => column.name === 'conflict'), true);
+    assert.equal(episodeColumns.some((column) => column.name === 'turning_point'), true);
+    assert.equal(episodeColumns.some((column) => column.name === 'ending_hook'), true);
+    assert.equal(episodeColumns.some((column) => column.name === 'scene_notes'), true);
     assert.equal(assetColumns.some((column) => column.name === 'text_profile'), true);
     assert.equal(assetColumns.some((column) => column.name === 'output_type'), true);
     assert.equal(assetColumns.some((column) => column.name === 'output_prompt'), true);

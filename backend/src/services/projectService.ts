@@ -14,6 +14,22 @@ import { MediaArchiveService } from './mediaArchiveService';
 
 export interface DramaListInput { page: number; pageSize: number; keyword?: string }
 
+export interface StoryOverview {
+  story_hook: string;
+  worldview: string;
+  storyline: string;
+  tone: string;
+  reference_setting: string;
+}
+
+export interface EpisodeStoryPlan {
+  episode_goal: string;
+  conflict: string;
+  turning_point: string;
+  ending_hook: string;
+  scene_notes: string;
+}
+
 export class ProjectService {
   constructor(
     private readonly db: SQLiteDatabase,
@@ -23,8 +39,8 @@ export class ProjectService {
 
   list(input: DramaListInput): { items: Drama[]; total: number } {
     const pattern = `%${input.keyword ?? ''}%`;
-    const where = input.keyword ? 'WHERE title LIKE ? OR description LIKE ?' : '';
-    const params = input.keyword ? [pattern, pattern] : [];
+    const where = input.keyword ? 'WHERE title LIKE ? OR description LIKE ? OR story_hook LIKE ? OR storyline LIKE ?' : '';
+    const params = input.keyword ? [pattern, pattern, pattern, pattern] : [];
     const totalRow = this.db.prepare(`SELECT COUNT(*) AS total FROM dramas ${where}`).get(...params) as { total: number };
     const rows = this.db.prepare(`
       SELECT * FROM dramas ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?
@@ -80,11 +96,16 @@ export class ProjectService {
     const metadata = jsonObject(body.metadata);
     const createProject = this.db.transaction(() => {
       const result = this.db.prepare(`
-        INSERT INTO dramas (title, description, genre, style, status, thumbnail, metadata, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO dramas (title, description, story_hook, worldview, storyline, tone, reference_setting, genre, style, status, thumbnail, metadata, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         title,
         readString(body.description) ?? null,
+        readString(body.story_hook) ?? '',
+        readString(body.worldview) ?? '',
+        readString(body.storyline) ?? '',
+        readString(body.tone) ?? '',
+        readString(body.reference_setting) ?? '',
         readString(body.genre) ?? null,
         readString(body.style) ?? 'realistic',
         readString(body.status) ?? 'draft',
@@ -95,8 +116,8 @@ export class ProjectService {
       );
       const projectId = Number(result.lastInsertRowid);
       this.db.prepare(`
-        INSERT INTO episodes (drama_id, episode_number, title, duration, script_content, status, created_at, updated_at)
-        VALUES (?, 1, '第 1 集', 0, '', 'draft', ?, ?)
+        INSERT INTO episodes (drama_id, episode_number, title, duration, script_content, episode_goal, conflict, turning_point, ending_hook, scene_notes, status, created_at, updated_at)
+        VALUES (?, 1, '第 1 集', 0, '', '', '', '', '', '', 'draft', ?, ?)
       `).run(projectId, now, now);
       return projectId;
     });
@@ -110,11 +131,16 @@ export class ProjectService {
     const body = asRecord(input) ?? {};
     const metadata = body.metadata === undefined ? current.metadata : jsonObject(body.metadata);
     this.db.prepare(`
-      UPDATE dramas SET title = ?, description = ?, genre = ?, style = ?, status = ?, thumbnail = ?, metadata = ?, updated_at = ?
+      UPDATE dramas SET title = ?, description = ?, story_hook = ?, worldview = ?, storyline = ?, tone = ?, reference_setting = ?, genre = ?, style = ?, status = ?, thumbnail = ?, metadata = ?, updated_at = ?
       WHERE id = ?
     `).run(
       readString(body.title) ?? current.title,
       body.description === undefined ? current.description : readString(body.description) ?? null,
+      body.story_hook === undefined ? current.story_hook : readString(body.story_hook) ?? '',
+      body.worldview === undefined ? current.worldview : readString(body.worldview) ?? '',
+      body.storyline === undefined ? current.storyline : readString(body.storyline) ?? '',
+      body.tone === undefined ? current.tone : readString(body.tone) ?? '',
+      body.reference_setting === undefined ? current.reference_setting : readString(body.reference_setting) ?? '',
       body.genre === undefined ? current.genre : readString(body.genre) ?? null,
       readString(body.style) ?? current.style,
       readString(body.status) ?? current.status,
@@ -154,18 +180,28 @@ export class ProjectService {
         const description = item.description === undefined
           ? (existing?.description ?? null)
           : (readString(item.description) ?? null);
+        const episodeGoal = item.episode_goal === undefined ? (existing?.episode_goal ?? '') : (readString(item.episode_goal) ?? '');
+        const conflict = item.conflict === undefined ? (existing?.conflict ?? '') : (readString(item.conflict) ?? '');
+        const turningPoint = item.turning_point === undefined ? (existing?.turning_point ?? '') : (readString(item.turning_point) ?? '');
+        const endingHook = item.ending_hook === undefined ? (existing?.ending_hook ?? '') : (readString(item.ending_hook) ?? '');
+        const sceneNotes = item.scene_notes === undefined ? (existing?.scene_notes ?? '') : (readString(item.scene_notes) ?? '');
         const status = readString(item.status) ?? existing?.status ?? 'draft';
         this.db.prepare(`
-          INSERT INTO episodes (drama_id, episode_number, title, duration, script_content, description, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO episodes (drama_id, episode_number, title, duration, script_content, description, episode_goal, conflict, turning_point, ending_hook, scene_notes, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(drama_id, episode_number) DO UPDATE SET
             title = excluded.title,
             duration = excluded.duration,
             script_content = excluded.script_content,
             description = excluded.description,
+            episode_goal = excluded.episode_goal,
+            conflict = excluded.conflict,
+            turning_point = excluded.turning_point,
+            ending_hook = excluded.ending_hook,
+            scene_notes = excluded.scene_notes,
             status = excluded.status,
             updated_at = excluded.updated_at
-        `).run(dramaId, number, title, duration, script, description, status, now, now);
+        `).run(dramaId, number, title, duration, script, description, episodeGoal, conflict, turningPoint, endingHook, sceneNotes, status, now, now);
       }
     });
     save();
@@ -190,12 +226,17 @@ export class ProjectService {
     }
     const now = new Date().toISOString();
     this.db.prepare(`
-      UPDATE episodes SET episode_number = ?, title = ?, description = ?, status = ?, updated_at = ?
+      UPDATE episodes SET episode_number = ?, title = ?, description = ?, episode_goal = ?, conflict = ?, turning_point = ?, ending_hook = ?, scene_notes = ?, status = ?, updated_at = ?
       WHERE id = ? AND drama_id = ?
     `).run(
       nextNumber,
       title ?? current.title,
       body.description === undefined ? current.description : (readString(body.description) ?? null),
+      current.episode_goal,
+      current.conflict,
+      current.turning_point,
+      current.ending_hook,
+      current.scene_notes,
       readString(body.status) ?? current.status,
       now,
       episodeId,

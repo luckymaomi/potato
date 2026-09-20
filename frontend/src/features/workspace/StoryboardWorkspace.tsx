@@ -25,13 +25,20 @@ import {
 } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { aiConfigsApi } from '../../api/aiConfigs'
+import { tasksApi } from '../../api/tasks'
 import { uploadsApi } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { useAnnounceGenerationOutcomes } from '../generation/useAnnounceGenerationOutcomes'
-import { storyboardImageKey, useGenerationTracker } from '../generation/useGenerationTracker'
-import { aspectRatiosFor, preferredAspectRatio } from '../providers/catalog'
+import { storyboardImageKey, storyboardVideoKey, useGenerationTracker } from '../generation/useGenerationTracker'
+import {
+  aspectRatioLabel,
+  aspectRatiosFor,
+  modelAspectRatioOptions,
+  modelDurationOptions,
+  preferredAspectRatio,
+} from '../providers/catalog'
 import type { AssetKind, ProjectAsset, ProviderModel, Storyboard } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { useProjectWorkspace } from './workspaceContext'
@@ -55,6 +62,15 @@ export function StoryboardWorkspace() {
   const [assemblingId, setAssemblingId] = useState<number>()
   const [imageModels, setImageModels] = useState<ProviderModel[]>([])
   const [imageModelLabel, setImageModelLabel] = useState('读取中…')
+  const [videoModelLabel, setVideoModelLabel] = useState('读取中…')
+  const [durationOptions, setDurationOptions] = useState<number[]>([])
+  const [videoAspectOptions, setVideoAspectOptions] = useState<string[]>([])
+  const [shotDurations, setShotDurations] = useState<Record<number, number>>({})
+  const [shotAspects, setShotAspects] = useState<Record<number, string>>({})
+  const [composeRunning, setComposeRunning] = useState(false)
+  const [videoQueue, setVideoQueue] = useState<{ total: number; completed: number; current?: string; stopping?: boolean }>()
+  const stopVideoQueueRef = useRef(false)
+  const currentVideoQueueKeyRef = useRef<string>()
   const [form] = Form.useForm<StoryboardFormValues>()
   const tracker = useGenerationTracker(project.id)
   useAnnounceGenerationOutcomes(tracker.tracks)
@@ -90,8 +106,8 @@ export function StoryboardWorkspace() {
   useEffect(() => { void load() }, [load])
   useEffect(() => {
     let active = true
-    void Promise.all([aiConfigsApi.models({ service_type: 'image' }), aiConfigsApi.modelPresets()])
-      .then(([models, presets]) => {
+    void Promise.all([aiConfigsApi.models({ service_type: 'image' }), aiConfigsApi.models({ service_type: 'video' }), aiConfigsApi.modelPresets()])
+      .then(([models, videoModels, presets]) => {
         if (!active) return
         const preferred = presets.image
         setImageModelLabel(preferred ? `${preferred.provider} / ${preferred.model}` : '自动选择（AI 配置）')
@@ -99,11 +115,21 @@ export function StoryboardWorkspace() {
           ? models.filter((model) => model.provider === preferred.provider && model.id === preferred.model)
           : models
         setImageModels(filtered.length ? filtered : models)
+        const video = presets.video
+        setVideoModelLabel(video ? `${video.provider} / ${video.model}` : '自动选择（AI 配置）')
+        const selectedVideo = video
+          ? videoModels.find((model) => model.provider === video.provider && model.id === video.model) ?? videoModels[0]
+          : videoModels[0]
+        setDurationOptions(modelDurationOptions(selectedVideo))
+        setVideoAspectOptions(modelAspectRatioOptions(selectedVideo))
       })
       .catch((reason) => {
         if (!active) return
         setImageModels([])
         setImageModelLabel('未读取到图片预设')
+        setVideoModelLabel('未读取到视频预设')
+        setDurationOptions([])
+        setVideoAspectOptions([])
         notifyAppError({ message, modal }, reason instanceof Error ? reason : new Error('图片模型目录加载失败，请打开「AI 配置」刷新模型列表'))
       })
     return () => { active = false }
@@ -272,6 +298,96 @@ export function StoryboardWorkspace() {
   const selectedAssetIds = [...characterAssetIds, ...sceneAssetIds, ...propAssetIds]
   const imageReady = Boolean(selected?.image_url)
   const videoReady = Boolean(selected?.video_url)
+  const videoTrack = selected ? tracker.get(storyboardVideoKey(selected.id)) : undefined
+  const videoBusy = videoTrack?.status === 'pending' || videoTrack?.status === 'processing'
+
+  useEffect(() => {
+    setShotDurations((current) => {
+      const next = { ...current }
+      for (const shot of items) if (durationOptions.length && (next[shot.id] === undefined || !durationOptions.includes(next[shot.id]))) next[shot.id] = durationOptions[0]
+      return next
+    })
+    setShotAspects((current) => {
+      const next = { ...current }
+      for (const shot of items) {
+        if (videoAspectOptions.length && (next[shot.id] === undefined || !videoAspectOptions.includes(next[shot.id]))) {
+          const preferred = preferredAspectRatio(videoAspectOptions, next[shot.id])
+          if (preferred) next[shot.id] = preferred
+        }
+      }
+      return next
+    })
+  }, [durationOptions, items, videoAspectOptions])
+
+  const generateVideo = async (shotId: number, announce = true): Promise<boolean> => {
+    try {
+      const generation = await workspaceApi.generateStoryboardVideo(project.id, shotId, {
+        duration: durationOptions.length ? shotDurations[shotId] : undefined,
+        aspect_ratio: videoAspectOptions.length ? shotAspects[shotId] : undefined,
+      })
+      if (!generation.task_id) {
+        if (announce) notifyAppError({ message, modal }, new Error('已提交但未返回任务号，请打开 AI 配置确认视频模型后重试'))
+        return false
+      }
+      tracker.watch({ key: storyboardVideoKey(shotId), taskId: generation.task_id, generationId: generation.id, kind: 'video', label: items.find((item) => item.id === shotId)?.title || `镜头 ${shotId}`, startedAt: generation.created_at })
+      if (announce) notifyAppSuccess(message, '已开始生成视频，可随时停止')
+      return true
+    } catch (reason) {
+      if (announce) notifyAppError({ message, modal }, reason)
+      return false
+    }
+  }
+
+  const generatePendingVideos = async () => {
+    if (videoQueue) return
+    const pending = items.filter((item) => item.image_url && !item.video_url)
+    if (!pending.length) { message.info('没有待生成的镜头视频'); return }
+    stopVideoQueueRef.current = false
+    setVideoQueue({ total: pending.length, completed: 0 })
+    try {
+      for (const item of pending) {
+        if (stopVideoQueueRef.current) break
+        setVideoQueue((current) => current ? { ...current, current: item.title || `镜头 ${item.storyboard_number}` } : current)
+        const key = storyboardVideoKey(item.id)
+        currentVideoQueueKeyRef.current = key
+        const started = await generateVideo(item.id, false)
+        if (started) {
+          if (stopVideoQueueRef.current) await tracker.cancel(key)
+          await tracker.waitForTerminal(key)
+        }
+        setVideoQueue((current) => current ? { ...current, completed: current.completed + 1 } : current)
+      }
+    } finally {
+      currentVideoQueueKeyRef.current = undefined
+      setVideoQueue(undefined)
+      await load()
+    }
+  }
+
+  const stopPendingVideos = async () => {
+    stopVideoQueueRef.current = true
+    setVideoQueue((current) => current ? { ...current, stopping: true } : current)
+    const key = currentVideoQueueKeyRef.current
+    if (key) await tracker.cancel(key)
+  }
+
+  const composeEpisode = async () => {
+    setComposeRunning(true)
+    try {
+      const result = await workspaceApi.compose(project.id, episode.id)
+      if (result.task_id) {
+        tracker.watch({ key: `compose:${episode.id}`, taskId: result.task_id, kind: 'video' })
+        for (;;) {
+          const task = await tasksApi.get(result.task_id)
+          if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') break
+          await new Promise((resolve) => window.setTimeout(resolve, 1000))
+        }
+      }
+      await load()
+      notifyAppSuccess(message, '整集合成完成')
+    } catch (reason) { notifyAppError({ message, modal }, reason) }
+    finally { setComposeRunning(false) }
+  }
 
   const toggleAsset = (kind: AssetKind, id: number) => {
     const field = kind === 'character' ? 'character_asset_ids' : kind === 'scene' ? 'scene_asset_ids' : 'prop_asset_ids'
@@ -285,10 +401,14 @@ export function StoryboardWorkspace() {
         <div><Typography.Title level={2}>分镜台</Typography.Title></div>
         <Space wrap className="director-heading-actions">
           <div className="director-model-label"><span>分镜图模型</span><strong>{imageModelLabel}</strong></div>
+          <div className="director-model-label"><span>视频模型</span><strong>{videoModelLabel}</strong></div>
           <div className="director-progress-summary"><strong>{items.length}</strong><span>镜头</span><i /><strong>{items.filter((item) => item.image_url).length}</strong><span>已出图</span></div>
+          {videoQueue ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingVideos()}>停止逐项生成</Button> : <Button onClick={() => void generatePendingVideos()}>生成未完成视频</Button>}
+          <Button type="primary" disabled={!items.length || items.some((item) => !item.video_url)} loading={composeRunning} onClick={() => void composeEpisode()}>合成整集</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => void create()}>加入镜头</Button>
         </Space>
       </div>
+      {videoQueue ? <div className="generation-queue-status"><Tag color={videoQueue.stopping ? 'warning' : 'processing'}>{videoQueue.stopping ? '正在停止' : '视频逐项生成中'}</Tag><span>{videoQueue.current ?? '准备中'} · 已处理 {Math.min(videoQueue.completed, videoQueue.total)}/{videoQueue.total}</span></div> : null}
 
       {!items.length ? (
         <Empty className="workspace-empty director-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有镜头">
@@ -320,8 +440,11 @@ export function StoryboardWorkspace() {
                     <Button type="text" icon={<RightOutlined />} disabled={selectedIndex < 0 || selectedIndex >= items.length - 1} onClick={() => selectRelative(1)} />
                   </Space>
                 </div>
-                <div className="director-frame-area">
-                  <div className="director-frame-wrap">
+                <div className="director-media-split">
+                  <section className="director-media-panel">
+                    <div className="director-media-panel-heading"><strong>分镜图</strong><span>{imageReady ? '已完成' : '待生成'}</span></div>
+                    <div className="director-frame-area">
+                    <div className="director-frame-wrap">
                     {selected.image_url
                       ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.title || '分镜图'} className="director-frame-image" />
                       : <div className="director-frame-empty">
@@ -340,7 +463,21 @@ export function StoryboardWorkspace() {
                           {imageBusy ? <Button danger icon={<StopOutlined />} onClick={() => void tracker.cancel(storyboardImageKey(selected.id))}>停止</Button> : null}
                         </Space>
                       </div>}
-                  </div>
+                    </div>
+                    </div>
+                  </section>
+                  <section className="director-media-panel director-video-panel">
+                    <div className="director-media-panel-heading"><strong>镜头视频</strong><span>{videoReady ? '已完成' : videoBusy ? (videoTrack?.message || '正在生成') : '待生成'}</span></div>
+                    <div className="director-video-preview">
+                      {selected.video_url ? <video controls src={mediaUrl(selected.video_url)} /> : <div className="director-video-empty"><strong>这一镜还没有视频</strong><span>生成视频时会使用当前分镜图作为首帧</span></div>}
+                    </div>
+                    <div className="director-video-params">
+                      {durationOptions.length ? <label><span>时长</span><Select size="small" value={shotDurations[selected.id]} options={durationOptions.map((value) => ({ value, label: `${value} 秒` }))} onChange={(value) => setShotDurations((current) => ({ ...current, [selected.id]: value }))} disabled={videoBusy} /></label> : null}
+                      {videoAspectOptions.length ? <label><span>画幅</span><Select size="small" value={shotAspects[selected.id]} options={videoAspectOptions.map((value) => ({ value, label: aspectRatioLabel(value) }))} onChange={(value) => setShotAspects((current) => ({ ...current, [selected.id]: value }))} disabled={videoBusy} /></label> : null}
+                    </div>
+                    {videoTrack ? <GenerationElapsedTime startedAt={videoTrack.startedAt} finishedAt={videoTrack.finishedAt} active={videoBusy} progress={videoTrack.progress} message={videoTrack.message} /> : null}
+                    {videoBusy ? <Button danger icon={<StopOutlined />} onClick={() => void tracker.cancel(storyboardVideoKey(selected.id))}>停止生成</Button> : <Button type="primary" disabled={!imageReady} onClick={() => void generateVideo(selected.id)}>{videoReady ? '重新生成视频' : '生成视频'}</Button>}
+                  </section>
                 </div>
                 {selected.image_url ? (
                   <div className="director-frame-actions">

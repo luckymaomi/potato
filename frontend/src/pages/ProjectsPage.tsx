@@ -1,12 +1,11 @@
 import {
   DeleteOutlined,
   DownloadOutlined,
-  DownOutlined,
   EditOutlined,
+  FileTextOutlined,
   ImportOutlined,
   PlayCircleOutlined,
   PlusOutlined,
-  RightOutlined,
   SearchOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons'
@@ -21,6 +20,11 @@ import type { Episode, Project } from '../types/domain'
 interface ProjectFormValues {
   title: string
   description?: string
+  story_hook?: string
+  worldview?: string
+  storyline?: string
+  tone?: string
+  reference_setting?: string
   genre?: string
 }
 
@@ -42,7 +46,6 @@ export function ProjectsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Project | null>(null)
   const [creatingDemo, setCreatingDemo] = useState(false)
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({})
   const [creatingEpisodeId, setCreatingEpisodeId] = useState<number>()
   const [episodeEditor, setEpisodeEditor] = useState<{ project: Project; episode: Episode } | null>(null)
   const [episodeSaving, setEpisodeSaving] = useState(false)
@@ -53,13 +56,6 @@ export function ProjectsPage() {
     try {
       const result = await projectsApi.list({ page: 1, page_size: 100, keyword: keyword?.trim() || undefined })
       setProjects(result.items)
-      setExpanded((current) => {
-        const next = { ...current }
-        for (const project of result.items) {
-          if (next[project.id] === undefined) next[project.id] = true
-        }
-        return next
-      })
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -73,7 +69,6 @@ export function ProjectsPage() {
       .then((result) => {
         if (!active) return
         setProjects(result.items)
-        setExpanded(Object.fromEntries(result.items.map((project) => [project.id, true])))
       })
       .catch((error: unknown) => { if (active) message.error(userErrorMessage(error)) })
       .finally(() => { if (active) setLoading(false) })
@@ -88,7 +83,16 @@ export function ProjectsPage() {
 
   const openEdit = (project: Project) => {
     setEditing(project)
-    form.setFieldsValue({ title: project.title, description: project.description || '', genre: project.genre || '' })
+    form.setFieldsValue({
+      title: project.title,
+      description: project.description || '',
+      story_hook: project.story_hook || '',
+      worldview: project.worldview || '',
+      storyline: project.storyline || '',
+      tone: project.tone || '',
+      reference_setting: project.reference_setting || '',
+      genre: project.genre || '',
+    })
     setModalOpen(true)
   }
 
@@ -169,7 +173,6 @@ export function ProjectsPage() {
       const result = await projectsApi.saveEpisodes(project.id, [{ episode_number: nextNumber, title: `第${nextNumber}集` }])
       const created = result.episodes.find((item) => item.episode_number === nextNumber)
       setProjects((current) => current.map((item) => item.id === project.id ? { ...item, episodes: result.episodes } : item))
-      setExpanded((current) => ({ ...current, [project.id]: true }))
       message.success(`已新建第${nextNumber}集`)
       if (created) openEpisode({ ...project, episodes: result.episodes }, created)
     } catch (error) {
@@ -223,7 +226,7 @@ export function ProjectsPage() {
   return (
     <section className="projects-page">
       <header className="page-heading projects-heading">
-        <div><h1>项目</h1></div>
+        <div><h1>项目</h1><span className="projects-heading-count">{projects.length} 个项目</span></div>
         <Space wrap>
           <Upload accept=".zip" showUploadList={false} beforeUpload={importProject}>
             <Button icon={<ImportOutlined />}>导入项目</Button>
@@ -240,29 +243,77 @@ export function ProjectsPage() {
           placeholder="搜索项目名称或说明"
           onSearch={(value) => { setLoading(true); void loadProjects(value) }}
         />
-        <span>{projects.length} 个项目</span>
       </div>
 
       <div className="project-list-scroll">
         <Spin spinning={loading}>
           {projects.length ? (
-            <div className="project-group-list">
+            <div className="project-grid">
               {projects.map((project) => {
-                const open = expanded[project.id] !== false
                 const episodes = project.episodes?.length ? project.episodes : [{ id: 0, drama_id: project.id, episode_number: 1, title: '第1集' } as Episode]
                 return (
-                  <section className="project-group" key={project.id}>
-                    <header className="project-group-header">
-                      <button type="button" className="project-group-toggle" aria-expanded={open} onClick={() => setExpanded((current) => ({ ...current, [project.id]: !open }))}>
-                        {open ? <DownOutlined /> : <RightOutlined />}
-                        <span className="project-group-cover"><VideoCameraOutlined /></span>
-                        <div>
-                          <strong>{project.title}</strong>
-                          <span>{episodes.length} 集{project.genre ? ` · ${project.genre}` : ''}</span>
-                        </div>
-                      </button>
-                      <div className="project-group-actions">
-                        {project.metadata?.demo === true ? <Tag bordered={false}>示例</Tag> : null}
+                  <section
+                    className="project-card"
+                    key={project.id}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`打开${project.title}`}
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement
+                      if (target.closest('button,a,input,textarea,[role="button"]')) return
+                      openEpisode(project, episodes[0].id ? episodes[0] : undefined)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return
+                      event.preventDefault()
+                      openEpisode(project, episodes[0].id ? episodes[0] : undefined)
+                    }}
+                  >
+                    <div className="project-card-cover">
+                      <VideoCameraOutlined />
+                      {project.metadata?.demo === true ? <Tag bordered={false}>示例</Tag> : null}
+                    </div>
+                    <div className="project-card-body">
+                      <div className="project-title-row">
+                        <h2 className="project-title" title={project.title}>{project.title}</h2>
+                        <span className="project-card-count">{episodes.length} 集</span>
+                      </div>
+                      <p className="project-card-hook">{project.story_hook || '还没有填写核心钩子'}</p>
+                      <div className="project-meta">
+                        <span>{project.genre || '未分类'}</span>
+                        <span>{project.updated_at ? new Date(project.updated_at).toLocaleDateString('zh-CN') : '尚未更新'}</span>
+                      </div>
+                      <div className="project-card-episodes">
+                        {episodes.slice(0, 3).map((episode) => (
+                          <div className="project-card-episode" key={`${project.id}-${episode.id || episode.episode_number}`}>
+                            <button type="button" className="project-card-episode-open" onClick={() => openEpisode(project, episode.id ? episode : undefined)}>
+                              <span>第{episode.episode_number}集</span>
+                              <strong>{episode.title || `第${episode.episode_number}集`}</strong>
+                              <FileTextOutlined />
+                            </button>
+                            {episode.id ? <span className="project-card-episode-actions">
+                              <Tooltip title="重命名"><Button type="text" size="small" icon={<EditOutlined />} aria-label="重命名剧集" onClick={() => openRenameEpisode(project, episode)} /></Tooltip>
+                              <Popconfirm
+                                title="删除这一集？"
+                                description="本集剧本与分镜也会删除。"
+                                okText="删除"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                                disabled={(project.episodes?.length ?? 0) <= 1}
+                                onConfirm={() => void removeEpisode(project, episode)}
+                              >
+                                <Tooltip title={(project.episodes?.length ?? 0) <= 1 ? '至少保留一集' : '删除'}><Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除剧集" disabled={(project.episodes?.length ?? 0) <= 1} /></Tooltip>
+                              </Popconfirm>
+                            </span> : null}
+                          </div>
+                        ))}
+                        {episodes.length > 3 ? <span className="project-card-more">还有 {episodes.length - 3} 集</span> : null}
+                      </div>
+                      <div className="project-card-actions">
+                        <Button type="primary" icon={<FileTextOutlined />} onClick={() => openEpisode(project, episodes[0].id ? episodes[0] : undefined)}>打开总览</Button>
+                        <Button icon={<PlusOutlined />} loading={creatingEpisodeId === project.id} onClick={() => void createEpisode(project)}>新建集</Button>
+                      </div>
+                      <div className="project-card-secondary-actions">
                         <Tooltip title="编辑"><Button type="text" icon={<EditOutlined />} aria-label="编辑项目" onClick={() => openEdit(project)} /></Tooltip>
                         <Tooltip title="导出"><Button type="text" icon={<DownloadOutlined />} aria-label="导出项目" onClick={() => void exportProject(project)} /></Tooltip>
                         <Popconfirm
@@ -276,53 +327,7 @@ export function ProjectsPage() {
                           <Tooltip title="删除"><Button type="text" danger icon={<DeleteOutlined />} aria-label="删除项目" /></Tooltip>
                         </Popconfirm>
                       </div>
-                    </header>
-                    {open ? (
-                      <div className="project-episode-list">
-                        {episodes.map((episode) => (
-                          <div className="project-episode-row" key={`${project.id}-${episode.id || episode.episode_number}`}>
-                            <button
-                              type="button"
-                              className="project-episode-open"
-                              onClick={() => openEpisode(project, episode.id ? episode : undefined)}
-                            >
-                              <span className="project-episode-index">第{episode.episode_number}集</span>
-                              <strong>{episode.title || `第${episode.episode_number}集`}</strong>
-                              <em>打开制作</em>
-                            </button>
-                            {episode.id ? (
-                              <div className="project-episode-actions">
-                                <Tooltip title="重命名">
-                                  <Button type="text" size="small" icon={<EditOutlined />} aria-label="重命名剧集" onClick={() => openRenameEpisode(project, episode)} />
-                                </Tooltip>
-                                <Popconfirm
-                                  title="删除这一集？"
-                                  description="本集剧本与分镜也会删除。"
-                                  okText="删除"
-                                  cancelText="取消"
-                                  okButtonProps={{ danger: true }}
-                                  disabled={(project.episodes?.length ?? 0) <= 1}
-                                  onConfirm={() => void removeEpisode(project, episode)}
-                                >
-                                  <Tooltip title={(project.episodes?.length ?? 0) <= 1 ? '至少保留一集' : '删除'}>
-                                    <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除剧集" disabled={(project.episodes?.length ?? 0) <= 1} />
-                                  </Tooltip>
-                                </Popconfirm>
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          className="project-episode-create"
-                          disabled={creatingEpisodeId === project.id}
-                          onClick={() => void createEpisode(project)}
-                        >
-                          <PlusOutlined />
-                          {creatingEpisodeId === project.id ? '正在新建…' : '新建集'}
-                        </button>
-                      </div>
-                    ) : null}
+                    </div>
                   </section>
                 )
               })}
@@ -350,7 +355,11 @@ export function ProjectsPage() {
             <Input autoFocus maxLength={80} />
           </Form.Item>
           <Form.Item name="genre" label="类型"><Input placeholder="悬疑、都市、科幻…" maxLength={40} /></Form.Item>
-          <Form.Item name="description" label="说明"><Input.TextArea rows={4} maxLength={500} showCount /></Form.Item>
+          <Form.Item name="story_hook" label="核心钩子"><Input.TextArea rows={2} maxLength={300} /></Form.Item>
+          <Form.Item name="worldview" label="世界观"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
+          <Form.Item name="storyline" label="主线"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
+          <Form.Item name="tone" label="基调"><Input maxLength={80} /></Form.Item>
+          <Form.Item name="reference_setting" label="参考设定"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
         </Form>
       </Modal>
 

@@ -9,9 +9,30 @@ export interface ProductionSubmission {
 }
 
 export interface ScriptWorkspace {
-  overview: string
+  overview: StoryOverview
   episode: Episode
   episodes: Episode[]
+}
+
+export interface StoryOverview {
+  story_hook: string
+  worldview: string
+  storyline: string
+  tone: string
+  reference_setting: string
+}
+
+export interface EpisodeStoryPlan {
+  episode_goal: string
+  conflict: string
+  turning_point: string
+  ending_hook: string
+  scene_notes: string
+}
+
+export interface ScriptSceneDraft {
+  title: string
+  content: string
 }
 
 export interface StoryboardWorkspace {
@@ -33,7 +54,8 @@ export interface StoryboardRecipes {
 
 export const workspaceApi = {
   getScript: (projectId: number, episodeId?: number) => apiClient.get<never, ScriptWorkspace>(`/dramas/${projectId}/script`, { params: { episode_id: episodeId } }),
-  saveScript: (projectId: number, input: { episode_id: number; overview: string; script_content: string }) => apiClient.put<never, ScriptWorkspace>(`/dramas/${projectId}/script`, input),
+  saveScript: (projectId: number, input: { episode_id: number; overview: StoryOverview; episode_plan: EpisodeStoryPlan; script_content: string }) => apiClient.put<never, ScriptWorkspace>(`/dramas/${projectId}/script`, input),
+  assembleScript: (projectId: number, input: { episode_id: number; scenes: ScriptSceneDraft[] }) => apiClient.post<never, { script_content: string }>(`/dramas/${projectId}/script/assemble`, input),
 
   assets: (projectId: number, kind?: AssetKind) => apiClient.get<never, { items: ProjectAsset[] }>(`/dramas/${projectId}/assets`, { params: { kind } }),
   createAsset: (projectId: number, input: Partial<ProjectAsset> & { kind: AssetKind }) => apiClient.post<never, ProjectAsset>(`/dramas/${projectId}/assets`, input),

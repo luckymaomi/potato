@@ -1,7 +1,7 @@
-import { BookOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, PictureOutlined, PlayCircleOutlined, PlusOutlined, RightOutlined } from '@ant-design/icons'
+import { BookOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, PictureOutlined, PlusOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Spin } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { projectsApi } from '../../api/projects'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
 import type { Episode, Project } from '../../types/domain'
@@ -11,13 +11,11 @@ const tabs = [
   { path: 'script', label: '总览与剧本', icon: <BookOutlined /> },
   { path: 'assets', label: '资产图', icon: <FolderOpenOutlined /> },
   { path: 'storyboard', label: '分镜台', icon: <PictureOutlined /> },
-  { path: 'produce', label: '生产', icon: <PlayCircleOutlined /> },
 ]
 
 export function ProjectShell() {
   const { message, modal } = App.useApp()
   const projectId = Number(useParams().id)
-  const location = useLocation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [project, setProject] = useState<Project>()
@@ -105,6 +103,12 @@ export function ProjectShell() {
   return (
     <section className="project-workspace">
       <aside className="project-tabbar" aria-label="制作阶段">
+        <div className="project-tabbar-header">
+          <Button className="project-tabbar-back" type="text" onClick={() => navigate('/')}>返回项目</Button>
+          <div className="project-tabbar-project">
+            <strong title={project.title}>{project.title}</strong>
+          </div>
+        </div>
         <nav className="project-stage-nav">
           {tabs.map((tab) => (
             <NavLink key={tab.path} to={`${tab.path}${query}`} className="project-stage-link">
@@ -113,17 +117,9 @@ export function ProjectShell() {
             </NavLink>
           ))}
         </nav>
-        <Button className="project-tabbar-foot" type="text" onClick={() => navigate('/')}>返回</Button>
       </aside>
       <main className="project-workspace-main">
         <header className="project-workspace-heading">
-          <div className="project-breadcrumb">
-            <Link to="/">项目</Link>
-            <RightOutlined />
-            <strong>{project.title}</strong>
-            <RightOutlined />
-            <span>{tabs.find((tab) => location.pathname.endsWith(`/${tab.path}`))?.label ?? '总览与剧本'}</span>
-          </div>
           <div className="episode-picker-row">
             <label className="episode-picker">
               <span>当前剧集</span>
