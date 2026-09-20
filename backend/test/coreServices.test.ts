@@ -10,7 +10,6 @@ import { initializeDatabase } from '../src/db/schema';
 import { modelCapabilities, ProviderRegistry, type ProviderAdapter } from '../src/providers';
 import { createServices } from '../src/services/container';
 import { workspaceRoutes } from '../src/routes/workspaceRoutes';
-import { assembleStoryboardRecipes } from '../src/services/storyboardPromptAssembler';
 import type { AppConfig, Logger } from '../src/types/core';
 
 const log: Logger = { info() {}, warn() {}, error() {}, audit() {} };
@@ -126,6 +125,20 @@ test('资产标准图生成消费用户保存的可见提示词和资产卡输�
     const address = server.address();
     assert.ok(address && typeof address === 'object');
     const url = `http://127.0.0.1:${address.port}/dramas/${project.id}/assets/${asset.id}`;
+    assert.equal(asset.output_prompt, '');
+    const assembled = await fetch(`http://127.0.0.1:${address.port}/dramas/${project.id}/assets/assemble-output-prompt`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: asset.kind,
+        name: asset.name,
+        text_profile: asset.text_profile,
+        output_type: 'character-layout-b',
+      }),
+    });
+    assert.equal(assembled.status, 200);
+    const assembledData = await assembled.json() as { data: { output_type: string; output_prompt: string } };
+    assert.equal(assembledData.data.output_type, 'character-layout-b');
+    assert.match(assembledData.data.output_prompt, /红女王.*夜城女王.*左脸右身.*同一张脸、同一发型、同一服装/su);
     const prompt = '用户重写：电影感红女王定妆图，黑色盘发，深红礼服。';
     const saved = await fetch(url, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -166,7 +179,7 @@ test('单卡任务公开排队、生成、归档和本地文件完成状态', as
   try {
     await services.aiConfigs.refresh('agnes');
     const project = services.projects.create({ title: '单卡状态' });
-    const asset = services.assets.createProjectAsset(project.id, { kind: 'prop', name: '铜钥匙' });
+    const asset = services.assets.createProjectAsset(project.id, { kind: 'prop', name: '铜钥匙', output_prompt: '铜钥匙标准资产图' });
     const row = services.images.create({ dramaId: project.id, projectAssetId: asset.id, prompt: asset.output_prompt, referenceImages: [] });
     const taskId = row.task_id as string;
     assert.equal(services.tasks.get(taskId)?.status, 'pending');
@@ -184,16 +197,21 @@ test('单卡任务公开排队、生成、归档和本地文件完成状态', as
   } finally { releaseProvider(); db.close(); }
 });
 
-test('分镜图片消费图片配方的文本和参考图', async () => {
+test('分镜显式组装两份配方，图片生成消费用户保存的图片配方', async () => {
   let receivedPrompt = '';
   let receivedReferences: string[] = [];
-  const { db, services } = setup({
+  const { db, services, config } = setup({
     submitImage: async (_context, request) => {
       receivedPrompt = request.prompt;
       receivedReferences = request.referenceImages;
       return { status: 'completed', imageUrl: TEST_PNG };
     },
   });
+  const app = express();
+  app.use(express.json());
+  app.use(workspaceRoutes(services, config));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
   try {
     await services.aiConfigs.refresh('agnes');
     const project = services.projects.create({ title: '分镜图消费' });
@@ -206,34 +224,55 @@ test('分镜图片消费图片配方的文本和参考图', async () => {
     const shot = services.assets.createStoryboard({
       episode_id: episode.id,
       image_prompt: '王冠静物近景',
+      video_prompt: '镜头缓慢环绕王冠',
       project_asset_ids: [asset.id],
       extra_reference_images: ['https://cdn.test/light.png'],
     });
-    const recipe = assembleStoryboardRecipes({
-      shot,
-      assets: [services.assets.getProjectAsset(asset.id) as NonNullable<ReturnType<typeof services.assets.getProjectAsset>>],
-    }).imageRecipe;
-    const row = services.images.create({
-      dramaId: project.id,
-      storyboardId: shot.id,
-      prompt: recipe.imagePrompt,
-      model: 'agnes-image',
-      aspectRatio: '1:1',
-      referenceImages: recipe.imageReferences,
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const shotUrl = `http://127.0.0.1:${address.port}/dramas/${project.id}/storyboards/${shot.id}`;
+    const assembled = await fetch(`${shotUrl}/assemble-recipes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...shot, image_prompt: '王冠静物近景', video_prompt: '镜头缓慢环绕王冠' }),
     });
-    await taskDone(() => services.tasks.get(row.task_id as string));
+    assert.equal(assembled.status, 200);
+    const recipes = (await assembled.json() as { data: {
+      imageRecipe: { imagePrompt: string; imageReferences: string[] };
+      videoRecipe: { videoPrompt: string; videoReferences: string[] };
+    } }).data;
+    assert.equal(recipes.imageRecipe.imagePrompt, '王冠静物近景\n道具卡「王冠」：材质：暗金');
+    assert.equal(recipes.videoRecipe.videoPrompt, '镜头缓慢环绕王冠\n道具卡「王冠」：材质：暗金');
+    assert.deepEqual(recipes.imageRecipe.imageReferences, [TEST_PNG, 'https://cdn.test/light.png']);
 
-    assert.equal(receivedPrompt, '王冠静物近景\n道具卡「王冠」：材质：暗金');
+    const finalPrompt = '用户确认并改写的王冠静物图片配方';
+    await services.assets.updateStoryboard(shot.id, {
+      image_recipe_prompt: finalPrompt,
+      video_recipe_prompt: recipes.videoRecipe.videoPrompt,
+      image_recipe_references: recipes.imageRecipe.imageReferences,
+      video_recipe_references: recipes.videoRecipe.videoReferences,
+    });
+    const response = await fetch(`${shotUrl}/generate-image`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'agnes-image', aspect_ratio: '1:1' }),
+    });
+    assert.equal(response.status, 201);
+    const row = (await response.json() as { data: { id: number; task_id: string } }).data;
+    await taskDone(() => services.tasks.get(row.task_id));
+
+    assert.equal(receivedPrompt, finalPrompt);
     assert.deepEqual(receivedReferences, [TEST_PNG, 'https://cdn.test/light.png']);
     assert.equal(services.assets.getStoryboard(shot.id)?.current_image_generation_id, row.id);
-  } finally { db.close(); }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    db.close();
+  }
 });
 
 test('视频生成分别消费分镜图首帧和视频配方辅助参考图', async () => {
   let firstFrame = '';
   let receivedReferences: string[] = [];
   let receivedPrompt = '';
-  const { db, services } = setup({
+  const { db, services, config } = setup({
     submitVideo: async (_context, request) => {
       firstFrame = request.firstFrame ?? '';
       receivedReferences = request.referenceImages;
@@ -241,6 +280,11 @@ test('视频生成分别消费分镜图首帧和视频配方辅助参考图', as
       return { status: 'completed', videoUrl: TEST_MP4 };
     },
   });
+  const app = express();
+  app.use(express.json());
+  app.use(workspaceRoutes(services, config));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
   try {
     await services.aiConfigs.refresh('agnes');
     const project = services.projects.create({ title: '视频消费' });
@@ -255,28 +299,37 @@ test('视频生成分别消费分镜图首帧和视频配方辅助参考图', as
       sound: '脚步回声',
       project_asset_ids: [asset.id],
       extra_reference_images: ['https://cdn.test/pose.png'],
+      video_recipe_prompt: '用户确认的视频配方：人物稳定走向王座，脚步声清晰。',
+      video_recipe_references: ['https://cdn.test/hall.png', 'https://cdn.test/pose.png'],
     });
-    const recipe = assembleStoryboardRecipes({
-      shot,
-      assets: [services.assets.getProjectAsset(asset.id) as NonNullable<ReturnType<typeof services.assets.getProjectAsset>>],
-    }).videoRecipe;
-    const row = services.videos.create({
+    const frame = services.images.create({
       dramaId: project.id,
       storyboardId: shot.id,
-      prompt: recipe.videoPrompt,
-      model: 'agnes-video',
-      duration: 6,
-      aspectRatio: '9:16',
-      firstFrame: 'https://cdn.test/storyboard.png',
-      referenceImages: recipe.videoReferences,
+      prompt: '已确认分镜图',
+      model: 'agnes-image',
+      referenceImages: [],
     });
-    await taskDone(() => services.tasks.get(row.task_id as string));
+    await taskDone(() => services.tasks.get(frame.task_id as string));
+    const currentFrame = services.assets.getStoryboard(shot.id)?.image_url;
+    assert.ok(currentFrame);
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const response = await fetch(`http://127.0.0.1:${address.port}/dramas/${project.id}/storyboards/${shot.id}/generate-video`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'agnes-video', duration: 6, aspect_ratio: '9:16' }),
+    });
+    assert.equal(response.status, 200);
+    const row = (await response.json() as { data: { id: number; task_id: string } }).data;
+    await taskDone(() => services.tasks.get(row.task_id));
 
-    assert.equal(firstFrame, 'https://cdn.test/storyboard.png');
+    assert.equal(firstFrame, currentFrame);
     assert.deepEqual(receivedReferences, ['https://cdn.test/hall.png', 'https://cdn.test/pose.png']);
-    assert.equal(receivedPrompt, '人物缓慢走向王座\n场景卡「王厅」\n运镜：稳定推进\n声音：脚步回声');
+    assert.equal(receivedPrompt, '用户确认的视频配方：人物稳定走向王座，脚步声清晰。');
     assert.equal(services.assets.getStoryboard(shot.id)?.current_video_generation_id, row.id);
-  } finally { db.close(); }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    db.close();
+  }
 });
 
 test('图片历史可切换项目资产当前标准图', async () => {
@@ -351,19 +404,24 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
       episode_id: episode.id,
       title: '归来',
       image_prompt: '雨夜归来',
+      image_recipe_prompt: '用户确认的雨夜归来图片配方。',
+      video_recipe_prompt: '用户确认的雨夜归来视频配方。',
       project_asset_ids: [asset.id],
       extra_reference_images: ['/static/uploads/shot-input.png'],
     });
-    const shotRecipe = assembleStoryboardRecipes({
-      shot,
-      assets: [services.assets.getProjectAsset(asset.id) as NonNullable<ReturnType<typeof services.assets.getProjectAsset>>],
-    }).imageRecipe;
+    const currentAsset = services.assets.getProjectAsset(asset.id);
+    assert.ok(currentAsset?.image_url);
+    const recipeReferences = [currentAsset.image_url, '/static/uploads/shot-input.png'];
+    services.assets.updateStoryboard(shot.id, {
+      image_recipe_references: recipeReferences,
+      video_recipe_references: recipeReferences,
+    });
     const shotImage = services.images.create({
       dramaId: project.id,
       storyboardId: shot.id,
-      prompt: shotRecipe.imagePrompt,
+      prompt: '用户确认的雨夜归来图片配方。',
       model: 'agnes-image',
-      referenceImages: shotRecipe.imageReferences,
+      referenceImages: recipeReferences,
     });
     await taskDone(() => services.tasks.get(shotImage.task_id as string));
 
@@ -378,6 +436,10 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
     assert.match(importedAsset?.input_reference_images[0] ?? '', new RegExp(`^/static/projects/${imported.id}/references/`, 'u'));
     assert.deepEqual(importedShot?.project_asset_ids, [importedAsset?.id]);
     assert.match(importedShot?.extra_reference_images[0] ?? '', new RegExp(`^/static/projects/${imported.id}/references/`, 'u'));
+    assert.equal(importedShot?.image_recipe_prompt, '用户确认的雨夜归来图片配方。');
+    assert.equal(importedShot?.video_recipe_prompt, '用户确认的雨夜归来视频配方。');
+    assert.deepEqual(importedShot?.image_recipe_references, [importedAsset?.image_url, importedShot?.extra_reference_images[0]]);
+    assert.deepEqual(importedShot?.video_recipe_references, importedShot?.image_recipe_references);
     assert.equal(importedAsset?.current_image_generation_id, services.images.list(imported.id).find((item) => item.project_asset_id === importedAsset?.id)?.id);
     assert.equal(importedShot?.current_image_generation_id, services.images.list(imported.id).find((item) => item.storyboard_id === importedShot?.id)?.id);
   } finally { db.close(); }
@@ -395,6 +457,10 @@ test('全新 schema 支持项目资产卡和分镜额外参考图', () => {
     assert.equal(assetColumns.some((column) => column.name === 'output_prompt'), true);
     assert.equal(assetColumns.some((column) => column.name === 'input_reference_images'), true);
     assert.equal(storyboardColumns.some((column) => column.name === 'extra_reference_images'), true);
+    assert.equal(storyboardColumns.some((column) => column.name === 'image_recipe_prompt'), true);
+    assert.equal(storyboardColumns.some((column) => column.name === 'video_recipe_prompt'), true);
+    assert.equal(storyboardColumns.some((column) => column.name === 'image_recipe_references'), true);
+    assert.equal(storyboardColumns.some((column) => column.name === 'video_recipe_references'), true);
     assert.equal(imageColumns.some((column) => column.name === 'project_asset_id'), true);
   } finally { db.close(); }
 });

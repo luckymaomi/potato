@@ -1,4 +1,4 @@
-import type { AssetKind, Episode, ProjectAsset, Storyboard } from '../types/domain'
+import type { AssetKind, AssetOutputType, AssetTextProfile, Episode, ProjectAsset, Storyboard } from '../types/domain'
 import type { MediaGenerationHistory } from './media'
 import { apiClient } from './client'
 
@@ -26,12 +26,18 @@ export interface GenerateMediaInput {
   duration?: number
 }
 
+export interface StoryboardRecipes {
+  imageRecipe: { imagePrompt: string; imageReferences: string[] }
+  videoRecipe: { videoPrompt: string; videoReferences: string[] }
+}
+
 export const workspaceApi = {
   getScript: (projectId: number, episodeId?: number) => apiClient.get<never, ScriptWorkspace>(`/dramas/${projectId}/script`, { params: { episode_id: episodeId } }),
   saveScript: (projectId: number, input: { episode_id: number; overview: string; script_content: string }) => apiClient.put<never, ScriptWorkspace>(`/dramas/${projectId}/script`, input),
 
   assets: (projectId: number, kind?: AssetKind) => apiClient.get<never, { items: ProjectAsset[] }>(`/dramas/${projectId}/assets`, { params: { kind } }),
   createAsset: (projectId: number, input: Partial<ProjectAsset> & { kind: AssetKind }) => apiClient.post<never, ProjectAsset>(`/dramas/${projectId}/assets`, input),
+  assembleAssetOutputPrompt: (projectId: number, input: { kind: AssetKind; name?: string; text_profile?: AssetTextProfile; output_type?: AssetOutputType }) => apiClient.post<never, { output_type: AssetOutputType; output_prompt: string }>(`/dramas/${projectId}/assets/assemble-output-prompt`, input),
   updateAsset: (projectId: number, id: number, input: Partial<ProjectAsset>) => apiClient.patch<never, ProjectAsset>(`/dramas/${projectId}/assets/${id}`, input),
   removeAsset: (projectId: number, id: number) => apiClient.delete<never, { removed: boolean }>(`/dramas/${projectId}/assets/${id}`),
   generateAssetImage: (projectId: number, id: number, input: GenerateMediaInput) => apiClient.post<never, MediaGenerationHistory>(`/dramas/${projectId}/assets/${id}/generate-image`, input),
@@ -44,6 +50,7 @@ export const workspaceApi = {
   storyboards: (projectId: number, episodeId?: number) => apiClient.get<never, StoryboardWorkspace>(`/dramas/${projectId}/storyboards`, { params: { episode_id: episodeId } }),
   createStoryboard: (projectId: number, input: Partial<Storyboard> & { episode_id: number }) => apiClient.post<never, Storyboard>(`/dramas/${projectId}/storyboards`, input),
   updateStoryboard: (projectId: number, id: number, input: Partial<Storyboard>) => apiClient.patch<never, Storyboard>(`/dramas/${projectId}/storyboards/${id}`, input),
+  assembleStoryboardRecipes: (projectId: number, id: number, input: Partial<Storyboard>) => apiClient.post<never, StoryboardRecipes>(`/dramas/${projectId}/storyboards/${id}/assemble-recipes`, input),
   removeStoryboard: (projectId: number, id: number) => apiClient.delete<never, { removed: boolean }>(`/dramas/${projectId}/storyboards/${id}`),
   generateStoryboardImage: (projectId: number, id: number, input: GenerateMediaInput = {}) => apiClient.post<never, MediaGenerationHistory>(`/dramas/${projectId}/storyboards/${id}/generate-image`, input),
   uploadStoryboardImage: (projectId: number, id: number, file: File) => {

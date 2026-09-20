@@ -14,7 +14,7 @@ import { MediaArchiveService } from './mediaArchiveService';
 import { ProjectService } from './projectService';
 
 interface ArchivePayload {
-  format: 6;
+  format: 7;
   project: Drama;
   image_generations: Array<Record<string, unknown>>;
   video_generations: Array<Record<string, unknown>>;
@@ -45,7 +45,7 @@ export class ProjectArchiveService {
       .all(projectId) as Array<Record<string, unknown>>;
     const videos = this.db.prepare('SELECT * FROM video_generations WHERE drama_id = ? ORDER BY id')
       .all(projectId) as Array<Record<string, unknown>>;
-    const payload: ArchivePayload = { format: 6, project: archivalProject, image_generations: images, video_generations: videos };
+    const payload: ArchivePayload = { format: 7, project: archivalProject, image_generations: images, video_generations: videos };
     const relativePaths = collectLocalPaths(project, images, videos);
     for (const relativePath of relativePaths) {
       const absolute = this.mediaArchive.absolutePath(relativePath);
@@ -93,6 +93,7 @@ export class ProjectArchiveService {
         await this.importImages(extractedRoot, created.id, payload.image_generations, maps);
         await this.importVideos(extractedRoot, created.id, payload.video_generations, maps);
         this.remapGenerationReferences(payload.image_generations, payload.video_generations, maps);
+        this.remapStoryboardRecipeReferences(source, maps);
         this.applyCurrentVersions(source, maps);
         return this.projects.require(created.id);
       } catch (error) {
@@ -155,6 +156,8 @@ export class ProjectArchiveService {
         ...item,
         project_asset_ids: item.project_asset_ids.map((id) => maps.projectAssets.get(id)).filter((id): id is number => Boolean(id)),
         extra_reference_images: item.extra_reference_images.map((url) => maps.urls.get(url) ?? url),
+        image_recipe_references: item.image_recipe_references.map((url) => maps.urls.get(url) ?? url),
+        video_recipe_references: item.video_recipe_references.map((url) => maps.urls.get(url) ?? url),
       })));
       (episode.storyboards ?? []).forEach((item, index) => {
         const target = storyboards[index];
@@ -287,6 +290,22 @@ export class ProjectArchiveService {
     }
   }
 
+  private remapStoryboardRecipeReferences(source: Drama, maps: ImportMaps): void {
+    for (const episode of source.episodes ?? []) {
+      for (const storyboard of episode.storyboards ?? []) {
+        const targetId = maps.storyboards.get(storyboard.id);
+        if (!targetId) continue;
+        this.db.prepare(`
+          UPDATE storyboards SET image_recipe_references = ?, video_recipe_references = ? WHERE id = ?
+        `).run(
+          JSON.stringify(storyboard.image_recipe_references.map((url) => maps.urls.get(url) ?? url)),
+          JSON.stringify(storyboard.video_recipe_references.map((url) => maps.urls.get(url) ?? url)),
+          targetId,
+        );
+      }
+    }
+  }
+
   private applyCurrentVersions(source: Drama, maps: ImportMaps): void {
     for (const item of source.project_assets ?? []) {
       updateImagePointer(this.db, 'project_assets', maps.projectAssets.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
@@ -327,7 +346,7 @@ function parsePayload(text: string): ArchivePayload {
   let value: unknown;
   try { value = JSON.parse(text) as unknown; } catch { throw new ValidationError('项目归档 JSON 无法解析'); }
   const payload = asRecord(value);
-  if (payload?.format !== 6 || !asRecord(payload.project) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
+  if (payload?.format !== 7 || !asRecord(payload.project) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
     throw new ValidationError('项目归档格式无效或版本不受支持');
   }
   return payload as unknown as ArchivePayload;

@@ -55,6 +55,8 @@ export class ProjectService {
         ...storyboard,
         project_asset_ids: relationIds(this.db, 'storyboard_project_assets', 'project_asset_id', storyboard.id),
         extra_reference_images: parseJson<string[]>(String(storyboard.extra_reference_images), []),
+        image_recipe_references: parseJson<string[]>(String(storyboard.image_recipe_references), []),
+        video_recipe_references: parseJson<string[]>(String(storyboard.video_recipe_references), []),
       })),
     }));
     drama.project_assets = (this.db.prepare('SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id').all(id) as ProjectAssetRow[])

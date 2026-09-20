@@ -1,4 +1,5 @@
 import {
+  BuildOutlined,
   CloudUploadOutlined,
   DeleteOutlined,
   DownOutlined,
@@ -14,7 +15,7 @@ import { useSearchParams } from 'react-router-dom'
 import { mediaHistoryApi, uploadsApi, type MediaGenerationHistory } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
-import type { AssetKind, AssetTextProfile, ProjectAsset } from '../../types/domain'
+import type { AssetKind, AssetOutputType, AssetTextProfile, ProjectAsset } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { useAnnounceGenerationOutcomes } from '../generation/useAnnounceGenerationOutcomes'
@@ -26,6 +27,7 @@ type AssetFilter = 'all' | AssetKind
 interface AssetFormValues {
   name?: string
   text_profile?: AssetTextProfile
+  output_type?: AssetOutputType
   output_prompt?: string
   input_reference_images?: string[]
 }
@@ -33,8 +35,6 @@ interface AssetFormValues {
 interface ProfileField {
   key: string
   label: string
-  list?: boolean
-  multiline?: boolean
 }
 
 interface ProfileGroup {
@@ -45,21 +45,39 @@ interface ProfileGroup {
 const labels: Record<AssetKind, string> = { character: '角色卡', scene: '场景卡', prop: '道具卡' }
 const profileGroups: Record<AssetKind, ProfileGroup[]> = {
   character: [
-    { title: '身份', fields: [field('age', '年龄'), field('gender', '性别'), field('occupation', '职业'), field('faction', '阵营'), listField('identity_tags', '身份标签')] },
-    { title: '外形', fields: [field('face_shape', '脸型'), field('facial_features', '五官', true), field('hairstyle', '发型'), field('body_type', '体型'), field('skin_tone', '肤色')] },
-    { title: '服装与神态', fields: [field('default_outfit', '默认穿搭', true), field('personality', '性格'), field('common_expressions', '常见表情'), field('aura', '气场')] },
-    { title: '声音', fields: [field('voice_tone_id', '音色 ID'), field('speech_rate', '语速'), field('accent', '口音'), field('signature_phrase', '标志性语气', true)] },
+    { title: '身份', fields: [field('age', '年龄'), field('gender', '性别'), field('occupation', '职业'), field('faction', '阵营')] },
+    { title: '外形', fields: [field('face_shape', '脸型'), field('facial_features', '五官'), field('hairstyle', '发型'), field('body_type', '体型'), field('skin_tone', '肤色')] },
+    { title: '服装与神态', fields: [field('default_outfit', '默认穿搭'), field('personality', '性格'), field('common_expressions', '常见表情'), field('aura', '气场')] },
+    { title: '声音', fields: [field('voice_tone_id', '音色 ID'), field('speech_rate', '语速'), field('accent', '口音'), field('signature_phrase', '标志性语气')] },
   ],
   scene: [
-    { title: '空间', fields: [field('location_type', '地点类型'), field('layout', '布局', true), field('architectural_style', '建筑风格'), field('scale', '尺寸比例')] },
+    { title: '空间', fields: [field('location_type', '地点类型'), field('layout', '布局'), field('architectural_style', '建筑风格'), field('scale', '尺寸比例')] },
     { title: '光影', fields: [field('time_of_day', '时间段'), field('light_source', '光源'), field('color_temperature', '色温'), field('contrast', '明暗对比')] },
-    { title: '陈设', fields: [listField('key_furniture', '关键家具'), listField('props', '道具'), listField('decorations', '装饰'), listField('vegetation', '植被')] },
+    { title: '陈设', fields: [field('key_furniture', '陈设'), field('props', '道具'), field('decorations', '装饰'), field('vegetation', '植被')] },
     { title: '氛围', fields: [field('palette', '色调'), field('emotion', '情绪'), field('weather', '天气')] },
   ],
   prop: [
     { title: '物理', fields: [field('category', '类别'), field('size', '尺寸'), field('material', '材质'), field('color', '颜色'), field('shape', '形状')] },
-    { title: '细节', fields: [field('condition', '新旧程度'), field('special_marks', '特殊标记', true), field('unique_design', '独特设计', true)] },
-    { title: '状态', fields: [field('default_state', '默认状态'), listField('interaction_states', '互动状态'), listField('bindings', '绑定关系')] },
+    { title: '细节', fields: [field('condition', '新旧程度'), field('special_marks', '特殊标记'), field('unique_design', '独特设计')] },
+    { title: '状态', fields: [field('default_state', '默认状态'), field('interaction_states', '互动状态'), field('bindings', '绑定关系')] },
+  ],
+}
+
+const outputTypeOptions: Record<AssetKind, Array<{ value: AssetOutputType; label: string }>> = {
+  character: [
+    { value: 'character-layout-a', label: 'A 三栏三视图' },
+    { value: 'character-layout-b', label: 'B 左脸右身' },
+    { value: 'character-layout-c', label: 'C 4+3 双层' },
+    { value: 'character-layout-d', label: 'D 7 图锚点组' },
+  ],
+  scene: [
+    { value: 'scene-panorama', label: '空间全景' },
+    { value: 'scene-detail', label: '局部特写' },
+    { value: 'scene-lighting-variant', label: '光影变体' },
+  ],
+  prop: [
+    { value: 'prop-multi-angle', label: '多角度' },
+    { value: 'prop-state-variant', label: '状态变体' },
   ],
 }
 
@@ -73,6 +91,7 @@ export function AssetWorkspace() {
   const [activeKind, setActiveKind] = useState<AssetFilter>(() => parseKindFilter(searchParams.get('kind')))
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
+  const [assemblingId, setAssemblingId] = useState<number>()
   const [submissions, setSubmissions] = useState<Record<number, AssetGenerationState>>({})
   const submittingIds = useRef(new Set<number>())
   const drafts = useRef(new Map<number, AssetFormValues>())
@@ -120,6 +139,7 @@ export function AssetWorkspace() {
     if (selected) form.setFieldsValue(drafts.current.get(selected.id) ?? {
       name: selected.name,
       text_profile: selected.text_profile,
+      output_type: selected.output_type,
       output_prompt: selected.output_prompt,
       input_reference_images: selected.input_reference_images,
     })
@@ -156,6 +176,34 @@ export function AssetWorkspace() {
     } catch (reason) {
       if (announce && !(reason && typeof reason === 'object' && 'errorFields' in reason)) notifyAppError({ message, modal }, reason)
       throw reason
+    }
+  }
+
+  const assemblePrompt = async () => {
+    if (!selected || assemblingId === selected.id) return
+    const assetId = selected.id
+    try {
+      await form.validateFields(['name', 'output_type'])
+      setAssemblingId(assetId)
+      const values = structuredClone(form.getFieldsValue(true))
+      const result = await workspaceApi.assembleAssetOutputPrompt(project.id, {
+        kind: selected.kind,
+        name: values.name,
+        text_profile: values.text_profile,
+        output_type: values.output_type,
+      })
+      const draft = drafts.current.get(assetId) ?? values
+      draft.output_type = result.output_type
+      draft.output_prompt = result.output_prompt
+      drafts.current.set(assetId, draft)
+      if (formAssetId.current === assetId) {
+        form.setFieldsValue({ output_type: result.output_type, output_prompt: result.output_prompt })
+      }
+      notifyAppSuccess(message, '提示词已组装，可继续编辑')
+    } catch (reason) {
+      if (!(reason && typeof reason === 'object' && 'errorFields' in reason)) notifyAppError({ message, modal }, reason)
+    } finally {
+      setAssemblingId((current) => current === assetId ? undefined : current)
     }
   }
 
@@ -299,12 +347,14 @@ export function AssetWorkspace() {
           references={references}
           generating={generating}
           deleting={deleting}
+          assembling={assemblingId === selected?.id}
           track={selectedTrack}
           state={selectedState}
           onDraftChange={rememberDraft}
           onSave={() => void save().catch(() => undefined)}
           onRemove={() => void remove()}
           onGenerate={() => void generate()}
+          onAssemble={() => void assemblePrompt()}
           onStop={() => selected && void tracker.cancel(assetImageKey(selected.id))}
           onSelectGeneration={(id) => void selectGeneration(id)}
           onUploadStandard={uploadStandard}
@@ -323,12 +373,14 @@ function AssetDetailPanel({
   references,
   generating,
   deleting,
+  assembling,
   track,
   state,
   onDraftChange,
   onSave,
   onRemove,
   onGenerate,
+  onAssemble,
   onStop,
   onSelectGeneration,
   onUploadStandard,
@@ -341,12 +393,14 @@ function AssetDetailPanel({
   references: string[]
   generating: boolean
   deleting: boolean
+  assembling: boolean
   track?: { startedAt: string; finishedAt?: string; status: string; progress?: number; message?: string }
   state?: AssetGenerationState
   onDraftChange: () => void
   onSave: () => void
   onRemove: () => void
   onGenerate: () => void
+  onAssemble: () => void
   onStop: () => void
   onSelectGeneration: (id: number) => void
   onUploadStandard: (file: File) => Promise<void>
@@ -374,16 +428,18 @@ function AssetDetailPanel({
         {profileGroups[selected.kind].map((group) => <section className="asset-profile-group" key={group.title}>
           <div className="asset-panel-heading"><strong>{group.title}</strong></div>
           <div className="asset-profile-grid">{group.fields.map((profileField) => <Form.Item key={profileField.key} name={['text_profile', profileField.key]} label={profileField.label}>
-            {profileField.list
-              ? <Select mode="tags" allowClear tokenSeparators={[',', '，']} placeholder="输入后回车" />
-              : profileField.multiline
-                ? <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
-                : <Input />}
+            <Input />
           </Form.Item>)}</div>
         </section>)}
         <section className="asset-output-prompt-panel">
           <div className="asset-panel-heading"><strong>产出层提示词</strong></div>
-          <Form.Item name="output_prompt" label="最终生成提示词" rules={[{ required: true, whitespace: true, message: '请填写最终生成提示词' }]} extra="生成标准图时使用这里的完整文本。可自由修改主体、布局和约束；资产资料修改后，请在这里同步需要的内容。">
+          <div className="asset-output-controls">
+            <Form.Item name="output_type" label="产出预设" rules={[{ required: true, message: '请选择产出预设' }]} extra="预设只在点击组装时读取，不会自动覆盖下方文本。">
+              <Select options={outputTypeOptions[selected.kind]} />
+            </Form.Item>
+            <Button icon={<BuildOutlined />} loading={assembling} onClick={onAssemble}>组装提示词</Button>
+          </div>
+          <Form.Item name="output_prompt" label="最终生成提示词" extra="生成标准图时使用这里保存的完整文本。可在组装后继续修改、完全重写，也可以不使用预设直接填写。">
             <Input.TextArea autoSize={{ minRows: 9, maxRows: 24 }} placeholder="直接描述要生成的标准资产图，包括主体、造型、布局与一致性要求。" />
           </Form.Item>
         </section>
@@ -423,16 +479,12 @@ function AssetStatusBadge({ state, hasImage }: { state?: AssetGenerationState; h
   return <span className={`asset-tile-status is-${status.tone}`} role="status" aria-live="polite" title={state?.message}>{status.label}</span>
 }
 
-function field(key: string, label: string, multiline = false): ProfileField {
-  return { key, label, multiline }
-}
-
-function listField(key: string, label: string): ProfileField {
-  return { key, label, list: true }
+function field(key: string, label: string): ProfileField {
+  return { key, label }
 }
 
 function profileSummary(profile: AssetTextProfile): string {
-  return Object.values(profile).flatMap((value) => Array.isArray(value) ? value : [value]).join(' · ')
+  return Object.values(profile).join(' · ')
 }
 
 function parseKindFilter(value: string | null): AssetFilter {

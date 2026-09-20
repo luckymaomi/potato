@@ -33,6 +33,10 @@ export interface Storyboard {
   dialogue?: string | null
   image_prompt?: string | null
   video_prompt?: string | null
+  image_recipe_prompt: string
+  video_recipe_prompt: string
+  image_recipe_references: string[]
+  video_recipe_references: string[]
   shot_size?: string | null
   camera_angle?: string | null
   camera_movement?: string | null
@@ -50,7 +54,7 @@ export interface Storyboard {
 
 export type AssetKind = 'character' | 'scene' | 'prop'
 
-export type AssetTextProfile = Record<string, string | string[]>
+export type AssetTextProfile = Record<string, string>
 export type AssetOutputType =
   | 'character-layout-a'
   | 'character-layout-b'

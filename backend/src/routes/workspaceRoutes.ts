@@ -6,6 +6,8 @@ import multer from 'multer';
 import { NotFoundError, ValidationError } from '../errors';
 import { created, success } from '../response';
 import type { ServiceContainer } from '../services/container';
+import { assembleAssetOutputPrompt } from '../services/assetOutputPromptAssembler';
+import { normalizeOutputType, normalizeStringArray, normalizeTextProfile } from '../services/assetRepository';
 import { assembleStoryboardRecipes } from '../services/storyboardPromptAssembler';
 import type { AppConfig } from '../types/core';
 import { readNumber, readString } from '../types/core';
@@ -55,6 +57,19 @@ export function workspaceRoutes(
     success(res, { items: services.assets.listProjectAssets(idParam(req), optionalKind(req.query.kind)) });
   });
   router.post('/dramas/:id/assets', (req, res) => created(res, services.assets.createProjectAsset(idParam(req), req.body)));
+  router.post('/dramas/:id/assets/assemble-output-prompt', (req, res) => {
+    services.projects.require(idParam(req));
+    const body = bodyRecord(req);
+    const kind = requiredAssetKind(body.kind);
+    const outputType = normalizeOutputType(kind, body.output_type);
+    const source = {
+      kind,
+      name: readString(body.name) ?? `未命名${assetLabel(kind)}卡`,
+      text_profile: normalizeTextProfile(kind, body.text_profile),
+      output_type: outputType,
+    };
+    success(res, { output_type: outputType, output_prompt: assembleAssetOutputPrompt(source) });
+  });
   router.patch('/dramas/:id/assets/:assetId', (req, res) => {
     const asset = requireProjectAsset(services, idParam(req), positive(req.params.assetId, '项目资产'));
     success(res, services.assets.updateProjectAsset(asset.id, req.body));
@@ -67,6 +82,7 @@ export function workspaceRoutes(
     const projectId = idParam(req);
     const asset = requireProjectAsset(services, projectId, positive(req.params.assetId, '项目资产'));
     const body = bodyRecord(req);
+    if (!asset.output_prompt.trim()) throw new ValidationError('请先组装或填写最终生成提示词并保存');
     created(res, services.images.create({
       dramaId: projectId,
       projectAssetId: asset.id,
@@ -114,6 +130,13 @@ export function workspaceRoutes(
     const storyboard = requireStoryboard(services, idParam(req), positive(req.params.storyboardId, '分镜'));
     success(res, services.assets.updateStoryboard(storyboard.id, req.body));
   });
+  router.post('/dramas/:id/storyboards/:storyboardId/assemble-recipes', (req, res) => {
+    const projectId = idParam(req);
+    const storyboard = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
+    const draft = storyboardRecipeDraft(storyboard, bodyRecord(req));
+    const assets = draft.project_asset_ids.map((assetId) => requireProjectAsset(services, projectId, assetId));
+    success(res, assembleStoryboardRecipes({ shot: draft, assets }));
+  });
   router.delete('/dramas/:id/storyboards/:storyboardId', (req, res) => {
     const storyboard = requireStoryboard(services, idParam(req), positive(req.params.storyboardId, '分镜'));
     success(res, { removed: services.assets.deleteStoryboard(storyboard.id) });
@@ -122,15 +145,15 @@ export function workspaceRoutes(
     const projectId = idParam(req);
     const shot = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
     const body = bodyRecord(req);
-    const recipe = compileRecipes(services, projectId, shot).imageRecipe;
+    if (!shot.image_recipe_prompt.trim()) throw new ValidationError('请先组装并保存图片配方');
     created(res, services.images.create({
       dramaId: projectId,
       storyboardId: shot.id,
-      prompt: recipe.imagePrompt,
+      prompt: shot.image_recipe_prompt,
       provider: readString(body.provider),
       model: readString(body.model),
       aspectRatio: readString(body.aspect_ratio),
-      referenceImages: recipe.imageReferences,
+      referenceImages: shot.image_recipe_references,
     }));
   });
   router.post('/dramas/:id/storyboards/:storyboardId/upload-image', upload.single('file'), asyncRoute(async (req, res) => {
@@ -161,17 +184,17 @@ export function workspaceRoutes(
     const generationId = shot.current_image_generation_id;
     const image = generationId ? services.images.get(generationId) : undefined;
     if (!image?.image_url || image.status !== 'completed') throw new ValidationError('请先完成并选择这一镜的分镜图');
-    const recipe = compileRecipes(services, projectId, shot).videoRecipe;
+    if (!shot.video_recipe_prompt.trim()) throw new ValidationError('请先组装并保存视频配方');
     success(res, services.videos.create({
       dramaId: projectId,
       storyboardId: shot.id,
-      prompt: recipe.videoPrompt,
+      prompt: shot.video_recipe_prompt,
       provider: readString(body.provider),
       model: readString(body.model),
       duration: readNumber(body.duration),
       aspectRatio: readString(body.aspect_ratio),
       firstFrame: image.image_url,
-      referenceImages: recipe.videoReferences,
+      referenceImages: shot.video_recipe_references,
     }));
   });
 
@@ -187,15 +210,6 @@ export function workspaceRoutes(
   });
 
   return router;
-}
-
-function compileRecipes(
-  services: Pick<ServiceContainer, 'assets'>,
-  projectId: number,
-  shot: StoryboardRow,
-) {
-  const assets = shot.project_asset_ids.map((id) => requireProjectAsset(services, projectId, id));
-  return assembleStoryboardRecipes({ shot, assets });
 }
 
 function selectEpisode(episodes: EpisodeRow[], rawId: unknown): EpisodeRow {
@@ -226,6 +240,52 @@ function optionalKind(value: unknown): AssetKind | undefined {
   if (value === undefined) return undefined;
   if (value === 'character' || value === 'scene' || value === 'prop') return value;
   throw new ValidationError('资产类型必须是 character、scene 或 prop');
+}
+
+function requiredAssetKind(value: unknown): AssetKind {
+  const kind = optionalKind(value);
+  if (!kind) throw new ValidationError('资产类型必须是 character、scene 或 prop');
+  return kind;
+}
+
+function assetLabel(kind: AssetKind): string {
+  return { character: '角色', scene: '场景', prop: '道具' }[kind];
+}
+
+function storyboardRecipeDraft(current: StoryboardRow, body: Record<string, unknown>): StoryboardRow {
+  const text = (key: keyof StoryboardRow): string | null => {
+    if (body[key] === undefined) return current[key] as string | null;
+    return readString(body[key]) ?? null;
+  };
+  const assetIds = body.project_asset_ids === undefined
+    ? current.project_asset_ids
+    : uniquePositiveNumbers(body.project_asset_ids);
+  const extraReferences = body.extra_reference_images === undefined
+    ? current.extra_reference_images
+    : normalizeStringArray(body.extra_reference_images);
+  return {
+    ...current,
+    title: text('title'),
+    description: text('description'),
+    action: text('action'),
+    dialogue: text('dialogue'),
+    image_prompt: text('image_prompt'),
+    video_prompt: text('video_prompt'),
+    shot_size: text('shot_size'),
+    camera_angle: text('camera_angle'),
+    camera_movement: text('camera_movement'),
+    composition: text('composition'),
+    lighting: text('lighting'),
+    mood: text('mood'),
+    sound: text('sound'),
+    project_asset_ids: assetIds,
+    extra_reference_images: extraReferences,
+  };
+}
+
+function uniquePositiveNumbers(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(readNumber).filter((item): item is number => Boolean(item && Number.isInteger(item) && item > 0)))];
 }
 
 function positive(value: unknown, label: string): number {

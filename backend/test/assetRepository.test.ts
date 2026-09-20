@@ -25,7 +25,7 @@ test('项目资产库保存三类结构化卡和各自的生成输入参考图',
       name: '红女王（加冕）',
       text_profile: {
         age: '32岁', gender: '女', occupation: '夜城女王', faction: '王党',
-        identity_tags: ['复仇者', '统治者'], face_shape: '冷峻鹅蛋脸', facial_features: '细长眼与高鼻梁',
+        face_shape: '冷峻鹅蛋脸', facial_features: '细长眼与高鼻梁',
         hairstyle: '黑色盘发', body_type: '高挑', skin_tone: '冷白', default_outfit: '深红加冕礼服',
         personality: '克制锋利', common_expressions: '审视', aura: '威严', voice_tone_id: 'queen-low',
         speech_rate: '缓慢', accent: '标准普通话', signature_phrase: '这座城，从来不是你的。',
@@ -113,14 +113,13 @@ test('同项目各集复用同一资产 ID，分镜关系只保存当前项目�
   } finally { db.close(); }
 });
 
-test('独立产出提示词保留用户文本，资料更新后仍可读取同一份文本', () => {
+test('新建资产卡等待用户显式组装，并保留之后保存的用户文本', () => {
   const { db, projectId, assets } = setup();
   try {
     const card = assets.createProjectAsset(projectId, {
       kind: 'character', name: '林岚', text_profile: { hairstyle: '短发' },
     });
-    assert.match(card.output_prompt, /林岚.*短发/u);
-    assert.match(card.output_prompt, /同一张脸、同一发型、同一服装/u);
+    assert.equal(card.output_prompt, '');
     const prompt = '  用户手写的构图\n保持雀斑、短发和深蓝外套。\n';
     assets.updateProjectAsset(card.id, { output_prompt: prompt });
     const updated = assets.updateProjectAsset(card.id, {
@@ -137,14 +136,14 @@ test('更新资产卡会规范化结构化文本和参考图数组', () => {
     const card = assets.createProjectAsset(projectId, { kind: 'prop', name: '王冠' });
     const updated = assets.updateProjectAsset(card.id, {
       name: '血色王冠',
-      text_profile: { material: ' 暗金 ', color: '', interaction_states: ['手持', '放置', '手持', ' '] },
+      text_profile: { material: ' 暗金 ', color: '', interaction_states: '手持、放置' },
       output_type: 'prop-state-variant',
       output_prompt: '  暗金王冠破损状态，多角度清晰呈现。  ',
       input_reference_images: [' /static/uploads/crown.png ', '/static/uploads/crown.png', ''],
     });
 
     assert.equal(updated.name, '血色王冠');
-    assert.deepEqual(updated.text_profile, { material: '暗金', interaction_states: ['手持', '放置'] });
+    assert.deepEqual(updated.text_profile, { material: '暗金', interaction_states: '手持、放置' });
     assert.equal(updated.output_type, 'prop-state-variant');
     assert.equal(updated.output_prompt, '  暗金王冠破损状态，多角度清晰呈现。  ');
     assert.deepEqual(updated.input_reference_images, ['/static/uploads/crown.png']);
@@ -170,6 +169,10 @@ test('分镜保存人工规格、项目资产和本镜额外参考图', () => {
       sound: '暴雨与王冠轻响',
       image_prompt: '电影感宫廷近景',
       video_prompt: '从静止到缓慢抬手',
+      image_recipe_prompt: '用户确认的宫廷近景图片配方',
+      video_recipe_prompt: '用户确认的缓慢抬手视频配方',
+      image_recipe_references: ['/static/assets/queen.png', '/static/uploads/pose.png'],
+      video_recipe_references: ['/static/assets/queen.png'],
       project_asset_ids: [queen.id],
       extra_reference_images: ['/static/uploads/pose.png', '/static/uploads/light.png'],
     });
@@ -177,6 +180,8 @@ test('分镜保存人工规格、项目资产和本镜额外参考图', () => {
     assert.deepEqual(assets.getStoryboard(shot.id), shot);
     assert.deepEqual(shot.project_asset_ids, [queen.id]);
     assert.deepEqual(shot.extra_reference_images, ['/static/uploads/pose.png', '/static/uploads/light.png']);
+    assert.deepEqual(shot.image_recipe_references, ['/static/assets/queen.png', '/static/uploads/pose.png']);
+    assert.deepEqual(shot.video_recipe_references, ['/static/assets/queen.png']);
   } finally { db.close(); }
 });
 

@@ -167,6 +167,8 @@ button, input, textarea { font: inherit; }
 .asset-standard-stage > .asset-tile-status { top: 10px; bottom: auto; }
 .asset-output-prompt-panel { padding: 14px; background: #f1f5fb; border: 1px solid #c6d4e8; border-radius: 9px; }
 .asset-output-prompt-panel textarea { line-height: 1.7; }
+.asset-output-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.asset-output-controls > .ant-btn { margin-top: 2px; }
 .asset-tile-body { padding: 12px; }
 .asset-tile-body > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
 .asset-tile-body > p { height: 36px; margin: 6px 0 10px; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 18px; }
@@ -295,6 +297,11 @@ button, input, textarea { font: inherit; }
 .director-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .director-form-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .director-help-copy { margin: 0 0 10px !important; font-size: 11px; }
+.director-assemble-button { margin: 4px 0 8px; }
+.director-recipe-references { margin: -2px 0 14px; padding: 9px; background: #f5f7f9; border: 1px solid #dfe3e6; border-radius: 6px; }
+.director-recipe-references > div:first-child { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; color: #626a72; font-size: 11px; }
+.director-recipe-references > div:last-child { display: flex; flex-wrap: wrap; gap: 6px; }
+.director-recipe-references .ant-image, .director-recipe-references img { object-fit: cover; border-radius: 4px; }
 .director-inspector-footer { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: #f7f8f9; border: 1px solid #e0e3e6; border-radius: 9px; }
 .director-inspector-footer > span { color: var(--muted); font-size: 11px; }
 
@@ -373,6 +380,7 @@ button, input, textarea { font: inherit; }
   .director-stage, .director-inspector { min-height: 620px; }
   .director-asset-palette { grid-template-columns: 1fr; }
   .director-form-grid, .director-form-grid-three { grid-template-columns: 1fr; }
+  .asset-output-controls { grid-template-columns: 1fr; }
   .production-shot-grid { grid-template-columns: 1fr; }
   .production-status-counts, .production-footer-note { align-items: flex-start; flex-direction: column; }
 }

@@ -2,11 +2,10 @@ import { NotFoundError, ValidationError } from '../errors';
 import type { Logger, SQLiteDatabase } from '../types/core';
 import { asRecord, parseJson, readNumber, readString } from '../types/core';
 import type { AssetKind, AssetOutputType, AssetTextProfile, EpisodeRow, ProjectAssetRow, StoryboardRow } from '../types/domain';
-import { assembleAssetOutputPrompt } from './assetOutputPromptAssembler';
 
 const PROFILE_FIELDS: Record<AssetKind, readonly string[]> = {
   character: [
-    'age', 'gender', 'occupation', 'faction', 'identity_tags',
+    'age', 'gender', 'occupation', 'faction',
     'face_shape', 'facial_features', 'hairstyle', 'body_type', 'skin_tone',
     'default_outfit', 'personality', 'common_expressions', 'aura',
     'voice_tone_id', 'speech_rate', 'accent', 'signature_phrase',
@@ -58,9 +57,7 @@ export class AssetRepository {
     const name = readString(body.name) ?? `未命名${assetLabel(kind)}`;
     const textProfile = normalizeTextProfile(kind, body.text_profile);
     const outputType = normalizeOutputType(kind, body.output_type);
-    const outputPrompt = body.output_prompt === undefined
-      ? assembleAssetOutputPrompt({ kind, name, text_profile: textProfile, output_type: outputType })
-      : requiredOutputPrompt(body.output_prompt);
+    const outputPrompt = body.output_prompt === undefined ? '' : outputPromptValue(body.output_prompt);
     const now = new Date().toISOString();
     const result = this.db.prepare(`
       INSERT INTO project_assets (
@@ -99,7 +96,7 @@ export class AssetRepository {
       : normalizeStringArray(body.input_reference_images);
     const outputPrompt = body.output_prompt === undefined
       ? current.output_prompt
-      : requiredOutputPrompt(body.output_prompt);
+      : outputPromptValue(body.output_prompt);
     this.db.prepare(`
       UPDATE project_assets
       SET name = ?, text_profile = ?, output_type = ?, output_prompt = ?, input_reference_images = ?, updated_at = ?
@@ -145,8 +142,9 @@ export class AssetRepository {
       INSERT INTO storyboards (
         episode_id, storyboard_number, title, description, action, dialogue,
         shot_size, camera_angle, camera_movement, composition, lighting, mood, sound,
-        image_prompt, video_prompt, extra_reference_images, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        image_prompt, video_prompt, image_recipe_prompt, video_recipe_prompt,
+        image_recipe_references, video_recipe_references, extra_reference_images, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       episodeId,
       number,
@@ -163,6 +161,10 @@ export class AssetRepository {
       textOrNull(body.sound),
       textOrNull(body.image_prompt),
       textOrNull(body.video_prompt),
+      promptValue(body.image_recipe_prompt),
+      promptValue(body.video_recipe_prompt),
+      JSON.stringify(normalizeStringArray(body.image_recipe_references)),
+      JSON.stringify(normalizeStringArray(body.video_recipe_references)),
       JSON.stringify(normalizeStringArray(body.extra_reference_images)),
       now,
       now,
@@ -181,10 +183,17 @@ export class AssetRepository {
     const extraReferences = body.extra_reference_images === undefined
       ? current.extra_reference_images
       : normalizeStringArray(body.extra_reference_images);
+    const imageRecipeReferences = body.image_recipe_references === undefined
+      ? current.image_recipe_references
+      : normalizeStringArray(body.image_recipe_references);
+    const videoRecipeReferences = body.video_recipe_references === undefined
+      ? current.video_recipe_references
+      : normalizeStringArray(body.video_recipe_references);
     this.db.prepare(`
       UPDATE storyboards SET storyboard_number = ?, title = ?, description = ?, action = ?, dialogue = ?,
         shot_size = ?, camera_angle = ?, camera_movement = ?, composition = ?, lighting = ?, mood = ?, sound = ?,
-        image_prompt = ?, video_prompt = ?, extra_reference_images = ?, updated_at = ?
+        image_prompt = ?, video_prompt = ?, image_recipe_prompt = ?, video_recipe_prompt = ?,
+        image_recipe_references = ?, video_recipe_references = ?, extra_reference_images = ?, updated_at = ?
       WHERE id = ?
     `).run(
       readNumber(body.storyboard_number) ?? current.storyboard_number,
@@ -201,6 +210,10 @@ export class AssetRepository {
       optionalText(body, 'sound', current.sound),
       optionalText(body, 'image_prompt', current.image_prompt),
       optionalText(body, 'video_prompt', current.video_prompt),
+      optionalPrompt(body, 'image_recipe_prompt', current.image_recipe_prompt),
+      optionalPrompt(body, 'video_recipe_prompt', current.video_recipe_prompt),
+      JSON.stringify(imageRecipeReferences),
+      JSON.stringify(videoRecipeReferences),
       JSON.stringify(extraReferences),
       new Date().toISOString(),
       id,
@@ -262,6 +275,8 @@ export class AssetRepository {
       ...row,
       project_asset_ids: relationIds(this.db, row.id),
       extra_reference_images: parseJson<string[]>(row.extra_reference_images, []),
+      image_recipe_references: parseJson<string[]>(row.image_recipe_references, []),
+      video_recipe_references: parseJson<string[]>(row.video_recipe_references, []),
     };
   }
 
@@ -279,8 +294,10 @@ interface RawProjectAsset extends Omit<ProjectAssetRow, 'text_profile' | 'input_
   input_reference_images: string;
 }
 
-interface RawStoryboard extends Omit<StoryboardRow, 'project_asset_ids' | 'extra_reference_images'> {
+interface RawStoryboard extends Omit<StoryboardRow, 'project_asset_ids' | 'extra_reference_images' | 'image_recipe_references' | 'video_recipe_references'> {
   extra_reference_images: string;
+  image_recipe_references: string;
+  video_recipe_references: string;
 }
 
 function hydrateProjectAsset(row: RawProjectAsset): ProjectAssetRow {
@@ -317,15 +334,13 @@ export function normalizeTextProfile(kind: AssetKind, value: unknown): AssetText
   const result: AssetTextProfile = {};
   for (const key of PROFILE_FIELDS[kind]) {
     const raw = source[key];
+    if (raw === undefined || raw === null || raw === '') continue;
     if (typeof raw === 'string') {
       const cleaned = raw.trim();
       if (cleaned) result[key] = cleaned;
       continue;
     }
-    if (Array.isArray(raw)) {
-      const cleaned = normalizeStringArray(raw);
-      if (cleaned.length) result[key] = cleaned;
-    }
+    throw new ValidationError(`${assetLabel(kind)}卡字段 ${key} 必须是文本`);
   }
   return result;
 }
@@ -341,9 +356,19 @@ export function normalizeOutputType(kind: AssetKind, value: unknown): AssetOutpu
   throw new ValidationError(`${assetLabel(kind)}卡产出类型无效`);
 }
 
-function requiredOutputPrompt(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim()) throw new ValidationError('最终生成提示词不能为空');
+function outputPromptValue(value: unknown): string {
+  if (typeof value !== 'string') throw new ValidationError('最终生成提示词必须是文本');
   return value;
+}
+
+function promptValue(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new ValidationError('分镜最终提示词必须是文本');
+  return value;
+}
+
+function optionalPrompt(body: Record<string, unknown>, key: string, current: string): string {
+  return body[key] === undefined ? current : promptValue(body[key]);
 }
 
 function textOrNull(value: unknown): string | null {

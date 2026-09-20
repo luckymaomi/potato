@@ -18,7 +18,7 @@ export interface StoryboardRecipeInput {
 
 const PROFILE_FIELDS: Record<AssetKind, ReadonlyArray<readonly [string, string]>> = {
   character: [
-    ['age', '年龄'], ['gender', '性别'], ['occupation', '职业'], ['faction', '阵营'], ['identity_tags', '身份标签'],
+    ['age', '年龄'], ['gender', '性别'], ['occupation', '职业'], ['faction', '阵营'],
     ['face_shape', '脸型'], ['facial_features', '五官'], ['hairstyle', '发型'], ['body_type', '体型'], ['skin_tone', '肤色'],
     ['default_outfit', '默认穿搭'], ['personality', '性格'],
     ['common_expressions', '常见表情'], ['aura', '气场'], ['voice_tone_id', '音色 ID'], ['speech_rate', '语速'],
@@ -76,7 +76,7 @@ export function assembleStoryboardRecipes({ shot, assets }: StoryboardRecipeInpu
 export function compileAssetTextBlock(asset: Pick<ProjectAssetRow, 'kind' | 'name' | 'text_profile'>): string {
   const fields = PROFILE_FIELDS[asset.kind].flatMap(([key, label]) => {
     const raw = asset.text_profile[key];
-    const value = Array.isArray(raw) ? raw.join('、') : clean(raw);
+    const value = clean(raw);
     return value ? [`${label}：${value}`] : [];
   });
   const prefix = `${assetLabel(asset.kind)}卡「${asset.name}」`;
