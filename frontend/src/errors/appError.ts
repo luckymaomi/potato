@@ -110,7 +110,7 @@ type PresentationRule = { title: string; action: string; guidance: ErrorPresenta
 
 const STATUS_PRESENTATIONS: Record<number, PresentationRule> = {
   400: { title: '请求内容有误', action: '请检查输入、模型和生成参数后重试。', guidance: 'input' },
-  401: { title: '身份验证失败', action: '请打开「AI 配置」，检查根 config.yaml 中的 API Key 后重试。', guidance: 'config' },
+  401: { title: '身份验证失败', action: '请打开「AI 配置」，检查根 config.yaml 中的供应商密钥后重试。', guidance: 'config' },
   403: { title: '当前账号无权调用', action: '请检查供应商权限、模型权限或账户状态。', guidance: 'config' },
   404: { title: '请求的资源不存在', action: '请刷新模型目录，并检查项目、记录或接口地址。', guidance: 'input' },
   408: { title: '请求等待超时', action: '本次运行已终止，请稍后重新运行。', guidance: 'retry' },
@@ -129,7 +129,7 @@ const CODE_PRESENTATIONS: Record<string, PresentationRule> = {
   FILE_TOO_LARGE: STATUS_PRESENTATIONS[413],
   NETWORK_ERROR: { title: '网络连接失败', action: '请确认前后端和网络可用后重新运行。', guidance: 'retry' },
   timeout: STATUS_PRESENTATIONS[504],
-  configuration: { title: 'AI 配置不完整', action: '请打开「AI 配置」，填写 API Key 并刷新模型目录。', guidance: 'config' },
+  configuration: { title: 'AI 配置不完整', action: '请打开「AI 配置」，填写供应商密钥并刷新模型目录。', guidance: 'config' },
   unsupported_capability: { title: '当前模型不支持此能力', action: '请到「AI 配置」选择支持当前生成方式、参考图数量和画幅的模型。', guidance: 'config' },
   invalid_response: { title: 'AI 返回内容无法识别', action: '请稍后重试；若持续发生，请到「AI 配置」切换模型或供应商。', guidance: 'retry' },
   VALIDATION_ERROR: { title: '当前无法执行', action: '请按提示检查配置或输入后重试。', guidance: 'input' },
@@ -139,7 +139,7 @@ const CODE_PRESENTATIONS: Record<string, PresentationRule> = {
 const MESSAGE_PRESENTATIONS: Array<{ pattern: RegExp; rule: PresentationRule }> = [
   {
     pattern: /尚未配置\s*API\s*Key|未配置\s*API\s*密钥/i,
-    rule: { title: 'API Key 未配置', action: '请打开顶部「AI 配置」，在 config.yaml 中填写对应供应商密钥，再回来重试。', guidance: 'config' },
+    rule: { title: '供应商密钥未配置', action: '请打开顶部「AI 配置」，在 config.yaml 中填写对应供应商密钥，再回来重试。', guidance: 'config' },
   },
   {
     pattern: /尚未同步可用的|请先打开\s*AI\s*配置刷新模型目录|实时目录中没有|不在实时目录|没有可用的/,

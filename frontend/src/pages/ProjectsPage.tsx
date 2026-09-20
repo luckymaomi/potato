@@ -228,7 +228,7 @@ export function ProjectsPage() {
           <Upload accept=".zip" showUploadList={false} beforeUpload={importProject}>
             <Button icon={<ImportOutlined />}>导入项目</Button>
           </Upload>
-          <Button icon={<PlayCircleOutlined />} loading={creatingDemo} onClick={() => void openDemo()}>完整 Demo</Button>
+          <Button icon={<PlayCircleOutlined />} loading={creatingDemo} onClick={() => void openDemo()}>打开示例</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建项目</Button>
         </Space>
       </header>
@@ -240,7 +240,7 @@ export function ProjectsPage() {
           placeholder="搜索项目名称或说明"
           onSearch={(value) => { setLoading(true); void loadProjects(value) }}
         />
-        <span>{projects.length} 个分组</span>
+        <span>{projects.length} 个项目</span>
       </div>
 
       <div className="project-list-scroll">
@@ -262,7 +262,7 @@ export function ProjectsPage() {
                         </div>
                       </button>
                       <div className="project-group-actions">
-                        {project.metadata?.demo === true ? <Tag bordered={false}>Demo</Tag> : null}
+                        {project.metadata?.demo === true ? <Tag bordered={false}>示例</Tag> : null}
                         <Tooltip title="编辑"><Button type="text" icon={<EditOutlined />} aria-label="编辑项目" onClick={() => openEdit(project)} /></Tooltip>
                         <Tooltip title="导出"><Button type="text" icon={<DownloadOutlined />} aria-label="导出项目" onClick={() => void exportProject(project)} /></Tooltip>
                         <Popconfirm

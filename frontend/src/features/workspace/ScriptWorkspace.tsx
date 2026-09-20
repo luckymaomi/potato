@@ -54,7 +54,7 @@ export function ScriptWorkspace() {
         </Card>
         <Card title={episode.title} extra={<span className="script-editor-count">{scriptContent.length} 字</span>}>
           <Form.Item name="script_content" className="script-editor-field">
-            <Input.TextArea aria-label="本集剧本" placeholder="写下场次、动作和对白，也可以从故事总览生成。" />
+            <Input.TextArea aria-label="本集剧本" placeholder="写下场次、动作和对白。" />
           </Form.Item>
         </Card>
       </Form>

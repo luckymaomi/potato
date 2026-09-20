@@ -199,7 +199,7 @@ export function AssetWorkspace() {
       if (formAssetId.current === assetId) {
         form.setFieldsValue({ output_type: result.output_type, output_prompt: result.output_prompt })
       }
-      notifyAppSuccess(message, '提示词已组装，可继续编辑')
+      notifyAppSuccess(message, '提示词已组装')
     } catch (reason) {
       if (!(reason && typeof reason === 'object' && 'errorFields' in reason)) notifyAppError({ message, modal }, reason)
     } finally {
@@ -332,7 +332,7 @@ export function AssetWorkspace() {
                   </div>
                   <div className="asset-tile-body">
                     <strong>{item.name}</strong>
-                    <p>{profileSummary(item.text_profile) || '尚未填写文本结构'}</p>
+                    <p>{profileSummary(item.text_profile) || '资料待填写'}</p>
                     <div className="asset-tile-tags"><span>{labels[item.kind]}</span><span>{item.input_reference_images.length} 张输入参考图</span></div>
                   </div>
                 </button>
@@ -414,7 +414,7 @@ function AssetDetailPanel({
     <div className="asset-detail-scroll">
       <Form form={form} layout="vertical" className="asset-detail-form" onValuesChange={onDraftChange}>
         <div className="asset-standard-stage">
-          {selected.image_url ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.name} /> : <div className="asset-standard-empty"><SafetyCertificateOutlined /><strong>还没有标准资产图</strong><span>可上传本地图，或按卡片输入生成</span></div>}
+          {selected.image_url ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.name} /> : <div className="asset-standard-empty"><SafetyCertificateOutlined /><strong>还没有标准资产图</strong></div>}
           <AssetStatusBadge state={state} hasImage={Boolean(selected.image_url)} />
           <div className="asset-standard-status">
             <Tag color={selected.image_url ? 'green' : 'default'}>{selected.image_url ? '标准资产图' : '等待上传或生成'}</Tag>
@@ -432,25 +432,25 @@ function AssetDetailPanel({
           </Form.Item>)}</div>
         </section>)}
         <section className="asset-output-prompt-panel">
-          <div className="asset-panel-heading"><strong>产出层提示词</strong></div>
+          <div className="asset-panel-heading"><strong>生成提示词</strong></div>
           <div className="asset-output-controls">
-            <Form.Item name="output_type" label="产出预设" rules={[{ required: true, message: '请选择产出预设' }]} extra="预设只在点击组装时读取，不会自动覆盖下方文本。">
+            <Form.Item name="output_type" label="预设模板" rules={[{ required: true, message: '请选择预设模板' }]}>
               <Select options={outputTypeOptions[selected.kind]} />
             </Form.Item>
             <Button icon={<BuildOutlined />} loading={assembling} onClick={onAssemble}>组装提示词</Button>
           </div>
-          <Form.Item name="output_prompt" label="最终生成提示词" extra="生成标准图时使用这里保存的完整文本。可在组装后继续修改、完全重写，也可以不使用预设直接填写。">
-            <Input.TextArea autoSize={{ minRows: 9, maxRows: 24 }} placeholder="直接描述要生成的标准资产图，包括主体、造型、布局与一致性要求。" />
+          <Form.Item name="output_prompt" label="最终生成提示词">
+            <Input.TextArea autoSize={{ minRows: 9, maxRows: 24 }} placeholder="填写标准资产图提示词" />
           </Form.Item>
         </section>
         <section className="asset-generation-panel">
           <div className="asset-panel-heading"><strong>生成标准资产图</strong><RobotOutlined /></div>
           {track ? <GenerationElapsedTime startedAt={track.startedAt} finishedAt={track.finishedAt} active={active} progress={track.progress} message={track.message} /> : null}
-          <div className="asset-reference-heading"><span>生成输入参考图 · {references.length} 张</span><Upload showUploadList={false} accept="image/*" multiple customRequest={async ({ file, onSuccess, onError }) => {
+          <div className="asset-reference-heading"><span>输入参考图 · {references.length} 张</span><Upload showUploadList={false} accept="image/*" multiple customRequest={async ({ file, onSuccess, onError }) => {
             try { await onUploadInputReference(file as File); onSuccess?.(file) }
             catch (reason) { onError?.(reason as Error) }
           }}><Button size="small" icon={<CloudUploadOutlined />}>添加参考图</Button></Upload></div>
-          <div className="asset-reference-grid">{references.length ? references.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除参考图" onClick={() => onReferencesChange(references.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">还没有生成输入参考图</span>}</div>
+          <div className="asset-reference-grid">{references.length ? references.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除参考图" onClick={() => onReferencesChange(references.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">暂无输入参考图</span>}</div>
           <Space direction="vertical" style={{ width: '100%' }}>
             <Button type="primary" block loading={generating} onClick={onGenerate}>{generating ? assetGenerationStatus(state).label : '保存并生成标准图'}</Button>
             {active ? <Button block danger icon={<StopOutlined />} onClick={onStop}>停止生成</Button> : null}
@@ -461,7 +461,7 @@ function AssetDetailPanel({
           <List size="small" locale={{ emptyText: '还没有生成历史' }} dataSource={history} renderItem={(item) => <List.Item actions={item.status === 'completed' && item.available ? [<Button key="select" size="small" onClick={() => onSelectGeneration(item.id)}>选用这张</Button>] : []}>
             <List.Item.Meta
               avatar={item.image_url ? <Image width={48} height={48} src={mediaUrl(item.image_url)} /> : undefined}
-              title={<Space size={5}><Tag>{item.status}</Tag><span>{item.provider === 'local-upload' ? '本地上传' : (item.provider ?? '未提交')}</span></Space>}
+              title={<Space size={5}><Tag>{assetGenerationStatus({ status: item.status, message: item.error_msg ?? undefined }, Boolean(item.image_url)).label}</Tag><span>{item.provider === 'local-upload' ? '本地上传' : (item.provider ?? '未提交')}</span></Space>}
               description={item.status === 'pending' || item.status === 'processing'
                 ? <GenerationElapsedTime startedAt={item.created_at} active progress={undefined} message="进行中" />
                 : item.status === 'failed' ? item.error_msg : item.prompt || '无提示词'}

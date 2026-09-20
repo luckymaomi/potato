@@ -52,7 +52,7 @@ export function AiConfigPage() {
         ...refreshed,
       ])
       setProviders(await aiConfigsApi.providers())
-      message.success(`${provider.label} 已同步 ${refreshed.length} 个实时模型`)
+      message.success(`${provider.label} 已更新 ${refreshed.length} 个模型`)
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -98,8 +98,8 @@ export function AiConfigPage() {
       <section className="settings-surface model-preset-surface">
         <div className="model-preset-heading">
           <div>
-            <h2>默认模型预设</h2>
-            <Typography.Text type="secondary">{savingPresets ? '正在保存…' : '选择后自动保存'}</Typography.Text>
+            <h2>默认模型</h2>
+            {savingPresets ? <Typography.Text type="secondary">正在保存…</Typography.Text> : null}
           </div>
         </div>
         <div className="model-preset-grid">
@@ -113,7 +113,7 @@ export function AiConfigPage() {
                 loading={loading}
                 value={modelPresetKey(presets[type])}
                 options={presetOptions[type]}
-                placeholder="不预设（自动选择）"
+                placeholder="自动选择"
                 onChange={(value) => queueSavePresets({ ...presets, [type]: modelPresetFromKey(value) })}
               />
             </label>
@@ -127,8 +127,8 @@ export function AiConfigPage() {
           items={(Object.keys(serviceLabels) as ServiceType[]).map((key) => ({ key, label: `${serviceLabels[key]}模型` }))}
         />
         <div className="settings-toolbar">
-          <span>{visibleProviders.length} 个供应商支持{serviceLabels[serviceType]}能力</span>
-          <Typography.Text type="secondary">修改 config.yaml 后重启服务，再刷新模型目录</Typography.Text>
+          <span>{visibleProviders.length} 个供应商</span>
+          <Typography.Text type="secondary">修改 config.yaml 后请重启并刷新</Typography.Text>
         </div>
         <Table<ProviderCatalogStatus>
           rowKey="id"
@@ -149,18 +149,18 @@ export function AiConfigPage() {
                     </div>
                   ))}
                 </div>
-              ) : <Typography.Text type="secondary">尚未同步此类型的模型</Typography.Text>
+              ) : <Typography.Text type="secondary">暂无模型</Typography.Text>
             },
           }}
           columns={[
             { title: '供应商', dataIndex: 'label', render: (label) => <strong>{label}</strong> },
             {
-              title: '根配置',
+              title: '配置状态',
               dataIndex: 'configured',
               render: (configured, provider) => (
                 <Space size={6}>
                   <Tag color={provider.enabled ? 'green' : 'default'}>{provider.enabled ? '已启用' : '已停用'}</Tag>
-                  <Tag color={configured ? 'blue' : 'default'}>{configured ? 'Key 已配置' : 'Key 未配置'}</Tag>
+                  <Tag color={configured ? 'blue' : 'default'}>{configured ? '凭据已配置' : '凭据未配置'}</Tag>
                 </Space>
               ),
             },
@@ -177,7 +177,7 @@ export function AiConfigPage() {
               title: '操作',
               width: 120,
               render: (_, provider) => (
-                <Tooltip title="从供应商实时接口重新读取全部模型类型">
+                <Tooltip title="重新读取该供应商的模型">
                   <Button
                     icon={<ReloadOutlined />}
                     loading={refreshing.includes(provider.id)}

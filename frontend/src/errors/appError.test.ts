@@ -26,9 +26,9 @@ describe('统一错误展示', () => {
     expect(presentError(new Error('Network Error')).code).toBe('NETWORK_ERROR')
   })
 
-  it('把 API Key 与模型目录问题收成配置指引', () => {
+  it('把供应商密钥与模型目录问题收成配置指引', () => {
     const key = presentError(new Error('Agnes 尚未配置 API Key'))
-    expect(key.title).toBe('API Key 未配置')
+    expect(key.title).toBe('供应商密钥未配置')
     expect(key.guidance).toBe('config')
     expect(key.action).toContain('AI 配置')
 

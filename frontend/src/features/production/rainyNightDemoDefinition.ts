@@ -2,7 +2,7 @@ export const RAINY_NIGHT_DEMO = {
   templateId: 'crimson-crown-demo',
   contract: 'asset-output-pipeline-v3',
   project: {
-    title: '《红女王》制作 Demo',
+    title: '《红女王》制作示例',
     description: '红女王十年后以新身份回到夜城，带着红宝石王冠和旧日证据，让曾经背叛她的人一个个低头。',
     genre: '成人向宫廷复仇悬疑短剧',
     style: 'cinematic-gothic-mystery',

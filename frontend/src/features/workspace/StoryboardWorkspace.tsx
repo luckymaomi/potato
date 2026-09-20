@@ -184,7 +184,7 @@ export function StoryboardWorkspace() {
         image_recipe_references: recipes.imageRecipe.imageReferences,
         video_recipe_references: recipes.videoRecipe.videoReferences,
       })
-      notifyAppSuccess(message, '图片与视频配方已组装，可继续编辑')
+      notifyAppSuccess(message, '图片与视频提示词已组装')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
     } finally {
@@ -292,12 +292,12 @@ export function StoryboardWorkspace() {
 
       {!items.length ? (
         <Empty className="workspace-empty director-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有镜头">
-          <Space direction="vertical" align="center"><Typography.Text type="secondary">请手动加入第一镜并填写镜头规格。</Typography.Text><Button type="primary" icon={<PlusOutlined />} onClick={() => void create()}>加入第一镜</Button></Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => void create()}>加入第一镜</Button>
         </Empty>
       ) : (
         <div className="director-workbench">
           <aside className="director-shot-strip" aria-label="镜头带">
-            <div className="director-rail-header"><div><strong>镜头带</strong><span>按顺序</span></div><Tag>{items.length}</Tag></div>
+            <div className="director-rail-header"><strong>镜头带</strong><Tag>{items.length}</Tag></div>
             <div className="director-shot-list">{items.map((item) => (
               <ShotCard
                 key={item.id}
@@ -326,7 +326,6 @@ export function StoryboardWorkspace() {
                       ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.title || '分镜图'} className="director-frame-image" />
                       : <div className="director-frame-empty">
                         <strong>这一镜还没有分镜图</strong>
-                        <span>可上传本地图，或用 AI 生成</span>
                         {imageTrack ? <GenerationElapsedTime startedAt={imageTrack.startedAt} finishedAt={imageTrack.finishedAt} active={imageBusy} progress={imageTrack.progress} message={imageTrack.message} /> : null}
                         <Space wrap>
                           <Upload showUploadList={false} accept="image/jpeg,image/png,image/gif,image/webp" disabled={imageBusy} customRequest={async ({ file, onSuccess, onError }) => {
@@ -380,7 +379,7 @@ export function StoryboardWorkspace() {
             <aside className="director-inspector">
               {selected ? <Form form={form} layout="vertical" className="director-form">
                 <div className="director-inspector-heading">
-                  <div><span>镜头设置</span><strong>{selected.title || '未命名镜头'}</strong></div>
+                  <strong>{selected.title || '未命名镜头'}</strong>
                   <Tag color={imageReady ? 'green' : 'default'}>{imageReady ? '已有分镜图' : '待出图'}</Tag>
                 </div>
                 <Collapse bordered={false} defaultActiveKey={['story', 'camera', 'generation', 'recipes']} expandIconPosition="end">
@@ -394,32 +393,31 @@ export function StoryboardWorkspace() {
                   <Form.Item name="composition" label="构图"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="主体位置、前中后景" /></Form.Item>
                   <div className="director-form-grid director-form-grid-three"><Form.Item name="lighting" label="光线"><Input placeholder="雨夜霓虹" /></Form.Item><Form.Item name="mood" label="氛围"><Input placeholder="紧张 / 克制" /></Form.Item><Form.Item name="sound" label="声音"><Input placeholder="环境声 / 音效" /></Form.Item></div>
                 </Collapse.Panel>
-                <Collapse.Panel key="generation" header="配方组装输入">
-                  <Form.Item name="image_prompt" label="图片主干提示词"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="这一镜的静态主体描述；留空时回退剧情或标题" /></Form.Item>
-                  <Form.Item name="video_prompt" label="视频主干提示词"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="这一镜的运动描述；留空时回退剧情或标题" /></Form.Item>
+                <Collapse.Panel key="generation" header="提示词素材">
+                  <Form.Item name="image_prompt" label="图片描述"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="静态画面内容；留空时使用剧情或标题" /></Form.Item>
+                  <Form.Item name="video_prompt" label="视频描述"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="镜头运动内容；留空时使用剧情或标题" /></Form.Item>
                   <div className="asset-reference-heading"><span>本镜额外参考图 · {extraReferences.length} 张</span><Upload showUploadList={false} accept="image/*" multiple customRequest={async ({ file, onSuccess, onError }) => {
                     try { await uploadExtraReference(file as File); onSuccess?.(file) }
                     catch (reason) { onError?.(reason as Error) }
                   }}><Button size="small" icon={<CloudUploadOutlined />}>添加参考图</Button></Upload></div>
                   <div className="asset-reference-grid">{extraReferences.length ? extraReferences.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除本镜参考图" onClick={() => form.setFieldValue('extra_reference_images', extraReferences.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">还没有本镜额外参考图</span>}</div>
                 </Collapse.Panel>
-                <Collapse.Panel key="recipes" header="已组装的图片 / 视频配方">
-                  <Button className="director-assemble-button" block icon={<BuildOutlined />} loading={assemblingId === selected.id} onClick={() => void assembleRecipes()}>组装两份配方</Button>
-                  <Typography.Paragraph type="secondary" className="director-help-copy">点击后才读取当前镜头规格与已选资产；结果填入下方，可继续修改或重写。</Typography.Paragraph>
-                  <Form.Item name="image_recipe_prompt" label="图片最终提示词" extra="生成分镜图只消费保存后的这段文本。">
-                    <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="点击“组装两份配方”，或直接填写图片最终提示词。" />
+                <Collapse.Panel key="recipes" header="图片与视频提示词">
+                  <Button className="director-assemble-button" block icon={<BuildOutlined />} loading={assemblingId === selected.id} onClick={() => void assembleRecipes()}>组装提示词</Button>
+                  <Form.Item name="image_recipe_prompt" label="图片最终提示词">
+                    <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="填写图片提示词" />
                   </Form.Item>
-                  <RecipeReferences label="图片引用" values={imageRecipeReferences} />
-                  <Form.Item name="video_recipe_prompt" label="视频最终提示词" extra="生成镜头视频只消费保存后的这段文本，并使用当前分镜图作为首帧。">
-                    <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="点击“组装两份配方”，或直接填写视频最终提示词。" />
+                  <RecipeReferences label="图片参考图" values={imageRecipeReferences} />
+                  <Form.Item name="video_recipe_prompt" label="视频最终提示词">
+                    <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="填写视频提示词" />
                   </Form.Item>
-                  <RecipeReferences label="视频引用" values={videoRecipeReferences} />
+                  <RecipeReferences label="视频参考图" values={videoRecipeReferences} />
                   {aspectOptions.length ? (
-                    <Form.Item name="aspect_ratio" label="图片画幅" extra="选项来自当前图片模型目录，不是通用列表">
-                      <Select options={aspectOptions.map((value) => ({ value, label: value }))} placeholder="按当前图片模型能力" />
+                    <Form.Item name="aspect_ratio" label="图片画幅">
+                      <Select options={aspectOptions.map((value) => ({ value, label: value }))} placeholder="请选择画幅" />
                     </Form.Item>
                   ) : (
-                    <Typography.Text type="secondary" className="director-help-copy">当前图片模型目录未声明画幅，生成时不会伪造通用比例。</Typography.Text>
+                    <Typography.Text type="secondary">当前模型无可选图片画幅</Typography.Text>
                   )}
                   <Space wrap>
                     <Upload showUploadList={false} accept="image/jpeg,image/png,image/gif,image/webp" disabled={imageBusy} customRequest={async ({ file, onSuccess, onError }) => {
@@ -488,7 +486,7 @@ function ShotCard({
 function RecipeReferences({ label, values }: { label: string; values: string[] }) {
   return <div className="director-recipe-references">
     <div><strong>{label}</strong><span>{values.length} 张</span></div>
-    {values.length ? <div>{values.map((url) => <Image key={url} width={56} height={56} src={mediaUrl(url)} preview={{ mask: '查看' }} />)}</div> : <Typography.Text type="secondary">当前配方没有图片引用</Typography.Text>}
+    {values.length ? <div>{values.map((url) => <Image key={url} width={56} height={56} src={mediaUrl(url)} preview={{ mask: '查看' }} />)}</div> : <Typography.Text type="secondary">暂无参考图</Typography.Text>}
   </div>
 }
 

@@ -62,8 +62,8 @@ export function ProduceWorkspace() {
       const videoRatios = modelAspectRatioOptions(videoModel)
       const durations = modelDurationOptions(videoModel)
 
-      setImageAspectSummary(imageRatios.length ? imageRatios.join('、') : '目录未声明图片画幅')
-      setVideoAspectSummary(videoRatios.length ? videoRatios.join('、') : '目录未声明视频画幅')
+      setImageAspectSummary(imageRatios.length ? imageRatios.join('、') : '不可选')
+      setVideoAspectSummary(videoRatios.length ? videoRatios.join('、') : '不可选')
       setAspectOptions(videoRatios)
       setDurationOptions(durations)
     }).catch(() => {
@@ -236,11 +236,11 @@ export function ProduceWorkspace() {
         <div><span>图片画幅能力</span><strong>{imageAspectSummary}</strong></div>
         <div><span>视频模型</span><strong>{videoModelLabel}</strong></div>
         <div><span>视频画幅能力</span><strong>{videoAspectSummary}</strong></div>
-        <div><span>视频时长档位</span><strong>{durationOptions.length ? `${durationOptions.join('、')} 秒` : '目录未声明'}</strong></div>
+        <div><span>视频时长</span><strong>{durationOptions.length ? `${durationOptions.join('、')} 秒` : '不可选'}</strong></div>
       </div>
 
       {!items.length
-        ? <div className="production-empty"><Typography.Title level={4}>先排好分镜</Typography.Title><Typography.Text type="secondary">生产会读取分镜台里的镜头。请先到左侧「分镜台」排镜出图。</Typography.Text></div>
+        ? <div className="production-empty"><Typography.Title level={4}>暂无镜头</Typography.Title></div>
         : <div className="production-shot-grid">{items.map((shot) => (
           <ProductionShotCard
             key={shot.id}
@@ -258,7 +258,6 @@ export function ProduceWorkspace() {
           />
         ))}</div>}
 
-      <div className="production-footer-note"><span>每个镜头可单独选视频时长与视频画幅，选项只来自当前视频模型目录能力。图片画幅在分镜台选择。</span><span>整集会按镜头顺序合成，缺视频时不会生成成片。</span></div>
     </div>
   )
 }
