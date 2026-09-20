@@ -494,3 +494,15 @@
 ## 2026-09-19：红女王终场对白写入分镜字段
 
 - 第五镜“扶正王冠”将“这座城，从来不是你的。”写入 `dialogue` 字段，不再只放在剧情描述里；初始化回归断言保护该对白可被分镜规格组装器消费。
+
+## 2026-09-20：按《AI 短剧工作流》断裂式重建唯一主干
+
+- 调研 `reference/moyin-creator`、`reference/ai-short-drama`、`reference/comfyui-frontend` 和本地 Kitty 后，采用稳定字段顺序、空值过滤、项目 ID 隔离、文本/图片分通道、generation 与当前版本分离；不采用共享资产中心、多套提示词 builder、名称匹配或通用节点图。仓库及相邻目录没有 n8n 源码，因此没有补写无证据结论。
+- owner 已删除数据库，确认没有正式数据迁移约束后直接重建 schema：`project_assets` 成为唯一资产表，只保存角色卡、场景卡和道具卡；移除跨项目资产库、旧 `characters/scenes/props`、旧分镜关系表和旧 generation 目标外键。
+- 资产卡改为按类型校验的 `text_profile`、标准资产图生成输入 `input_reference_images`、标准图当前版本和 generation 历史。分镜新增 `extra_reference_images`，并只按当前项目资产 ID 保存关系。
+- 分镜台唯一编译器一次输出 `imageRecipe` 与 `videoRecipe`。资产文本进入 prompt；资产标准图和本镜额外参考图进入 references；资产卡原始输入参考图不向分镜传播。声音和对白只进入视频提示词。
+- 图片工作区入口只消费图片配方；视频入口只消费视频配方，并把已选分镜图作为独立首帧。前端生成请求不再发送最终 prompt 或 reference 数组。
+- 删除通用 production 命令入口、产品文本 AI 服务/提示词目录、AI 写剧本/提取资产/拆镜执行主干，以及相应前端 API/type。Provider 目录中的 text 能力仍作为供应商客观能力保留。
+- 项目 ZIP 升级为不兼容的 `format: 4`，只保存当前项目资产、分镜、generation、本地媒体和本地参考图；导入重建 ID、关系和本地路径。
+- 测试先建立 5 个旧实现失败证据，再以正向合同覆盖三类卡、项目隔离、双配方、文本/图片通道、独立首帧、媒体版本和 ZIP 往返。实现阶段未调用真实供应商。
+- 最终验证为后端 61 项测试、typecheck、build、lint 与前端 21 项测试、独立 typecheck、build、lint 全部退出码 0；本地无供应商烟测确认健康检查、项目列表、9 张三类资产卡、5 个分镜及前端深链可读取。保留前端 5 条 effect lint warning 和 Vite 大包体 warning；真实供应商、多参考图能力及浏览器人工视觉验收未执行。

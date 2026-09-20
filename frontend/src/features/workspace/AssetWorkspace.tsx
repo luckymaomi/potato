@@ -15,17 +15,52 @@ import { useSearchParams } from 'react-router-dom'
 import { mediaHistoryApi, uploadsApi, type MediaGenerationHistory } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
+import type { AssetKind, AssetTextProfile, ProjectAsset } from '../../types/domain'
+import { mediaUrl } from '../../utils/mediaUrl'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { useAnnounceGenerationOutcomes } from '../generation/useAnnounceGenerationOutcomes'
 import { assetImageKey, useGenerationTracker } from '../generation/useGenerationTracker'
-import type { AssetKind, ProjectAsset } from '../../types/domain'
-import { mediaUrl } from '../../utils/mediaUrl'
 import { useProjectWorkspace } from './workspaceContext'
 
 type AssetFilter = 'all' | AssetKind
+interface AssetFormValues {
+  name?: string
+  text_profile?: AssetTextProfile
+  input_reference_images?: string[]
+}
 
-const labels: Record<AssetKind, string> = { character: '人物', scene: '场景', prop: '道具' }
-const untaggedFilter = '__untagged__'
+interface ProfileField {
+  key: string
+  label: string
+  list?: boolean
+  multiline?: boolean
+}
+
+interface ProfileGroup {
+  title: string
+  fields: ProfileField[]
+}
+
+const labels: Record<AssetKind, string> = { character: '角色卡', scene: '场景卡', prop: '道具卡' }
+const profileGroups: Record<AssetKind, ProfileGroup[]> = {
+  character: [
+    { title: '身份', fields: [field('age', '年龄'), field('gender', '性别'), field('occupation', '职业'), field('faction', '阵营'), listField('identity_tags', '身份标签')] },
+    { title: '外形', fields: [field('face_shape', '脸型'), field('facial_features', '五官', true), field('hairstyle', '发型'), field('body_type', '体型'), field('skin_tone', '肤色')] },
+    { title: '服装与神态', fields: [field('default_outfit', '默认穿搭', true), listField('outfit_versions', '换装版本'), field('personality', '性格'), field('common_expressions', '常见表情'), field('aura', '气场')] },
+    { title: '声音', fields: [field('voice_tone_id', '音色 ID'), field('speech_rate', '语速'), field('accent', '口音'), field('signature_phrase', '标志性语气', true)] },
+  ],
+  scene: [
+    { title: '空间', fields: [field('location_type', '地点类型'), field('layout', '布局', true), field('architectural_style', '建筑风格'), field('scale', '尺寸比例')] },
+    { title: '光影', fields: [field('time_of_day', '时间段'), field('light_source', '光源'), field('color_temperature', '色温'), field('contrast', '明暗对比')] },
+    { title: '陈设', fields: [listField('key_furniture', '关键家具'), listField('props', '道具'), listField('decorations', '装饰'), listField('vegetation', '植被')] },
+    { title: '氛围', fields: [field('palette', '色调'), field('emotion', '情绪'), field('weather', '天气')] },
+  ],
+  prop: [
+    { title: '物理', fields: [field('category', '类别'), field('size', '尺寸'), field('material', '材质'), field('color', '颜色'), field('shape', '形状')] },
+    { title: '细节', fields: [field('condition', '新旧程度'), field('special_marks', '特殊标记', true), field('unique_design', '独特设计', true)] },
+    { title: '状态', fields: [field('default_state', '默认状态'), listField('interaction_states', '互动状态'), listField('state_versions', '状态版本'), listField('bindings', '绑定关系')] },
+  ],
+}
 
 export function AssetWorkspace() {
   const { message, modal } = App.useApp()
@@ -35,26 +70,20 @@ export function AssetWorkspace() {
   const [history, setHistory] = useState<MediaGenerationHistory[]>([])
   const [selectedId, setSelectedId] = useState<number>()
   const [activeKind, setActiveKind] = useState<AssetFilter>(() => parseKindFilter(searchParams.get('kind')))
-  const [activeTag, setActiveTag] = useState('')
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
-  const [references, setReferences] = useState<string[]>([])
   const [assetQueue, setAssetQueue] = useState<{ total: number; completed: number; current?: string; stopping?: boolean }>()
   const stopAssetQueueRef = useRef(false)
   const currentAssetQueueKeyRef = useRef<string>()
-  const [form] = Form.useForm<Partial<ProjectAsset>>()
+  const [form] = Form.useForm<AssetFormValues>()
+  const references = Form.useWatch('input_reference_images', { form, preserve: true }) ?? []
   const tracker = useGenerationTracker(project.id)
   useAnnounceGenerationOutcomes(tracker.tracks)
   const selected = useMemo(() => allAssets.find((item) => item.id === selectedId), [allAssets, selectedId])
   const itemHistory = useMemo(() => history.filter((item) => item.project_asset_id === selected?.id), [history, selected?.id])
   const selectedTrack = selected ? tracker.get(assetImageKey(selected.id)) : undefined
   const generating = selectedTrack?.status === 'pending' || selectedTrack?.status === 'processing'
-  const allTags = useMemo(() => [...new Set(allAssets.flatMap((item) => item.tags ?? []))].sort((left, right) => left.localeCompare(right, 'zh-CN')), [allAssets])
-  const filteredAssets = useMemo(() => allAssets.filter((item) => {
-    if (activeKind !== 'all' && item.kind !== activeKind) return false
-    if (activeTag === untaggedFilter) return !(item.tags?.length)
-    return !activeTag || item.tags?.includes(activeTag)
-  }), [activeKind, activeTag, allAssets])
+  const filteredAssets = useMemo(() => allAssets.filter((item) => activeKind === 'all' || item.kind === activeKind), [activeKind, allAssets])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -74,8 +103,14 @@ export function AssetWorkspace() {
   }, [message, modal, project.id])
 
   useEffect(() => { void load() }, [load])
-  useEffect(() => { form.setFieldsValue(selected ?? {}) }, [form, selected])
-  useEffect(() => { setReferences([]) }, [selected?.id])
+  useEffect(() => {
+    if (selected) form.setFieldsValue({
+      name: selected.name,
+      text_profile: selected.text_profile,
+      input_reference_images: selected.input_reference_images,
+    })
+    else form.resetFields()
+  }, [form, selected])
 
   const changeKind = (value: AssetFilter) => {
     setActiveKind(value)
@@ -87,7 +122,7 @@ export function AssetWorkspace() {
       const created = await workspaceApi.createAsset(project.id, { kind, name: `未命名${labels[kind]}` })
       await load()
       setSelectedId(created.id)
-      notifyAppSuccess(message, `已加入${labels[kind]}资产`)
+      notifyAppSuccess(message, `已新建${labels[kind]}`)
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
     }
@@ -96,9 +131,9 @@ export function AssetWorkspace() {
   const save = async (announce = true) => {
     if (!selected) return
     try {
-      await workspaceApi.updateAsset(project.id, selected.id, form.getFieldsValue())
+      await workspaceApi.updateAsset(project.id, selected.id, form.getFieldsValue(true))
       await load()
-      if (announce) notifyAppSuccess(message, '资产已保存')
+      if (announce) notifyAppSuccess(message, '资产卡已保存')
     } catch (reason) {
       if (announce) notifyAppError({ message, modal }, reason)
       throw reason
@@ -109,15 +144,8 @@ export function AssetWorkspace() {
     if (!selected) return
     try {
       await save(false)
-      const values = form.getFieldsValue()
-      const generation = await workspaceApi.generateAssetImage(project.id, selected.id, {
-        prompt: values.prompt ?? '',
-        reference_images: references,
-      })
-      if (!generation.task_id) {
-        notifyAppError({ message, modal }, new Error('已提交但未返回任务号，请打开「AI 配置」确认密钥与模型目录后重试'))
-        return
-      }
+      const generation = await workspaceApi.generateAssetImage(project.id, selected.id, {})
+      if (!generation.task_id) throw new Error('已提交但未返回任务号，请打开「AI 配置」确认密钥与模型目录后重试')
       tracker.watch({
         key: assetImageKey(selected.id),
         taskId: generation.task_id,
@@ -126,7 +154,7 @@ export function AssetWorkspace() {
         label: selected.name,
         startedAt: generation.created_at,
       })
-      notifyAppSuccess(message, '已开始生成资产图，可随时停止')
+      notifyAppSuccess(message, '已开始生成标准资产图，可随时停止')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
     }
@@ -136,7 +164,7 @@ export function AssetWorkspace() {
     if (assetQueue) return
     const pending = allAssets.filter((item) => !item.image_url)
     if (!pending.length) {
-      message.info('没有待生成的资产图')
+      message.info('没有待生成的标准资产图')
       return
     }
     stopAssetQueueRef.current = false
@@ -148,9 +176,7 @@ export function AssetWorkspace() {
         const key = assetImageKey(item.id)
         currentAssetQueueKeyRef.current = key
         try {
-          const generation = await workspaceApi.generateAssetImage(project.id, item.id, {
-            prompt: item.prompt ?? item.visual_description ?? item.description ?? '',
-          })
+          const generation = await workspaceApi.generateAssetImage(project.id, item.id, {})
           if (!generation.task_id) throw new Error('未返回任务号')
           tracker.watch({ key, taskId: generation.task_id, generationId: generation.id, kind: 'image', label: item.name, startedAt: generation.created_at })
           if (stopAssetQueueRef.current) await tracker.cancel(key)
@@ -183,7 +209,7 @@ export function AssetWorkspace() {
       await workspaceApi.removeAsset(project.id, selected.id)
       setSelectedId(undefined)
       await load()
-      notifyAppSuccess(message, '资产已删除')
+      notifyAppSuccess(message, '资产卡已删除')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
     } finally {
@@ -192,11 +218,10 @@ export function AssetWorkspace() {
   }
 
   const selectVersion = async (generationId: number) => {
-    if (!selected) return
     try {
       await mediaHistoryApi.selectImage(generationId)
       await load()
-      notifyAppSuccess(message, '已选用这张图片')
+      notifyAppSuccess(message, '已选用这张标准资产图')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
     }
@@ -205,13 +230,18 @@ export function AssetWorkspace() {
   const uploadStandard = async (file: File) => {
     if (!selected) return
     try {
-      await workspaceApi.uploadAssetImage(project.id, selected.id, file, form.getFieldValue('prompt'))
+      await workspaceApi.uploadAssetImage(project.id, selected.id, file)
       await load()
-      notifyAppSuccess(message, '已上传为标准图')
+      notifyAppSuccess(message, '已上传为标准资产图')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
       throw reason
     }
+  }
+
+  const uploadInputReference = async (file: File) => {
+    const uploaded = await uploadsApi.image(file, project.id)
+    form.setFieldValue('input_reference_images', [...new Set([...references, uploaded.url])])
   }
 
   useEffect(() => {
@@ -233,13 +263,13 @@ export function AssetWorkspace() {
   return (
     <div className="workspace-column asset-gallery-room">
       <div className="workspace-section-heading">
-        <Typography.Title level={2}>资产图</Typography.Title>
+        <Typography.Title level={2}>项目资产库</Typography.Title>
         <Space wrap>
           {assetQueue
             ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingAssets()}>停止逐项生成</Button>
-            : <Button icon={<PlayCircleOutlined />} onClick={() => void generatePendingAssets()}>生成未完成资产图</Button>}
+            : <Button icon={<PlayCircleOutlined />} onClick={() => void generatePendingAssets()}>生成未完成标准图</Button>}
           <Dropdown menu={{ items: kindItems, onClick: ({ key }) => void create(key as AssetKind) }}>
-            <Button type="primary" icon={<PlusOutlined />}>新建资产 <DownOutlined /></Button>
+            <Button type="primary" icon={<PlusOutlined />}>新建资产卡 <DownOutlined /></Button>
           </Dropdown>
         </Space>
       </div>
@@ -250,32 +280,25 @@ export function AssetWorkspace() {
         <div className="asset-panel-content">
           <div className="asset-gallery-toolbar">
             <div className="asset-kind-filters" aria-label="资产类型">
-              {typeOptions.map((option) => <button type="button" key={String(option.value)} className={activeKind === option.value ? 'is-active' : ''} aria-pressed={activeKind === option.value} onClick={() => changeKind(option.value as AssetFilter)}>{option.label}</button>)}
+              {typeOptions.map((option) => <button type="button" key={option.value} className={activeKind === option.value ? 'is-active' : ''} aria-pressed={activeKind === option.value} onClick={() => changeKind(option.value as AssetFilter)}>{option.label}</button>)}
             </div>
-            <span>{filteredAssets.length} 张资产图</span>
+            <span>{filteredAssets.length} 张资产卡</span>
           </div>
-
-          <div className="asset-tag-filter" aria-label="资产标签筛选">
-            <button type="button" className={!activeTag ? 'is-active' : ''} onClick={() => setActiveTag('')}>全部标签</button>
-            {allTags.map((tag) => <button type="button" key={tag} className={activeTag === tag ? 'is-active' : ''} onClick={() => setActiveTag(tag)}>{tag}</button>)}
-            <button type="button" className={activeTag === untaggedFilter ? 'is-active' : ''} onClick={() => setActiveTag(untaggedFilter)}>未分类</button>
-          </div>
-
           <div className="asset-gallery-scroll">
             <Spin spinning={loading}>
               {filteredAssets.length ? <div className="asset-gallery-grid">{filteredAssets.map((item) => (
-            <button type="button" className="asset-tile" key={item.id} onClick={() => setSelectedId(item.id)}>
-              <div className="asset-tile-image">
-                {item.image_url ? <img src={mediaUrl(item.image_url)} alt={item.name} /> : <div className="asset-tile-empty"><SafetyCertificateOutlined /><span>待生成标准图</span></div>}
-                <span className="asset-tile-status">{item.image_url ? '已有标准图' : '待生成'}</span>
-              </div>
-              <div className="asset-tile-body">
-                <strong>{item.name}</strong>
-                <p>{item.visual_description || '还没有图片描述'}</p>
-                <div className="asset-tile-tags">{item.tags?.length ? item.tags.map((tag) => <span key={tag}>{tag}</span>) : <span>未分类</span>}</div>
-              </div>
-            </button>
-              ))}</div> : !loading ? <Empty className="asset-gallery-empty" description="当前分类没有资产图"><Dropdown menu={{ items: kindItems, onClick: ({ key }) => void create(key as AssetKind) }}><Button type="primary" icon={<PlusOutlined />}>新建资产</Button></Dropdown></Empty> : null}
+                <button type="button" className={`asset-tile${item.id === selectedId ? ' is-selected' : ''}`} key={item.id} onClick={() => setSelectedId(item.id)}>
+                  <div className="asset-tile-image">
+                    {item.image_url ? <img src={mediaUrl(item.image_url)} alt={item.name} /> : <div className="asset-tile-empty"><SafetyCertificateOutlined /><span>待生成标准图</span></div>}
+                    <span className="asset-tile-status">{item.image_url ? '已有标准图' : '待生成'}</span>
+                  </div>
+                  <div className="asset-tile-body">
+                    <strong>{item.name}</strong>
+                    <p>{profileSummary(item.text_profile) || '尚未填写文本结构'}</p>
+                    <div className="asset-tile-tags"><span>{labels[item.kind]}</span><span>{item.input_reference_images.length} 张输入参考图</span></div>
+                  </div>
+                </button>
+              ))}</div> : !loading ? <Empty className="asset-gallery-empty" description="当前分类没有资产卡"><Dropdown menu={{ items: kindItems, onClick: ({ key }) => void create(key as AssetKind) }}><Button type="primary" icon={<PlusOutlined />}>新建资产卡</Button></Dropdown></Empty> : null}
             </Spin>
           </div>
         </div>
@@ -284,18 +307,17 @@ export function AssetWorkspace() {
           form={form}
           history={itemHistory}
           references={references}
-          projectId={project.id}
           generating={generating}
           deleting={deleting}
-          allTags={allTags}
           track={selectedTrack}
           onSave={() => void save()}
           onRemove={() => void remove()}
           onGenerate={() => void generate()}
           onStop={() => selected && void tracker.cancel(assetImageKey(selected.id))}
           onSelectVersion={(id) => void selectVersion(id)}
-          onUploadStandard={(file) => uploadStandard(file)}
-          onReferencesChange={setReferences}
+          onUploadStandard={uploadStandard}
+          onUploadInputReference={uploadInputReference}
+          onReferencesChange={(values) => form.setFieldValue('input_reference_images', values)}
         />
       </div>
     </div>
@@ -307,10 +329,8 @@ function AssetDetailPanel({
   form,
   history,
   references,
-  projectId,
   generating,
   deleting,
-  allTags,
   track,
   onSave,
   onRemove,
@@ -318,16 +338,15 @@ function AssetDetailPanel({
   onStop,
   onSelectVersion,
   onUploadStandard,
+  onUploadInputReference,
   onReferencesChange,
 }: {
   selected?: ProjectAsset
-  form: FormInstance<Partial<ProjectAsset>>
+  form: FormInstance<AssetFormValues>
   history: MediaGenerationHistory[]
   references: string[]
-  projectId: number
   generating: boolean
   deleting: boolean
-  allTags: string[]
   track?: { startedAt: string; finishedAt?: string; status: string; progress?: number; message?: string }
   onSave: () => void
   onRemove: () => void
@@ -335,50 +354,51 @@ function AssetDetailPanel({
   onStop: () => void
   onSelectVersion: (id: number) => void
   onUploadStandard: (file: File) => Promise<void>
+  onUploadInputReference: (file: File) => Promise<void>
   onReferencesChange: (values: string[]) => void
 }) {
-  if (!selected) return <aside className="asset-detail-panel asset-detail-panel-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一张资产图查看详情" /></aside>
+  if (!selected) return <aside className="asset-detail-panel asset-detail-panel-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一张资产卡查看详情" /></aside>
   const active = track?.status === 'pending' || track?.status === 'processing'
   return <aside className="asset-detail-panel">
-    <div className="asset-detail-header"><div><span>当前资产</span><strong>{selected.name}</strong></div><Button type="primary" onClick={onSave}>保存</Button></div>
+    <div className="asset-detail-header"><div><span>{labels[selected.kind]}</span><strong>{selected.name}</strong></div><Button type="primary" onClick={onSave}>保存</Button></div>
     <div className="asset-detail-scroll">
       <Form form={form} layout="vertical" className="asset-detail-form">
         <div className="asset-standard-stage">
-          {selected.image_url ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.name} /> : <div className="asset-standard-empty"><SafetyCertificateOutlined /><strong>还没有标准图</strong><span>可上传本地图，或用 AI 生成</span></div>}
+          {selected.image_url ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.name} /> : <div className="asset-standard-empty"><SafetyCertificateOutlined /><strong>还没有标准资产图</strong><span>可上传本地图，或按卡片输入生成</span></div>}
           <div className="asset-standard-status">
-            <Tag color={selected.image_url ? 'green' : 'default'}>{selected.image_url ? '标准图' : '等待上传或生成'}</Tag>
+            <Tag color={selected.image_url ? 'green' : 'default'}>{selected.image_url ? '标准资产图' : '等待上传或生成'}</Tag>
             <Upload showUploadList={false} accept="image/jpeg,image/png,image/gif,image/webp" customRequest={async ({ file, onSuccess, onError }) => {
-              try {
-                await onUploadStandard(file as File)
-                onSuccess?.(file)
-              } catch (reason) { onError?.(reason as Error) }
-            }}>
-              <Button size="small" icon={<CloudUploadOutlined />}>上传标准图</Button>
-            </Upload>
+              try { await onUploadStandard(file as File); onSuccess?.(file) }
+              catch (reason) { onError?.(reason as Error) }
+            }}><Button size="small" icon={<CloudUploadOutlined />}>上传标准图</Button></Upload>
           </div>
         </div>
-        <Form.Item name="name" label="名称"><Input /></Form.Item>
-        <Form.Item name="visual_description" label="图片描述"><Input.TextArea autoSize={{ minRows: 5, maxRows: 9 }} placeholder="描述标准图中真实呈现的内容。" /></Form.Item>
-        <Form.Item name="tags" label="分类标签"><Select mode="tags" allowClear tokenSeparators={[',', '，']} options={allTags.map((tag) => ({ value: tag, label: tag }))} placeholder="输入标签后回车，可添加多个" /></Form.Item>
+        <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: '请输入资产卡名称' }]}><Input /></Form.Item>
+        {profileGroups[selected.kind].map((group) => <section className="asset-profile-group" key={group.title}>
+          <div className="asset-panel-heading"><strong>{group.title}</strong></div>
+          <div className="asset-profile-grid">{group.fields.map((profileField) => <Form.Item key={profileField.key} name={['text_profile', profileField.key]} label={profileField.label}>
+            {profileField.list
+              ? <Select mode="tags" allowClear tokenSeparators={[',', '，']} placeholder="输入后回车" />
+              : profileField.multiline
+                ? <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
+                : <Input />}
+          </Form.Item>)}</div>
+        </section>)}
         <section className="asset-generation-panel">
-          <div className="asset-panel-heading"><strong>生成图片</strong><RobotOutlined /></div>
+          <div className="asset-panel-heading"><strong>生成标准资产图</strong><RobotOutlined /></div>
           {track ? <GenerationElapsedTime startedAt={track.startedAt} finishedAt={track.finishedAt} active={active} progress={track.progress} message={track.message} /> : null}
-          <Form.Item name="prompt" label="生成提示词"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="可只写提示词，也可以只上传参考图。" /></Form.Item>
-          <div className="asset-reference-heading"><span>参考图 · {references.length} 张</span><Upload showUploadList={false} accept="image/*" multiple customRequest={async ({ file, onSuccess, onError }) => {
-            try {
-              const uploaded = await uploadsApi.image(file as File, projectId)
-              onReferencesChange([...references, uploaded.url])
-              onSuccess?.(uploaded)
-            } catch (reason) { onError?.(reason as Error) }
+          <div className="asset-reference-heading"><span>生成输入参考图 · {references.length} 张</span><Upload showUploadList={false} accept="image/*" multiple customRequest={async ({ file, onSuccess, onError }) => {
+            try { await onUploadInputReference(file as File); onSuccess?.(file) }
+            catch (reason) { onError?.(reason as Error) }
           }}><Button size="small" icon={<CloudUploadOutlined />}>添加参考图</Button></Upload></div>
-          <div className="asset-reference-grid">{references.length ? references.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除参考图" onClick={() => onReferencesChange(references.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">还没有参考图</span>}</div>
+          <div className="asset-reference-grid">{references.length ? references.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除参考图" onClick={() => onReferencesChange(references.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">还没有生成输入参考图</span>}</div>
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Button type="primary" block loading={generating} onClick={onGenerate}>{references.length ? '按参考图生成' : '生成图片'}</Button>
+            <Button type="primary" block loading={generating} onClick={onGenerate}>{references.length ? '按文本和参考图生成' : '按文本生成'}</Button>
             {active ? <Button block danger icon={<StopOutlined />} onClick={onStop}>停止生成</Button> : null}
           </Space>
         </section>
         <section className="asset-history-panel">
-          <div className="asset-panel-heading"><strong>图片历史</strong><HistoryOutlined /></div>
+          <div className="asset-panel-heading"><strong>标准图历史</strong><HistoryOutlined /></div>
           <List size="small" locale={{ emptyText: '还没有生成历史' }} dataSource={history} renderItem={(item) => <List.Item actions={item.status === 'completed' && item.available ? [<Button key="select" size="small" onClick={() => onSelectVersion(item.id)}>选用这张</Button>] : []}>
             <List.Item.Meta
               avatar={item.image_url ? <Image width={48} height={48} src={mediaUrl(item.image_url)} /> : undefined}
@@ -389,10 +409,22 @@ function AssetDetailPanel({
             />
           </List.Item>} />
         </section>
-        <Popconfirm title="删除这个资产？" description="分镜中的引用也会移除。" okText="删除" cancelText="取消" onConfirm={onRemove}><Button danger icon={<DeleteOutlined />} loading={deleting}>删除资产</Button></Popconfirm>
+        <Popconfirm title="删除这个资产卡？" description="分镜中的引用也会移除。" okText="删除" cancelText="取消" onConfirm={onRemove}><Button danger icon={<DeleteOutlined />} loading={deleting}>删除资产卡</Button></Popconfirm>
       </Form>
     </div>
   </aside>
+}
+
+function field(key: string, label: string, multiline = false): ProfileField {
+  return { key, label, multiline }
+}
+
+function listField(key: string, label: string): ProfileField {
+  return { key, label, list: true }
+}
+
+function profileSummary(profile: AssetTextProfile): string {
+  return Object.values(profile).flatMap((value) => Array.isArray(value) ? value : [value]).join(' · ')
 }
 
 function parseKindFilter(value: string | null): AssetFilter {

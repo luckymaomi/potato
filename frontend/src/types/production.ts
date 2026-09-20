@@ -1,11 +1,4 @@
 export type ProductionMaterial = 'text' | 'image' | 'video'
-export type TextMode = 'manual' | 'ai'
+export type TextMode = 'manual'
 export type MediaGenerationMode = 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video'
-export type ProductionMethod = 'manual-text' | 'ai-text' | MediaGenerationMode | 'compose'
-export type TextAction =
-  | 'generate-text'
-  | 'write-script'
-  | 'extract-characters'
-  | 'extract-scenes'
-  | 'extract-props'
-  | 'split-storyboards'
+export type ProductionMethod = 'manual-text' | MediaGenerationMode | 'compose'

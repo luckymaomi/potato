@@ -18,11 +18,7 @@ export interface Episode {
   script_content?: string | null
   description?: string | null
   video_url?: string | null
-  current_image_generation_id?: number | null
   current_video_generation_id?: number | null
-  character_ids?: number[]
-  scene_ids?: number[]
-  prop_ids?: number[]
   status?: string
   storyboards?: Storyboard[]
 }
@@ -37,7 +33,6 @@ export interface Storyboard {
   dialogue?: string | null
   image_prompt?: string | null
   video_prompt?: string | null
-  negative_prompt?: string | null
   shot_size?: string | null
   camera_angle?: string | null
   camera_movement?: string | null
@@ -49,36 +44,25 @@ export interface Storyboard {
   video_url?: string | null
   current_image_generation_id?: number | null
   current_video_generation_id?: number | null
-  duration?: number | null
-  grid_rows?: number
-  grid_columns?: number
   project_asset_ids?: number[]
+  extra_reference_images?: string[]
 }
 
 export type AssetKind = 'character' | 'scene' | 'prop'
 
-export interface AssetLibraryItem {
+export type AssetTextProfile = Record<string, string | string[]>
+
+export interface ProjectAsset {
   id: number
+  drama_id: number
   kind: AssetKind
   name: string
-  description?: string | null
-  appearance?: string | null
-  prompt?: string | null
-  visual_description?: string | null
+  text_profile: AssetTextProfile
+  input_reference_images: string[]
   image_url?: string | null
   local_path?: string | null
   current_image_generation_id?: number | null
-  tags?: string[]
 }
-
-export interface ProjectAsset extends AssetLibraryItem {
-  drama_id: number
-  library_item_id?: number | null
-}
-
-export interface Character { id: number; drama_id: number; name: string; description?: string | null; appearance?: string | null; image_url?: string | null; local_path?: string | null; current_image_generation_id?: number | null }
-export interface Scene { id: number; drama_id: number; location: string; prompt?: string | null; image_url?: string | null; local_path?: string | null; current_image_generation_id?: number | null }
-export interface Prop { id: number; drama_id: number; name: string; description?: string | null; prompt?: string | null; image_url?: string | null; local_path?: string | null; current_image_generation_id?: number | null }
 
 export interface ProjectMetadata { aspect_ratio?: string; [key: string]: unknown }
 
@@ -92,9 +76,6 @@ export interface Project {
   thumbnail?: string | null
   metadata: ProjectMetadata
   episodes?: Episode[]
-  characters?: Character[]
-  scenes?: Scene[]
-  props?: Prop[]
   project_assets?: ProjectAsset[]
   media_lifecycle?: {
     images: Record<string, MediaLifecycleState>

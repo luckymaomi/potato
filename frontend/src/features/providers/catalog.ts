@@ -19,7 +19,7 @@ export function nodeServiceType(
   methodOrTextMode: ProductionMethod | TextMode | undefined,
   generationMode: MediaGenerationMode | undefined,
 ): ServiceType | undefined {
-  if (material === 'text') return methodOrTextMode === 'ai' || methodOrTextMode === 'ai-text' ? 'text' : undefined
+  if (material === 'text') return undefined
   if (material === 'image') return 'image'
   if (material === 'video') return 'video'
   const mode = generationMode || methodOrTextMode

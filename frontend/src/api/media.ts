@@ -2,14 +2,10 @@ import { apiClient } from './client'
 
 export interface MediaGenerationHistory {
   id: number
-  drama_id: number | null
-  library_item_id?: number | null
+  drama_id: number
   project_asset_id?: number | null
   episode_id?: number | null
   storyboard_id?: number | null
-  scene_id?: number | null
-  character_id?: number | null
-  prop_id?: number | null
   prompt: string
   provider?: string | null
   model?: string | null

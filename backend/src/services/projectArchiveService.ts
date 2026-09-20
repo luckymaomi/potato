@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,27 +7,22 @@ import archiver from 'archiver';
 import * as unzipper from 'unzipper';
 import { ValidationError } from '../errors';
 import type { SQLiteDatabase } from '../types/core';
-import { asRecord, readNumber, readString } from '../types/core';
-import type { AssetLibraryItemRow, Drama, ProjectAssetRow } from '../types/domain';
+import { asRecord, parseJson, readNumber, readString } from '../types/core';
+import type { Drama, ProjectAssetRow } from '../types/domain';
 import { AssetRepository } from './assetRepository';
 import { MediaArchiveService } from './mediaArchiveService';
 import { ProjectService } from './projectService';
 
 interface ArchivePayload {
-  format: 3;
+  format: 4;
   project: Drama;
-  asset_library_items: AssetLibraryItemRow[];
   image_generations: Array<Record<string, unknown>>;
   video_generations: Array<Record<string, unknown>>;
 }
 
 interface ImportMaps {
   episodes: Map<number, number>;
-  characters: Map<number, number>;
-  scenes: Map<number, number>;
-  props: Map<number, number>;
   storyboards: Map<number, number>;
-  libraryItems: Map<number, number>;
   projectAssets: Map<number, number>;
   images: Map<number, number>;
   videos: Map<number, number>;
@@ -45,24 +41,12 @@ export class ProjectArchiveService {
     const project = this.projects.require(projectId);
     const archivalProject: Drama = { ...project };
     delete archivalProject.media_lifecycle;
-    const projectAssets = project.project_assets ?? [];
-    const libraryIds = projectAssets.flatMap((item) => item.library_item_id ? [item.library_item_id] : []);
-    const libraryItems = rowsByIds<AssetLibraryItemRow>(this.db, 'asset_library_items', libraryIds);
-    const referencedImageIds = new Set<number>([
-      ...projectAssets.flatMap((item) => item.current_image_generation_id ? [item.current_image_generation_id] : []),
-      ...libraryItems.flatMap((item) => item.current_image_generation_id ? [item.current_image_generation_id] : []),
-      ...(project.episodes ?? []).flatMap((episode) => (episode.storyboards ?? []).flatMap((shot) => shot.current_image_generation_id ? [shot.current_image_generation_id] : [])),
-    ]);
-    const projectImages = this.db.prepare('SELECT * FROM image_generations WHERE drama_id = ? ORDER BY id').all(projectId) as Array<Record<string, unknown>>;
-    const referencedImages = rowsByIds<Record<string, unknown>>(this.db, 'image_generations', [...referencedImageIds]);
-    const images = [...new Map([...projectImages, ...referencedImages].map((row) => [readNumber(row.id), row])).values()];
-    const videos = this.db.prepare('SELECT * FROM video_generations WHERE drama_id = ? ORDER BY id').all(projectId) as Array<Record<string, unknown>>;
-    const payload: ArchivePayload = { format: 3, project: archivalProject, asset_library_items: libraryItems, image_generations: images, video_generations: videos };
-    const relativePaths = new Set<string>();
-    [...images, ...videos].forEach((row) => {
-      const localPath = readString(row.local_path);
-      if (localPath) relativePaths.add(normalizeRelative(localPath));
-    });
+    const images = this.db.prepare('SELECT * FROM image_generations WHERE drama_id = ? ORDER BY id')
+      .all(projectId) as Array<Record<string, unknown>>;
+    const videos = this.db.prepare('SELECT * FROM video_generations WHERE drama_id = ? ORDER BY id')
+      .all(projectId) as Array<Record<string, unknown>>;
+    const payload: ArchivePayload = { format: 4, project: archivalProject, image_generations: images, video_generations: videos };
+    const relativePaths = collectLocalPaths(project, images, videos);
     for (const relativePath of relativePaths) {
       const absolute = this.mediaArchive.absolutePath(relativePath);
       if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) throw new ValidationError(`项目媒体缺失，无法导出：${relativePath}`);
@@ -98,19 +82,18 @@ export class ProjectArchiveService {
       const source = payload.project;
       const created = this.projects.create({ ...source, metadata: source.metadata });
       const maps: ImportMaps = {
-        episodes: new Map(), characters: new Map(), scenes: new Map(), props: new Map(), storyboards: new Map(),
-        libraryItems: new Map(), projectAssets: new Map(),
+        episodes: new Map(), storyboards: new Map(), projectAssets: new Map(),
         images: new Map(), videos: new Map(), urls: new Map(),
       };
       try {
+        await this.importInputReferences(extractedRoot, created.id, source, maps);
         this.importEpisodes(created.id, source, maps);
-        this.importAssets(created.id, source, maps);
-        this.importLibrary(payload.asset_library_items, maps);
         this.importProjectAssets(created.id, source.project_assets ?? [], maps);
         this.importStoryboards(source, maps);
         await this.importImages(extractedRoot, created.id, payload.image_generations, maps);
         await this.importVideos(extractedRoot, created.id, payload.video_generations, maps);
-        this.applyCurrentVersions(source, payload.asset_library_items, maps);
+        this.remapGenerationReferences(payload.image_generations, payload.video_generations, maps);
+        this.applyCurrentVersions(source, maps);
         return this.projects.require(created.id);
       } catch (error) {
         this.projects.remove(created.id);
@@ -121,8 +104,27 @@ export class ProjectArchiveService {
     }
   }
 
+  private async importInputReferences(extractedRoot: string, projectId: number, source: Drama, maps: ImportMaps): Promise<void> {
+    const urls = new Set<string>();
+    for (const asset of source.project_assets ?? []) asset.input_reference_images.forEach((url) => urls.add(url));
+    for (const episode of source.episodes ?? []) {
+      for (const shot of episode.storyboards ?? []) shot.extra_reference_images.forEach((url) => urls.add(url));
+    }
+    for (const url of urls) {
+      const oldPath = localPathFromUrl(url);
+      if (!oldPath) continue;
+      const sourceFile = requiredMediaFile(extractedRoot, oldPath);
+      const extension = path.extname(oldPath).toLowerCase();
+      const relativePath = `projects/${projectId}/references/${randomUUID()}${extension}`;
+      const destination = this.mediaArchive.absolutePath(relativePath);
+      await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+      await fs.promises.copyFile(sourceFile, destination, fs.constants.COPYFILE_EXCL);
+      maps.urls.set(url, `/static/${relativePath}`);
+    }
+  }
+
   private importEpisodes(projectId: number, source: Drama, maps: ImportMaps): void {
-    const episodes = source.episodes || [];
+    const episodes = source.episodes ?? [];
     this.projects.saveEpisodes(projectId, episodes);
     const imported = this.db.prepare('SELECT id, episode_number FROM episodes WHERE drama_id = ?').all(projectId) as Array<{ id: number; episode_number: number }>;
     episodes.forEach((episode) => {
@@ -131,47 +133,32 @@ export class ProjectArchiveService {
     });
   }
 
-  private importAssets(projectId: number, source: Drama, maps: ImportMaps): void {
-    const characters = this.assets.syncCharacters(projectId, source.characters || []);
-    (source.characters || []).forEach((item, index) => { const target = characters[index]; if (target) maps.characters.set(item.id, target.id); });
-    const scenes = this.assets.syncScenes(projectId, source.scenes || []);
-    (source.scenes || []).forEach((item, index) => { const target = scenes[index]; if (target) maps.scenes.set(item.id, target.id); });
-    const props = this.assets.syncProps(projectId, source.props || []);
-    (source.props || []).forEach((item, index) => { const target = props[index]; if (target) maps.props.set(item.id, target.id); });
-  }
-
-  private importLibrary(items: AssetLibraryItemRow[], maps: ImportMaps): void {
-    for (const item of items) {
-      const created = this.assets.createLibraryItem(item);
-      maps.libraryItems.set(item.id, created.id);
-    }
-  }
-
   private importProjectAssets(projectId: number, items: ProjectAssetRow[], maps: ImportMaps): void {
     for (const item of items) {
-      const libraryItemId = item.library_item_id ? maps.libraryItems.get(item.library_item_id) : undefined;
-      const fields = { ...item };
-      const created = this.assets.createProjectAsset(projectId, libraryItemId
-        ? { ...fields, from_library_item_id: libraryItemId }
-        : { ...fields, library_item_id: undefined });
-      this.assets.updateProjectAsset(created.id, fields);
+      const created = this.assets.createProjectAsset(projectId, {
+        kind: item.kind,
+        name: item.name,
+        text_profile: item.text_profile,
+        input_reference_images: item.input_reference_images.map((url) => maps.urls.get(url) ?? url),
+      });
       maps.projectAssets.set(item.id, created.id);
     }
   }
 
   private importStoryboards(source: Drama, maps: ImportMaps): void {
-    (source.episodes || []).forEach((episode) => {
+    for (const episode of source.episodes ?? []) {
       const targetEpisode = maps.episodes.get(episode.id);
-      if (!targetEpisode) return;
-      const storyboards = this.assets.syncStoryboards(targetEpisode, (episode.storyboards || []).map((item) => ({
+      if (!targetEpisode) continue;
+      const storyboards = this.assets.syncStoryboards(targetEpisode, (episode.storyboards ?? []).map((item) => ({
         ...item,
-        character_ids: item.character_ids.map((id) => maps.characters.get(id)).filter(Boolean),
-        scene_ids: item.scene_ids.map((id) => maps.scenes.get(id)).filter(Boolean),
-        prop_ids: item.prop_ids.map((id) => maps.props.get(id)).filter(Boolean),
-        project_asset_ids: item.project_asset_ids.map((id) => maps.projectAssets.get(id)).filter(Boolean),
+        project_asset_ids: item.project_asset_ids.map((id) => maps.projectAssets.get(id)).filter((id): id is number => Boolean(id)),
+        extra_reference_images: item.extra_reference_images.map((url) => maps.urls.get(url) ?? url),
       })));
-      (episode.storyboards || []).forEach((item, index) => { const target = storyboards[index]; if (target) maps.storyboards.set(item.id, target.id); });
-    });
+      (episode.storyboards ?? []).forEach((item, index) => {
+        const target = storyboards[index];
+        if (target) maps.storyboards.set(item.id, target.id);
+      });
+    }
   }
 
   private async importImages(extractedRoot: string, projectId: number, rows: Array<Record<string, unknown>>, maps: ImportMaps): Promise<void> {
@@ -179,27 +166,40 @@ export class ProjectArchiveService {
       const now = new Date().toISOString();
       const result = this.db.prepare(`
         INSERT INTO image_generations (
-          drama_id, library_item_id, project_asset_id, storyboard_id, scene_id, character_id, prop_id, provider, prompt, model, size, aspect_ratio,
+          drama_id, project_asset_id, storyboard_id, provider, prompt, model, size, aspect_ratio,
           reference_images, source_url, status, task_id, error_msg, failure_stage, created_at, updated_at, completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        row.library_item_id && !row.project_asset_id && !row.storyboard_id ? null : projectId,
-        mappedId(row.library_item_id, maps.libraryItems), mappedId(row.project_asset_id, maps.projectAssets),
-        mappedId(row.storyboard_id, maps.storyboards), mappedId(row.scene_id, maps.scenes),
-        mappedId(row.character_id, maps.characters), mappedId(row.prop_id, maps.props),
-        textOrNull(row.provider), String(row.prompt ?? ''), textOrNull(row.model), textOrNull(row.size), textOrNull(row.aspect_ratio),
-        remapReferences(row.reference_images, maps.urls), textOrNull(row.source_url) ?? textOrNull(row.image_url),
-        String(row.status ?? 'failed'), textOrNull(row.task_id), textOrNull(row.error_msg), textOrNull(row.failure_stage),
-        textOrNull(row.created_at) ?? now, now, textOrNull(row.completed_at),
+        projectId,
+        mappedId(row.project_asset_id, maps.projectAssets),
+        mappedId(row.storyboard_id, maps.storyboards),
+        textOrNull(row.provider),
+        String(row.prompt ?? ''),
+        textOrNull(row.model),
+        textOrNull(row.size),
+        textOrNull(row.aspect_ratio),
+        '[]',
+        textOrNull(row.source_url) ?? textOrNull(row.image_url),
+        String(row.status ?? 'failed'),
+        textOrNull(row.task_id),
+        textOrNull(row.error_msg),
+        textOrNull(row.failure_stage),
+        textOrNull(row.created_at) ?? now,
+        now,
+        textOrNull(row.completed_at),
       );
       const newId = Number(result.lastInsertRowid);
       const oldId = readNumber(row.id);
       if (oldId) maps.images.set(oldId, newId);
       if (row.status !== 'completed') continue;
       const oldPath = requiredArchivePath(row.local_path, '图片');
-      const mediaFile = requiredMediaFile(extractedRoot, oldPath);
-      const archived = await this.mediaArchive.importFile({ projectId, generationId: newId, kind: 'image', sourcePath: mediaFile });
-      this.db.prepare(`UPDATE image_generations SET image_url = ?, local_path = ?, media_type = ?, file_size = ?, updated_at = ? WHERE id = ?`)
+      const archived = await this.mediaArchive.importFile({
+        projectId,
+        generationId: newId,
+        kind: 'image',
+        sourcePath: requiredMediaFile(extractedRoot, oldPath),
+      });
+      this.db.prepare('UPDATE image_generations SET image_url = ?, local_path = ?, media_type = ?, file_size = ?, updated_at = ? WHERE id = ?')
         .run(archived.publicUrl, archived.relativePath, archived.mediaType, archived.fileSize, now, newId);
       const oldUrl = readString(row.image_url);
       if (oldUrl) maps.urls.set(oldUrl, archived.publicUrl);
@@ -211,68 +211,133 @@ export class ProjectArchiveService {
       const now = new Date().toISOString();
       const result = this.db.prepare(`
         INSERT INTO video_generations (
-          drama_id, episode_id, storyboard_id, provider, prompt, model, duration, aspect_ratio, resolution, image_url,
-          first_frame_url, last_frame_url, reference_image_urls, source_url, status, task_id, provider_task_id,
-          error_msg, failure_stage, created_at, updated_at, completed_at
+          drama_id, episode_id, storyboard_id, provider, prompt, model, duration, aspect_ratio, resolution,
+          image_url, first_frame_url, last_frame_url, reference_image_urls, source_url, status, task_id,
+          provider_task_id, error_msg, failure_stage, created_at, updated_at, completed_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        projectId, mappedId(row.episode_id, maps.episodes), mappedId(row.storyboard_id, maps.storyboards), textOrNull(row.provider), String(row.prompt ?? ''), textOrNull(row.model),
-        readNumber(row.duration) ?? null, textOrNull(row.aspect_ratio), textOrNull(row.resolution), remapUrl(row.image_url, maps.urls),
-        remapUrl(row.first_frame_url, maps.urls), remapUrl(row.last_frame_url, maps.urls), remapReferences(row.reference_image_urls, maps.urls),
-        textOrNull(row.source_url) ?? textOrNull(row.video_url), String(row.status ?? 'failed'), textOrNull(row.task_id),
-        textOrNull(row.provider_task_id), textOrNull(row.error_msg), textOrNull(row.failure_stage), textOrNull(row.created_at) ?? now, now, textOrNull(row.completed_at),
+        projectId,
+        mappedId(row.episode_id, maps.episodes),
+        mappedId(row.storyboard_id, maps.storyboards),
+        textOrNull(row.provider),
+        String(row.prompt ?? ''),
+        textOrNull(row.model),
+        readNumber(row.duration) ?? null,
+        textOrNull(row.aspect_ratio),
+        textOrNull(row.resolution),
+        remapUrl(row.image_url, maps.urls),
+        remapUrl(row.first_frame_url, maps.urls),
+        remapUrl(row.last_frame_url, maps.urls),
+        '[]',
+        textOrNull(row.source_url) ?? textOrNull(row.video_url),
+        String(row.status ?? 'failed'),
+        textOrNull(row.task_id),
+        textOrNull(row.provider_task_id),
+        textOrNull(row.error_msg),
+        textOrNull(row.failure_stage),
+        textOrNull(row.created_at) ?? now,
+        now,
+        textOrNull(row.completed_at),
       );
       const newId = Number(result.lastInsertRowid);
       const oldId = readNumber(row.id);
       if (oldId) maps.videos.set(oldId, newId);
       if (row.status !== 'completed') continue;
       const oldPath = requiredArchivePath(row.local_path, '视频');
-      const mediaFile = requiredMediaFile(extractedRoot, oldPath);
-      const archived = await this.mediaArchive.importFile({ projectId, generationId: newId, kind: 'video', sourcePath: mediaFile });
-      this.db.prepare(`UPDATE video_generations SET video_url = ?, local_path = ?, media_type = ?, file_size = ?, updated_at = ? WHERE id = ?`)
+      const archived = await this.mediaArchive.importFile({
+        projectId,
+        generationId: newId,
+        kind: 'video',
+        sourcePath: requiredMediaFile(extractedRoot, oldPath),
+      });
+      this.db.prepare('UPDATE video_generations SET video_url = ?, local_path = ?, media_type = ?, file_size = ?, updated_at = ? WHERE id = ?')
         .run(archived.publicUrl, archived.relativePath, archived.mediaType, archived.fileSize, now, newId);
       const oldUrl = readString(row.video_url);
       if (oldUrl) maps.urls.set(oldUrl, archived.publicUrl);
     }
   }
 
-  private applyCurrentVersions(source: Drama, libraryItems: AssetLibraryItemRow[], maps: ImportMaps): void {
-    for (const item of source.characters || []) updateImagePointer(this.db, 'characters', maps.characters.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
-    for (const item of source.scenes || []) updateImagePointer(this.db, 'scenes', maps.scenes.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
-    for (const item of source.props || []) updateImagePointer(this.db, 'props', maps.props.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
-    for (const item of libraryItems) {
-      updateImagePointer(this.db, 'asset_library_items', maps.libraryItems.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
+  private remapGenerationReferences(
+    images: Array<Record<string, unknown>>,
+    videos: Array<Record<string, unknown>>,
+    maps: ImportMaps,
+  ): void {
+    for (const row of images) {
+      const id = readNumber(row.id);
+      const target = id ? maps.images.get(id) : undefined;
+      if (target) this.db.prepare('UPDATE image_generations SET reference_images = ? WHERE id = ?')
+        .run(remapReferences(row.reference_images, maps.urls), target);
     }
-    for (const item of source.project_assets || []) {
-      const targetId = maps.projectAssets.get(item.id);
-      updateImagePointer(this.db, 'project_assets', targetId, maps.images.get(item.current_image_generation_id ?? 0));
+    for (const row of videos) {
+      const id = readNumber(row.id);
+      const target = id ? maps.videos.get(id) : undefined;
+      if (target) this.db.prepare(`
+        UPDATE video_generations
+        SET image_url = ?, first_frame_url = ?, last_frame_url = ?, reference_image_urls = ?
+        WHERE id = ?
+      `).run(
+        remapUrl(row.image_url, maps.urls),
+        remapUrl(row.first_frame_url, maps.urls),
+        remapUrl(row.last_frame_url, maps.urls),
+        remapReferences(row.reference_image_urls, maps.urls),
+        target,
+      );
     }
-    for (const episode of source.episodes || []) for (const item of episode.storyboards || []) {
-      updateImagePointer(this.db, 'storyboards', maps.storyboards.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
-      updateVideoPointer(this.db, maps.storyboards.get(item.id), maps.videos.get(item.current_video_generation_id ?? 0));
+  }
+
+  private applyCurrentVersions(source: Drama, maps: ImportMaps): void {
+    for (const item of source.project_assets ?? []) {
+      updateImagePointer(this.db, 'project_assets', maps.projectAssets.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
     }
-    for (const episode of source.episodes || []) {
+    for (const episode of source.episodes ?? []) {
+      for (const item of episode.storyboards ?? []) {
+        updateImagePointer(this.db, 'storyboards', maps.storyboards.get(item.id), maps.images.get(item.current_image_generation_id ?? 0));
+        updateVideoPointer(this.db, maps.storyboards.get(item.id), maps.videos.get(item.current_video_generation_id ?? 0));
+      }
       updateEpisodeVideoPointer(this.db, maps.episodes.get(episode.id), maps.videos.get(episode.current_video_generation_id ?? 0));
     }
   }
+}
+
+function collectLocalPaths(
+  project: Drama,
+  images: Array<Record<string, unknown>>,
+  videos: Array<Record<string, unknown>>,
+): Set<string> {
+  const paths = new Set<string>();
+  for (const row of [...images, ...videos]) {
+    const localPath = readString(row.local_path);
+    if (localPath) paths.add(normalizeRelative(localPath));
+  }
+  const referenceUrls = new Set<string>();
+  for (const asset of project.project_assets ?? []) asset.input_reference_images.forEach((url) => referenceUrls.add(url));
+  for (const episode of project.episodes ?? []) {
+    for (const shot of episode.storyboards ?? []) shot.extra_reference_images.forEach((url) => referenceUrls.add(url));
+  }
+  for (const url of referenceUrls) {
+    const localPath = localPathFromUrl(url);
+    if (localPath) paths.add(localPath);
+  }
+  return paths;
 }
 
 function parsePayload(text: string): ArchivePayload {
   let value: unknown;
   try { value = JSON.parse(text) as unknown; } catch { throw new ValidationError('项目归档 JSON 无法解析'); }
   const payload = asRecord(value);
-  if (payload?.format !== 3 || !asRecord(payload.project) || !Array.isArray(payload.asset_library_items) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
+  if (payload?.format !== 4 || !asRecord(payload.project) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
     throw new ValidationError('项目归档格式无效或版本不受支持');
   }
   return payload as unknown as ArchivePayload;
 }
 
-function updateImagePointer(db: SQLiteDatabase, table: string, targetId: number | undefined, generationId: number | undefined): void {
+function updateImagePointer(db: SQLiteDatabase, table: 'project_assets' | 'storyboards', targetId: number | undefined, generationId: number | undefined): void {
   if (!targetId || !generationId) return;
-  const row = db.prepare('SELECT image_url, local_path FROM image_generations WHERE id = ? AND status = ?').get(generationId, 'completed') as { image_url: string; local_path: string } | undefined;
+  const row = db.prepare('SELECT image_url, local_path FROM image_generations WHERE id = ? AND status = ?')
+    .get(generationId, 'completed') as { image_url: string; local_path: string } | undefined;
   if (!row) return;
   if (table === 'storyboards') db.prepare('UPDATE storyboards SET image_url = ?, current_image_generation_id = ? WHERE id = ?').run(row.image_url, generationId, targetId);
-  else db.prepare(`UPDATE ${table} SET image_url = ?, local_path = ?, current_image_generation_id = ? WHERE id = ?`).run(row.image_url, row.local_path, generationId, targetId);
+  else db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ? WHERE id = ?').run(row.image_url, row.local_path, generationId, targetId);
 }
 
 function updateVideoPointer(db: SQLiteDatabase, storyboardId: number | undefined, generationId: number | undefined): void {
@@ -287,13 +352,6 @@ function updateEpisodeVideoPointer(db: SQLiteDatabase, episodeId: number | undef
   if (row) db.prepare('UPDATE episodes SET video_url = ?, current_video_generation_id = ? WHERE id = ?').run(row.video_url, generationId, episodeId);
 }
 
-function rowsByIds<T>(db: SQLiteDatabase, table: 'asset_library_items' | 'image_generations', ids: number[]): T[] {
-  const uniqueIds = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
-  if (!uniqueIds.length) return [];
-  const placeholders = uniqueIds.map(() => '?').join(', ');
-  return db.prepare(`SELECT * FROM ${table} WHERE id IN (${placeholders}) ORDER BY id`).all(...uniqueIds) as T[];
-}
-
 function mappedId(value: unknown, map: Map<number, number>): number | null {
   const id = readNumber(value);
   return id ? map.get(id) ?? null : null;
@@ -305,11 +363,15 @@ function remapUrl(value: unknown, urls: Map<string, string>): string | null {
 }
 
 function remapReferences(value: unknown, urls: Map<string, string>): string {
-  if (typeof value !== 'string') return '[]';
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return JSON.stringify(Array.isArray(parsed) ? parsed.map((item) => remapUrl(item, urls)).filter(Boolean) : []);
-  } catch { return '[]'; }
+  const references = typeof value === 'string' ? parseJson<unknown[]>(value, []) : [];
+  return JSON.stringify(references.flatMap((item) => {
+    const url = readString(item);
+    return url ? [urls.get(url) ?? url] : [];
+  }));
+}
+
+function localPathFromUrl(url: string): string | undefined {
+  return url.startsWith('/static/') ? normalizeRelative(url.slice('/static/'.length)) : undefined;
 }
 
 function requiredArchivePath(value: unknown, label: string): string {

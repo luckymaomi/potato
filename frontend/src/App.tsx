@@ -5,7 +5,6 @@ import { AppShell } from './components/AppShell'
 import { UiErrorBoundary } from './components/UiErrorBoundary'
 import { AiConfigPage } from './pages/AiConfigPage'
 import { ProjectsPage } from './pages/ProjectsPage'
-import { AssetLibraryWorkspace } from './features/workspace/AssetLibraryWorkspace'
 import { AssetWorkspace } from './features/workspace/AssetWorkspace'
 import { ProduceWorkspace } from './features/workspace/ProduceWorkspace'
 import { ProjectShell } from './features/workspace/ProjectShell'
@@ -49,7 +48,6 @@ export default function App() {
                   <Route index element={<Navigate to="script" replace />} />
                   <Route path="script" element={<ScriptWorkspace />} />
                   <Route path="assets" element={<AssetWorkspace />} />
-                  <Route path="assets/library" element={<AssetLibraryWorkspace />} />
                   <Route path="storyboard" element={<StoryboardWorkspace />} />
                   <Route path="produce" element={<ProduceWorkspace />} />
                 </Route>

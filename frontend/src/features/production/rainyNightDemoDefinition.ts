@@ -1,6 +1,6 @@
 export const RAINY_NIGHT_DEMO = {
   templateId: 'crimson-crown-demo',
-  contract: 'mature-gothic-mystery-workspace-v1',
+  contract: 'project-assets-dual-recipes-v2',
   project: {
     title: '《红女王》制作 Demo',
     description: '红女王十年后以新身份回到夜城，带着红宝石王冠和旧日证据，让曾经背叛她的人一个个低头。',
@@ -54,9 +54,8 @@ export const RAINY_NIGHT_DEMO = {
     ...shot,
     action: shot.description,
     dialogue: shot.title === '镜头5｜扶正王冠' ? '这座城，从来不是你的。' : '',
-    image_prompt: `${shot.description}，生成清晰的3x3九宫格分镜图，九个格子保持红女王的脸部、王冠和深红丝绒服装一致，按阅读顺序表达连续动作。`,
-    video_prompt: `${shot.description}。单一连续画面，首帧自然延续为连贯运动镜头；不要九宫格、不要分屏、不要网格、不要拼图、不要水印、不要多画面。`,
-    duration: 6,
+    image_prompt: `${shot.description}，生成一张清晰的电影感分镜图，保持人物、服装、道具和场景空间关系一致。`,
+    video_prompt: `${shot.description}。首帧自然延续为连贯运动镜头。`,
   })),
 } as const
 

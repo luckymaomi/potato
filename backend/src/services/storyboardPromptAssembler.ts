@@ -1,87 +1,115 @@
-import type { ProjectAssetRow, StoryboardRow } from '../types/domain';
+import type { AssetKind, ProjectAssetRow, StoryboardRow } from '../types/domain';
 
-export interface StoryboardPromptAssembly {
-  imagePrompt: string;
-  videoPrompt: string;
-  imageReferences: string[];
-  videoReferences: string[];
-  imageNegativePrompt?: string;
-}
-
-export interface StoryboardPromptAssemblyInput {
-  shot: StoryboardRow;
-  assets: ProjectAssetRow[];
-  imagePromptOverride?: string;
-  videoPromptOverride?: string;
-  storyboardImageUrl?: string;
-}
-
-/**
- * The only owner of storyboard-to-media prompt assembly.
- * Keep image references separate from semantic prompt text so providers can
- * enforce their own reference-image contracts.
- */
-export function assembleStoryboardPrompts(input: StoryboardPromptAssemblyInput): StoryboardPromptAssembly {
-  const { shot } = input;
-  const assets = input.assets.filter((asset) => shot.project_asset_ids.includes(asset.id));
-  const assetBlocks = assets.map((asset) => `${assetLabel(asset.kind)}「${asset.name}」：${assetText(asset)}`);
-  const imageBlocks = [
-    field('剧情', shot.description ?? undefined),
-    field('景别', shot.shot_size),
-    field('机位', shot.camera_angle),
-    field('构图', shot.composition),
-    field('动作', shot.action ?? undefined),
-    field('对白语义（画面不要生成文字）', shot.dialogue ?? undefined),
-    field('光线', shot.lighting),
-    field('氛围', shot.mood),
-  ];
-  const videoBlocks = [
-    ...imageBlocks,
-    field('运镜', shot.camera_movement),
-    field('声音', shot.sound),
-  ];
-  const imagePrompt = joinPrompt([
-    (input.imagePromptOverride || shot.image_prompt || shot.description || shot.title) ?? undefined,
-    assetBlocks.length ? `资产参考：\n${assetBlocks.join('\n')}` : undefined,
-    ...imageBlocks,
-  ]);
-  const videoPrompt = joinPrompt([
-    (input.videoPromptOverride || shot.video_prompt || shot.description || shot.title) ?? undefined,
-    assetBlocks.length ? `资产语义：\n${assetBlocks.join('\n')}` : undefined,
-    ...videoBlocks,
-  ]);
-  const imageReferences = unique(assets.map((asset) => asset.image_url).filter((value): value is string => Boolean(value)));
-  const videoReferences = unique([input.storyboardImageUrl].filter((value): value is string => Boolean(value)));
-  return {
-    imagePrompt,
-    videoPrompt,
-    imageReferences,
-    videoReferences,
-    ...(clean(shot.negative_prompt) ? { imageNegativePrompt: clean(shot.negative_prompt) } : {}),
+export interface StoryboardRecipes {
+  imageRecipe: {
+    imagePrompt: string;
+    imageReferences: string[];
+  };
+  videoRecipe: {
+    videoPrompt: string;
+    videoReferences: string[];
   };
 }
 
-function field(label: string, value: string | null | undefined): string | undefined {
+export interface StoryboardRecipeInput {
+  shot: StoryboardRow;
+  assets: ProjectAssetRow[];
+}
+
+const PROFILE_FIELDS: Record<AssetKind, ReadonlyArray<readonly [string, string]>> = {
+  character: [
+    ['age', '年龄'], ['gender', '性别'], ['occupation', '职业'], ['faction', '阵营'], ['identity_tags', '身份标签'],
+    ['face_shape', '脸型'], ['facial_features', '五官'], ['hairstyle', '发型'], ['body_type', '体型'], ['skin_tone', '肤色'],
+    ['default_outfit', '默认穿搭'], ['outfit_versions', '换装版本'], ['personality', '性格'],
+    ['common_expressions', '常见表情'], ['aura', '气场'], ['voice_tone_id', '音色 ID'], ['speech_rate', '语速'],
+    ['accent', '口音'], ['signature_phrase', '标志性语气'],
+  ],
+  scene: [
+    ['location_type', '地点类型'], ['layout', '布局'], ['architectural_style', '建筑风格'], ['scale', '尺寸比例'],
+    ['time_of_day', '时间段'], ['light_source', '光源'], ['color_temperature', '色温'], ['contrast', '明暗对比'],
+    ['key_furniture', '关键家具'], ['props', '道具'], ['decorations', '装饰'], ['vegetation', '植被'],
+    ['palette', '色调'], ['emotion', '情绪'], ['weather', '天气'],
+  ],
+  prop: [
+    ['category', '类别'], ['size', '尺寸'], ['material', '材质'], ['color', '颜色'], ['shape', '形状'],
+    ['condition', '新旧程度'], ['special_marks', '特殊标记'], ['unique_design', '独特设计'],
+    ['default_state', '默认状态'], ['interaction_states', '互动状态'], ['state_versions', '状态版本'], ['bindings', '绑定关系'],
+  ],
+};
+
+export function assembleStoryboardRecipes({ shot, assets }: StoryboardRecipeInput): StoryboardRecipes {
+  const selectedAssets = assets.filter((asset) => shot.project_asset_ids.includes(asset.id));
+  const assetBlocks = selectedAssets.map(compileAssetTextBlock);
+  const references = unique([
+    ...selectedAssets.map((asset) => asset.image_url),
+    ...shot.extra_reference_images,
+  ]);
+  const imagePrompt = joinBlocks([
+    clean(shot.image_prompt) || clean(shot.description) || clean(shot.title),
+    ...assetBlocks,
+    field('景别', shot.shot_size),
+    field('机位', shot.camera_angle),
+    field('构图', shot.composition),
+    field('动作', shot.action),
+    field('光线', shot.lighting),
+    field('氛围', shot.mood),
+  ]);
+  const videoPrompt = joinBlocks([
+    clean(shot.video_prompt) || clean(shot.description) || clean(shot.title),
+    ...assetBlocks,
+    field('景别', shot.shot_size),
+    field('机位', shot.camera_angle),
+    field('运镜', shot.camera_movement),
+    field('构图', shot.composition),
+    field('动作', shot.action),
+    field('光线', shot.lighting),
+    field('氛围', shot.mood),
+    field('声音', shot.sound),
+    field('对白', shot.dialogue),
+  ]);
+  return {
+    imageRecipe: { imagePrompt, imageReferences: [...references] },
+    videoRecipe: { videoPrompt, videoReferences: [...references] },
+  };
+}
+
+export function compileProjectAssetPrompt(asset: ProjectAssetRow): string {
+  return joinBlocks([compileAssetTextBlock(asset), assetSheetInstruction(asset.kind)]);
+}
+
+export function compileAssetTextBlock(asset: ProjectAssetRow): string {
+  const fields = PROFILE_FIELDS[asset.kind].flatMap(([key, label]) => {
+    const raw = asset.text_profile[key];
+    const value = Array.isArray(raw) ? raw.join('、') : clean(raw);
+    return value ? [`${label}：${value}`] : [];
+  });
+  const prefix = `${assetLabel(asset.kind)}卡「${asset.name}」`;
+  return fields.length ? `${prefix}：${fields.join('；')}` : prefix;
+}
+
+function assetSheetInstruction(kind: AssetKind): string {
+  if (kind === 'character') return '标准资产图要求：同一人物、同一张脸、同一发型、同一服装，包含全身正面、侧面、背面与面部特写。';
+  if (kind === 'scene') return '标准资产图要求：呈现空间全景、关键陈设和统一的光影关系。';
+  return '标准资产图要求：呈现道具正面、侧面、局部细节和默认状态。';
+}
+
+function field(label: string, value: string | null | undefined): string {
   const text = clean(value);
-  return text ? `${label}：${text}` : undefined;
+  return text ? `${label}：${text}` : '';
 }
 
-function joinPrompt(parts: Array<string | undefined>): string {
-  return parts.filter((part): part is string => Boolean(clean(part))).map((part) => part.trim()).join('\n');
+function joinBlocks(values: Array<string | null | undefined>): string {
+  return values.map(clean).filter(Boolean).join('\n');
 }
 
-function assetText(asset: ProjectAssetRow): string {
-  return clean(asset.prompt) || clean(asset.appearance) || clean(asset.visual_description) || clean(asset.description) || asset.name;
-}
-
-function assetLabel(kind: ProjectAssetRow['kind']): string {
-  return kind === 'character' ? '人物' : kind === 'scene' ? '场景' : '道具';
-}
-
-function clean(value: string | null | undefined): string {
+function clean(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function unique(values: string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+function unique(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.map(clean).filter(Boolean))];
+}
+
+function assetLabel(kind: AssetKind): string {
+  return { character: '角色', scene: '场景', prop: '道具' }[kind];
 }

@@ -37,15 +37,24 @@ export function initializeRainyNightDemo(
     if (!episode) throw new Error('Demo 剧集初始化失败。');
 
     const projectAssets = [
-      ...RAINY_NIGHT_DEMO.characters.map((item) => ({ kind: 'character' as const, name: item.name, description: item.description, visual_description: item.appearance, prompt: item.assetPrompt })),
-      ...RAINY_NIGHT_DEMO.scenes.map((item) => ({ kind: 'scene' as const, name: item.location, description: item.prompt, visual_description: item.prompt, prompt: item.prompt })),
-      ...RAINY_NIGHT_DEMO.props.map((item) => ({ kind: 'prop' as const, name: item.name, description: item.description, visual_description: item.description, prompt: item.prompt })),
+      ...RAINY_NIGHT_DEMO.characters.map((item) => ({
+        kind: 'character' as const,
+        name: item.name,
+        text_profile: { occupation: item.description, facial_features: item.appearance, default_outfit: item.assetPrompt },
+      })),
+      ...RAINY_NIGHT_DEMO.scenes.map((item) => ({
+        kind: 'scene' as const,
+        name: item.location,
+        text_profile: { location_type: item.location, layout: item.prompt },
+      })),
+      ...RAINY_NIGHT_DEMO.props.map((item) => ({
+        kind: 'prop' as const,
+        name: item.name,
+        text_profile: { category: item.description, unique_design: item.prompt },
+      })),
     ].map((item) => {
-      const library = services.assets.listLibrary(item.kind).find((candidate) => candidate.name === item.name)
-        ?? services.assets.createLibraryItem(item);
-      services.assets.updateLibraryItem(library.id, item);
       const bound = services.assets.listProjectAssets(project.id, item.kind).find((candidate) => candidate.name === item.name)
-        ?? services.assets.createProjectAsset(project.id, { from_library_item_id: library.id });
+        ?? services.assets.createProjectAsset(project.id, item);
       return services.assets.updateProjectAsset(bound.id, item);
     });
     const assetIds = new Map(projectAssets.map((item) => [`${item.kind}:${item.name}`, item.id]));
@@ -58,9 +67,6 @@ export function initializeRainyNightDemo(
       lighting: item.lighting ?? '冷色室内光',
       mood: item.mood ?? '悬疑与压迫',
       sound: item.sound ?? '环境声、动作声与现场对白',
-      negative_prompt: '避免人物身份、服装和场景空间关系漂移，避免多余人物与文字水印',
-      grid_rows: 3,
-      grid_columns: 3,
       project_asset_ids: [
         ...item.characters.map((name) => assetIds.get(`character:${name}`)),
         ...item.scenes.map((name) => assetIds.get(`scene:${name}`)),

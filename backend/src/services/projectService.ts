@@ -1,12 +1,9 @@
 import type { JsonObject, Logger } from '../types/core';
 import { asRecord, parseJson, readNumber, readString } from '../types/core';
 import type {
-  CharacterRow,
   Drama,
   DramaRow,
   EpisodeRow,
-  PropRow,
-  SceneRow,
   StoryboardRow,
   MediaLifecycleState,
   ProjectAssetRow,
@@ -14,7 +11,6 @@ import type {
 import type { SQLiteDatabase } from '../types/core';
 import { NotFoundError, ValidationError } from '../errors';
 import { MediaArchiveService } from './mediaArchiveService';
-import { assetTagsFromMetadata } from './assetRepository';
 
 export interface DramaListInput { page: number; pageSize: number; keyword?: string }
 
@@ -57,19 +53,15 @@ export class ProjectService {
       ...episode,
       storyboards: (storyboardStatement.all(episode.id) as StoryboardRow[]).map((storyboard) => ({
         ...storyboard,
-        character_ids: relationIds(this.db, 'storyboard_characters', 'character_id', storyboard.id),
-        scene_ids: relationIds(this.db, 'storyboard_scenes', 'scene_id', storyboard.id),
-        prop_ids: relationIds(this.db, 'storyboard_props', 'prop_id', storyboard.id),
         project_asset_ids: relationIds(this.db, 'storyboard_project_assets', 'project_asset_id', storyboard.id),
+        extra_reference_images: parseJson<string[]>(String(storyboard.extra_reference_images), []),
       })),
     }));
-    drama.characters = this.db.prepare('SELECT * FROM characters WHERE drama_id = ? ORDER BY id').all(id) as CharacterRow[];
-    drama.scenes = this.db.prepare('SELECT * FROM scenes WHERE drama_id = ? ORDER BY id').all(id) as SceneRow[];
-    drama.props = this.db.prepare('SELECT * FROM props WHERE drama_id = ? ORDER BY id').all(id) as PropRow[];
     drama.project_assets = (this.db.prepare('SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id').all(id) as ProjectAssetRow[])
       .map((asset) => ({
         ...asset,
-        tags: assetTagsFromMetadata(asset.metadata),
+        text_profile: parseJson(String(asset.text_profile), {}),
+        input_reference_images: parseJson<string[]>(String(asset.input_reference_images), []),
       }));
     drama.media_lifecycle = {
       images: this.mediaLifecycle('image_generations', 'image_url', id),

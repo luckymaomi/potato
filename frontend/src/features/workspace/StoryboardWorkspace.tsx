@@ -25,6 +25,7 @@ import {
 } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { aiConfigsApi } from '../../api/aiConfigs'
+import { uploadsApi } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
@@ -63,6 +64,7 @@ export function StoryboardWorkspace() {
   const characterAssetIds = Form.useWatch('character_asset_ids', { form, preserve: true }) ?? []
   const sceneAssetIds = Form.useWatch('scene_asset_ids', { form, preserve: true }) ?? []
   const propAssetIds = Form.useWatch('prop_asset_ids', { form, preserve: true }) ?? []
+  const extraReferences = Form.useWatch('extra_reference_images', { form, preserve: true }) ?? []
   const selected = useMemo(() => items.find((item) => item.id === selectedId), [items, selectedId])
   const selectedIndex = selected ? items.findIndex((item) => item.id === selected.id) : -1
   const imageTrack = selected ? tracker.get(storyboardImageKey(selected.id)) : undefined
@@ -259,9 +261,19 @@ export function StoryboardWorkspace() {
   const uploadImage = async (file: File) => {
     if (!selected) return
     try {
-      await workspaceApi.uploadStoryboardImage(project.id, selected.id, file, form.getFieldValue('image_prompt'))
+      await workspaceApi.uploadStoryboardImage(project.id, selected.id, file)
       await load()
       notifyAppSuccess(message, '已上传分镜图')
+    } catch (reason) {
+      notifyAppError({ message, modal }, reason)
+      throw reason
+    }
+  }
+
+  const uploadExtraReference = async (file: File) => {
+    try {
+      const uploaded = await uploadsApi.image(file, project.id)
+      form.setFieldValue('extra_reference_images', [...new Set([...extraReferences, uploaded.url])])
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
       throw reason
@@ -415,9 +427,13 @@ export function StoryboardWorkspace() {
                   <div className="director-form-grid director-form-grid-three"><Form.Item name="lighting" label="光线"><Input placeholder="雨夜霓虹" /></Form.Item><Form.Item name="mood" label="氛围"><Input placeholder="紧张 / 克制" /></Form.Item><Form.Item name="sound" label="声音"><Input placeholder="环境声 / 音效" /></Form.Item></div>
                 </Collapse.Panel>
                 <Collapse.Panel key="generation" header="生成输入">
-                  <Form.Item name="image_prompt" label="图像提示词"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="构图、宫格等要求直接写在这里" /></Form.Item>
-                  <Form.Item name="negative_prompt" label="负面提示词"><Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="可选" /></Form.Item>
+                  <Form.Item name="image_prompt" label="图像提示词"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="这一镜的静态主体描述" /></Form.Item>
                   <Form.Item name="video_prompt" label="视频提示词"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="可选" /></Form.Item>
+                  <div className="asset-reference-heading"><span>本镜额外参考图 · {extraReferences.length} 张</span><Upload showUploadList={false} accept="image/*" multiple customRequest={async ({ file, onSuccess, onError }) => {
+                    try { await uploadExtraReference(file as File); onSuccess?.(file) }
+                    catch (reason) { onError?.(reason as Error) }
+                  }}><Button size="small" icon={<CloudUploadOutlined />}>添加参考图</Button></Upload></div>
+                  <div className="asset-reference-grid">{extraReferences.length ? extraReferences.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除本镜参考图" onClick={() => form.setFieldValue('extra_reference_images', extraReferences.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">还没有本镜额外参考图</span>}</div>
                   {aspectOptions.length ? (
                     <Form.Item name="aspect_ratio" label="图片画幅" extra="选项来自当前图片模型目录，不是通用列表">
                       <Select options={aspectOptions.map((value) => ({ value, label: value }))} placeholder="按当前图片模型能力" />

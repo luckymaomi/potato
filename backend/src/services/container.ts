@@ -8,9 +8,7 @@ import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveService } from './mediaArchiveService';
 import { ProjectArchiveService } from './projectArchiveService';
 import { ProjectService } from './projectService';
-import { ProductionWorkflowService } from './productionWorkflowService';
 import { TaskService } from './taskService';
-import { TextGenerationService } from './textGenerationService';
 import { VideoGenerationService } from './videoGenerationService';
 
 export interface ServiceContainer {
@@ -20,9 +18,7 @@ export interface ServiceContainer {
   images: ImageGenerationService;
   projectArchives: ProjectArchiveService;
   projects: ProjectService;
-  production: ProductionWorkflowService;
   tasks: TaskService;
-  text: TextGenerationService;
   videos: VideoGenerationService;
 }
 
@@ -34,7 +30,6 @@ export function createServices(
 ): ServiceContainer {
   const aiConfigs = new AiConfigService(db, registry, config, log);
   const tasks = new TaskService(db, log);
-  const text = new TextGenerationService(aiConfigs, registry, log);
   const mediaArchive = new MediaArchiveService(config, log);
   const projects = new ProjectService(db, mediaArchive, log);
   const assets = new AssetRepository(db, log);
@@ -49,9 +44,7 @@ export function createServices(
     images,
     projectArchives: new ProjectArchiveService(db, projects, assets, mediaArchive),
     projects,
-    production: new ProductionWorkflowService(db, projects, assets, text, images, videos, composition, tasks, log),
     tasks,
-    text,
     videos,
   };
 }
