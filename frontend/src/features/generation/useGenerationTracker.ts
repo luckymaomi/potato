@@ -88,6 +88,7 @@ export function useGenerationTracker(projectId: number) {
     kind: 'image' | 'video'
     label?: string
     startedAt?: string
+    status?: GenerationTaskStatus
   }) => {
     const track: TrackedGeneration = {
       key: input.key,
@@ -96,8 +97,8 @@ export function useGenerationTracker(projectId: number) {
       kind: input.kind,
       label: input.label,
       startedAt: input.startedAt ?? new Date().toISOString(),
-      status: 'processing',
-      message: '正在生成',
+      status: input.status ?? 'pending',
+      message: input.status === 'processing' ? '正在生成' : '排队中',
     }
     upsert(track)
     pollTask(track)
@@ -176,7 +177,7 @@ function applyTask(track: TrackedGeneration, task: GenerationTask): TrackedGener
     ...track,
     status: task.status,
     progress: typeof task.progress === 'number' && task.progress >= 0 ? task.progress : undefined,
-    message: task.message || task.error || track.message,
+    message: task.status === 'failed' ? task.error || '生成失败' : task.message || track.message,
     finishedAt: terminal ? (track.finishedAt ?? new Date().toISOString()) : undefined,
   }
 }

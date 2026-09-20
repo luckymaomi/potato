@@ -73,7 +73,7 @@ export function assembleStoryboardRecipes({ shot, assets }: StoryboardRecipeInpu
   };
 }
 
-export function compileAssetTextBlock(asset: ProjectAssetRow): string {
+export function compileAssetTextBlock(asset: Pick<ProjectAssetRow, 'kind' | 'name' | 'text_profile'>): string {
   const fields = PROFILE_FIELDS[asset.kind].flatMap(([key, label]) => {
     const raw = asset.text_profile[key];
     const value = Array.isArray(raw) ? raw.join('、') : clean(raw);

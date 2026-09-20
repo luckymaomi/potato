@@ -160,6 +160,13 @@ button, input, textarea { font: inherit; }
 .asset-tile-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #7e878f; }
 .asset-tile-empty .anticon { font-size: 30px; }
 .asset-tile-status { position: absolute; right: 9px; bottom: 9px; display: flex; align-items: center; gap: 5px; padding: 4px 7px; color: #fff; background: rgb(30 34 38 / 72%); border: 1px solid rgb(255 255 255 / 18%); border-radius: 6px; font-size: 10px; }
+.asset-tile-status.is-pending, .asset-tile-status.is-processing { background: #234d87; }
+.asset-tile-status.is-archiving { background: #725118; }
+.asset-tile-status.is-completed { background: #286247; }
+.asset-tile-status.is-failed { background: #9b3232; }
+.asset-standard-stage > .asset-tile-status { top: 10px; bottom: auto; }
+.asset-output-prompt-panel { padding: 14px; background: #f1f5fb; border: 1px solid #c6d4e8; border-radius: 9px; }
+.asset-output-prompt-panel textarea { line-height: 1.7; }
 .asset-tile-body { padding: 12px; }
 .asset-tile-body > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
 .asset-tile-body > p { height: 36px; margin: 6px 0 10px; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 18px; }

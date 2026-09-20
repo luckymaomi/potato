@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { once } from 'node:events';
 import test, { after } from 'node:test';
+import express from 'express';
 import Database from 'better-sqlite3';
 import { initializeDatabase } from '../src/db/schema';
 import { modelCapabilities, ProviderRegistry, type ProviderAdapter } from '../src/providers';
 import { createServices } from '../src/services/container';
-import { assembleAssetOutputPrompt } from '../src/services/assetOutputPromptAssembler';
+import { workspaceRoutes } from '../src/routes/workspaceRoutes';
 import { assembleStoryboardRecipes } from '../src/services/storyboardPromptAssembler';
 import type { AppConfig, Logger } from '../src/types/core';
 
@@ -21,6 +23,7 @@ after(() => roots.forEach((root) => fs.rmSync(root, { recursive: true, force: tr
 function setup(options: {
   submitImage?: NonNullable<ProviderAdapter['submitImage']>;
   submitVideo?: NonNullable<ProviderAdapter['submitVideo']>;
+  logger?: Logger;
 } = {}) {
   const db = new Database(':memory:');
   initializeDatabase(db);
@@ -56,7 +59,7 @@ function setup(options: {
     submitImage: options.submitImage ?? (async () => ({ status: 'completed', imageUrl: TEST_PNG })),
     submitVideo: options.submitVideo ?? (async () => ({ status: 'completed', videoUrl: TEST_MP4 })),
   });
-  return { db, services: createServices(db, config, registry, log), storageRoot };
+  return { db, services: createServices(db, config, registry, options.logger ?? log), storageRoot, config };
 }
 
 async function taskDone(get: () => { status: string; error: string | null } | undefined): Promise<void> {
@@ -93,16 +96,21 @@ test('项目服务持久化多集、项目资产和各集分镜', () => {
   } finally { db.close(); }
 });
 
-test('资产标准图生成消费结构化文本和资产卡输入参考图', async () => {
+test('资产标准图生成消费用户保存的可见提示词和资产卡输入参考图', async () => {
   let receivedPrompt = '';
   let receivedReferences: string[] = [];
-  const { db, services, storageRoot } = setup({
+  const { db, services, storageRoot, config } = setup({
     submitImage: async (_context, request) => {
       receivedPrompt = request.prompt;
       receivedReferences = request.referenceImages;
       return { status: 'completed', imageUrl: TEST_PNG };
     },
   });
+  const app = express();
+  app.use(express.json());
+  app.use(workspaceRoutes(services, config));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
   try {
     await services.aiConfigs.refresh('agnes');
     const project = services.projects.create({ title: '资产生成' });
@@ -115,24 +123,65 @@ test('资产标准图生成消费结构化文本和资产卡输入参考图', as
       text_profile: { occupation: '夜城女王', hairstyle: '黑色盘发' },
       input_reference_images: ['/static/uploads/queen.png'],
     });
-    const row = services.images.create({
-      dramaId: project.id,
-      projectAssetId: asset.id,
-      prompt: assembleAssetOutputPrompt(asset),
-      model: 'agnes-image',
-      aspectRatio: '9:16',
-      referenceImages: asset.input_reference_images,
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const url = `http://127.0.0.1:${address.port}/dramas/${project.id}/assets/${asset.id}`;
+    const prompt = '用户重写：电影感红女王定妆图，黑色盘发，深红礼服。';
+    const saved = await fetch(url, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ output_prompt: prompt }),
     });
+    assert.equal(saved.status, 200);
+    assert.equal((await saved.json() as { data: { output_prompt: string } }).data.output_prompt, prompt);
+    const response = await fetch(`${url}/generate-image`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'agnes-image', aspect_ratio: '9:16' }),
+    });
+    assert.equal(response.status, 201);
+    const { data: row } = await response.json() as { data: { id: number; task_id: string; prompt: string } };
     await taskDone(() => services.tasks.get(row.task_id as string));
 
-    assert.match(receivedPrompt, /^角色卡「红女王」：职业：夜城女王；发型：黑色盘发/u);
-    assert.match(receivedPrompt, /布局 A（三栏三视图）/u);
-    assert.match(receivedPrompt, /身高比例和五官完全一致/u);
+    assert.equal(receivedPrompt, prompt);
+    assert.equal(row.prompt, prompt);
     assert.deepEqual(receivedReferences, ['/static/uploads/queen.png']);
     const current = services.assets.getProjectAsset(asset.id);
     assert.equal(current?.current_image_generation_id, row.id);
     assert.match(current?.image_url ?? '', /^\/static\/projects\//u);
-  } finally { db.close(); }
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    db.close();
+  }
+});
+
+test('单卡任务公开排队、生成、归档和本地文件完成状态', async () => {
+  const observed: string[] = [];
+  let releaseProvider = () => {};
+  const gate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+  const { db, services, storageRoot } = setup({
+    logger: { ...log, audit(event, detail) {
+      if (event === 'task.stage') observed.push(String((detail as { message: string }).message));
+    } },
+    submitImage: async () => { await gate; return { status: 'completed', imageUrl: TEST_PNG }; },
+  });
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const project = services.projects.create({ title: '单卡状态' });
+    const asset = services.assets.createProjectAsset(project.id, { kind: 'prop', name: '铜钥匙' });
+    const row = services.images.create({ dramaId: project.id, projectAssetId: asset.id, prompt: asset.output_prompt, referenceImages: [] });
+    const taskId = row.task_id as string;
+    assert.equal(services.tasks.get(taskId)?.status, 'pending');
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    assert.equal(services.tasks.get(taskId)?.status, 'processing');
+    assert.equal(services.tasks.get(taskId)?.message, '正在生成');
+    releaseProvider();
+    await taskDone(() => services.tasks.get(taskId));
+    assert.deepEqual(observed, ['正在生成', '归档中']);
+    assert.equal(services.tasks.get(taskId)?.status, 'completed');
+    const completed = services.images.get(row.id);
+    assert.equal(completed?.available, true);
+    assert.ok(completed?.local_path);
+    assert.ok(fs.statSync(path.join(storageRoot, completed.local_path)).isFile());
+  } finally { releaseProvider(); db.close(); }
 });
 
 test('分镜图片消费图片配方的文本和参考图', async () => {
@@ -287,12 +336,13 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
       name: '林岚',
       text_profile: { occupation: '记者' },
       output_type: 'character-layout-c',
+      output_prompt: '用户确认的林岚 4+3 标准图提示词。',
       input_reference_images: ['/static/uploads/asset-input.png'],
     });
     const assetImage = services.images.create({
       dramaId: project.id,
       projectAssetId: asset.id,
-      prompt: assembleAssetOutputPrompt(asset),
+      prompt: asset.output_prompt,
       model: 'agnes-image',
       referenceImages: asset.input_reference_images,
     });
@@ -324,6 +374,7 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
     const importedShot = imported.episodes?.[0]?.storyboards?.[0];
     assert.deepEqual(importedAsset?.text_profile, { occupation: '记者' });
     assert.equal(importedAsset?.output_type, 'character-layout-c');
+    assert.equal(importedAsset?.output_prompt, '用户确认的林岚 4+3 标准图提示词。');
     assert.match(importedAsset?.input_reference_images[0] ?? '', new RegExp(`^/static/projects/${imported.id}/references/`, 'u'));
     assert.deepEqual(importedShot?.project_asset_ids, [importedAsset?.id]);
     assert.match(importedShot?.extra_reference_images[0] ?? '', new RegExp(`^/static/projects/${imported.id}/references/`, 'u'));
@@ -341,6 +392,7 @@ test('全新 schema 支持项目资产卡和分镜额外参考图', () => {
     const imageColumns = db.prepare('PRAGMA table_info(image_generations)').all() as Array<{ name: string }>;
     assert.equal(assetColumns.some((column) => column.name === 'text_profile'), true);
     assert.equal(assetColumns.some((column) => column.name === 'output_type'), true);
+    assert.equal(assetColumns.some((column) => column.name === 'output_prompt'), true);
     assert.equal(assetColumns.some((column) => column.name === 'input_reference_images'), true);
     assert.equal(storyboardColumns.some((column) => column.name === 'extra_reference_images'), true);
     assert.equal(imageColumns.some((column) => column.name === 'project_asset_id'), true);

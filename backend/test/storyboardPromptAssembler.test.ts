@@ -38,6 +38,7 @@ const asset = (overrides: Partial<ProjectAssetRow>): ProjectAssetRow => ({
   name: '林岚',
   text_profile: {},
   output_type: 'character-layout-a',
+  output_prompt: '林岚定妆图',
   input_reference_images: [],
   image_url: null,
   local_path: null,

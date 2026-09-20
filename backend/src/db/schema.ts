@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS project_assets (
   name TEXT NOT NULL,
   text_profile TEXT NOT NULL DEFAULT '{}',
   output_type TEXT NOT NULL,
+  output_prompt TEXT NOT NULL CHECK(length(trim(output_prompt)) > 0),
   input_reference_images TEXT NOT NULL DEFAULT '[]',
   image_url TEXT,
   local_path TEXT,

@@ -18,6 +18,7 @@ function asset(outputType: AssetOutputType): ProjectAssetRow {
         ? { layout: '中轴王座厅', time_of_day: '深夜', light_source: '烛光' }
         : { material: '暗金与红宝石', default_state: '左侧冠齿破损' },
     output_type: outputType,
+    output_prompt: '测试提示词',
     input_reference_images: [],
     image_url: null,
     local_path: null,

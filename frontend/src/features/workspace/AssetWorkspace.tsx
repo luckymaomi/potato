@@ -3,7 +3,6 @@ import {
   DeleteOutlined,
   DownOutlined,
   HistoryOutlined,
-  PlayCircleOutlined,
   PlusOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
@@ -15,18 +14,19 @@ import { useSearchParams } from 'react-router-dom'
 import { mediaHistoryApi, uploadsApi, type MediaGenerationHistory } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
-import type { AssetKind, AssetOutputType, AssetTextProfile, ProjectAsset } from '../../types/domain'
+import type { AssetKind, AssetTextProfile, ProjectAsset } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { useAnnounceGenerationOutcomes } from '../generation/useAnnounceGenerationOutcomes'
 import { assetImageKey, useGenerationTracker } from '../generation/useGenerationTracker'
 import { useProjectWorkspace } from './workspaceContext'
+import { assetGenerationStatus, type AssetGenerationState } from './assetGenerationStatus'
 
 type AssetFilter = 'all' | AssetKind
 interface AssetFormValues {
   name?: string
   text_profile?: AssetTextProfile
-  output_type?: AssetOutputType
+  output_prompt?: string
   input_reference_images?: string[]
 }
 
@@ -43,26 +43,6 @@ interface ProfileGroup {
 }
 
 const labels: Record<AssetKind, string> = { character: '角色卡', scene: '场景卡', prop: '道具卡' }
-const outputOptions: Record<AssetKind, Array<{ value: AssetOutputType; label: string }>> = {
-  character: [
-    { value: 'character-layout-a', label: '布局 A · 三栏三视图' },
-    { value: 'character-layout-b', label: '布局 B · 左脸右身' },
-    { value: 'character-layout-c', label: '布局 C · 4+3 双层' },
-    { value: 'character-layout-d', label: '布局 D · 7 图锚点组' },
-  ],
-  scene: [
-    { value: 'scene-panorama', label: '空间全景图' },
-    { value: 'scene-detail', label: '局部特写图' },
-    { value: 'scene-lighting-variant', label: '光影变体卡（独立资产）' },
-  ],
-  prop: [
-    { value: 'prop-multi-angle', label: '多角度图' },
-    { value: 'prop-state-variant', label: '状态变体卡（独立资产）' },
-  ],
-}
-const outputLabels = Object.fromEntries(
-  Object.values(outputOptions).flat().map((option) => [option.value, option.label]),
-) as Record<AssetOutputType, string>
 const profileGroups: Record<AssetKind, ProfileGroup[]> = {
   character: [
     { title: '身份', fields: [field('age', '年龄'), field('gender', '性别'), field('occupation', '职业'), field('faction', '阵营'), listField('identity_tags', '身份标签')] },
@@ -93,9 +73,10 @@ export function AssetWorkspace() {
   const [activeKind, setActiveKind] = useState<AssetFilter>(() => parseKindFilter(searchParams.get('kind')))
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
-  const [assetQueue, setAssetQueue] = useState<{ total: number; completed: number; current?: string; stopping?: boolean }>()
-  const stopAssetQueueRef = useRef(false)
-  const currentAssetQueueKeyRef = useRef<string>()
+  const [submissions, setSubmissions] = useState<Record<number, AssetGenerationState>>({})
+  const submittingIds = useRef(new Set<number>())
+  const drafts = useRef(new Map<number, AssetFormValues>())
+  const formAssetId = useRef<number>()
   const [form] = Form.useForm<AssetFormValues>()
   const references = Form.useWatch('input_reference_images', { form, preserve: true }) ?? []
   const tracker = useGenerationTracker(project.id)
@@ -103,7 +84,15 @@ export function AssetWorkspace() {
   const selected = useMemo(() => allAssets.find((item) => item.id === selectedId), [allAssets, selectedId])
   const itemHistory = useMemo(() => history.filter((item) => item.project_asset_id === selected?.id), [history, selected?.id])
   const selectedTrack = selected ? tracker.get(assetImageKey(selected.id)) : undefined
-  const generating = selectedTrack?.status === 'pending' || selectedTrack?.status === 'processing'
+  const generationState = (assetId: number): AssetGenerationState | undefined => {
+    if (submissions[assetId]) return submissions[assetId]
+    const track = tracker.get(assetImageKey(assetId))
+    const latest = history.find((item) => item.project_asset_id === assetId)
+    if (track && (!latest || (track.generationId ?? 0) >= latest.id)) return track
+    return latest ? { status: latest.status, message: latest.error_msg ?? undefined } : undefined
+  }
+  const selectedState = selected ? generationState(selected.id) : undefined
+  const generating = selectedState?.status === 'submitting' || selectedState?.status === 'pending' || selectedState?.status === 'processing'
   const filteredAssets = useMemo(() => allAssets.filter((item) => activeKind === 'all' || item.kind === activeKind), [activeKind, allAssets])
 
   const load = useCallback(async () => {
@@ -125,14 +114,20 @@ export function AssetWorkspace() {
 
   useEffect(() => { void load() }, [load])
   useEffect(() => {
-    if (selected) form.setFieldsValue({
+    if (formAssetId.current === selected?.id) return
+    formAssetId.current = selected?.id
+    form.resetFields()
+    if (selected) form.setFieldsValue(drafts.current.get(selected.id) ?? {
       name: selected.name,
       text_profile: selected.text_profile,
-      output_type: selected.output_type,
+      output_prompt: selected.output_prompt,
       input_reference_images: selected.input_reference_images,
     })
-    else form.resetFields()
   }, [form, selected])
+
+  const rememberDraft = () => {
+    if (formAssetId.current) drafts.current.set(formAssetId.current, structuredClone(form.getFieldsValue(true)))
+  }
 
   const changeKind = (value: AssetFilter) => {
     setActiveKind(value)
@@ -152,21 +147,26 @@ export function AssetWorkspace() {
 
   const save = async (announce = true) => {
     if (!selected) return
+    const values = structuredClone(form.getFieldsValue(true))
     try {
-      await workspaceApi.updateAsset(project.id, selected.id, form.getFieldsValue(true))
-      await load()
+      await form.validateFields()
+      const updated = await workspaceApi.updateAsset(project.id, selected.id, values)
+      setAllAssets((items) => items.map((item) => item.id === updated.id ? updated : item))
       if (announce) notifyAppSuccess(message, '资产卡已保存')
     } catch (reason) {
-      if (announce) notifyAppError({ message, modal }, reason)
+      if (announce && !(reason && typeof reason === 'object' && 'errorFields' in reason)) notifyAppError({ message, modal }, reason)
       throw reason
     }
   }
 
   const generate = async () => {
-    if (!selected) return
+    if (!selected || generating || submittingIds.current.has(selected.id)) return
+    const id = selected.id
+    submittingIds.current.add(id)
     try {
+      setSubmissions((current) => ({ ...current, [id]: { status: 'submitting' } }))
       await save(false)
-      const generation = await workspaceApi.generateAssetImage(project.id, selected.id, {})
+      const generation = await workspaceApi.generateAssetImage(project.id, id, {})
       if (!generation.task_id) throw new Error('已提交但未返回任务号，请打开「AI 配置」确认密钥与模型目录后重试')
       tracker.watch({
         key: assetImageKey(selected.id),
@@ -175,53 +175,20 @@ export function AssetWorkspace() {
         kind: 'image',
         label: selected.name,
         startedAt: generation.created_at,
+        status: generation.status === 'processing' ? 'processing' : 'pending',
       })
+      setSubmissions((current) => { const next = { ...current }; delete next[id]; return next })
       notifyAppSuccess(message, '已开始生成标准资产图，可随时停止')
     } catch (reason) {
-      notifyAppError({ message, modal }, reason)
-    }
-  }
-
-  const generatePendingAssets = async () => {
-    if (assetQueue) return
-    const pending = allAssets.filter((item) => !item.image_url)
-    if (!pending.length) {
-      message.info('没有待生成的标准资产图')
-      return
-    }
-    stopAssetQueueRef.current = false
-    setAssetQueue({ total: pending.length, completed: 0 })
-    try {
-      for (const item of pending) {
-        if (stopAssetQueueRef.current) break
-        setAssetQueue((current) => current ? { ...current, current: item.name } : current)
-        const key = assetImageKey(item.id)
-        currentAssetQueueKeyRef.current = key
-        try {
-          const generation = await workspaceApi.generateAssetImage(project.id, item.id, {})
-          if (!generation.task_id) throw new Error('未返回任务号')
-          tracker.watch({ key, taskId: generation.task_id, generationId: generation.id, kind: 'image', label: item.name, startedAt: generation.created_at })
-          if (stopAssetQueueRef.current) await tracker.cancel(key)
-          await tracker.waitForTerminal(key)
-        } catch (reason) {
-          if (!stopAssetQueueRef.current) notifyAppError({ message, modal }, reason)
-        } finally {
-          currentAssetQueueKeyRef.current = undefined
-          setAssetQueue((current) => current ? { ...current, completed: current.completed + 1 } : current)
-        }
+      if (reason && typeof reason === 'object' && 'errorFields' in reason) {
+        setSubmissions((current) => { const next = { ...current }; delete next[id]; return next })
+        return
       }
+      setSubmissions((current) => ({ ...current, [id]: { status: 'failed', message: reason instanceof Error ? reason.message : '提交失败' } }))
+      notifyAppError({ message, modal }, reason)
     } finally {
-      currentAssetQueueKeyRef.current = undefined
-      setAssetQueue(undefined)
-      await load()
+      submittingIds.current.delete(id)
     }
-  }
-
-  const stopPendingAssets = async () => {
-    stopAssetQueueRef.current = true
-    setAssetQueue((current) => current ? { ...current, stopping: true } : current)
-    const key = currentAssetQueueKeyRef.current
-    if (key) await tracker.cancel(key)
   }
 
   const remove = async () => {
@@ -262,19 +229,25 @@ export function AssetWorkspace() {
   }
 
   const uploadInputReference = async (file: File) => {
+    if (!selected) return
+    const assetId = selected.id
+    rememberDraft()
     const uploaded = await uploadsApi.image(file, project.id)
-    form.setFieldValue('input_reference_images', [...new Set([...references, uploaded.url])])
+    const draft = drafts.current.get(assetId) ?? {}
+    draft.input_reference_images = [...new Set([...(draft.input_reference_images ?? []), uploaded.url])]
+    drafts.current.set(assetId, draft)
+    if (formAssetId.current === assetId) form.setFieldValue('input_reference_images', draft.input_reference_images)
   }
 
+  const settled = Object.values(tracker.tracks)
+    .filter((item) => item.status === 'completed' || item.status === 'failed' || item.status === 'cancelled')
+    .map((item) => `${item.key}:${item.status}:${item.finishedAt ?? ''}`)
+    .join('|')
   useEffect(() => {
-    const settled = Object.values(tracker.tracks)
-      .filter((item) => item.status === 'completed' || item.status === 'failed' || item.status === 'cancelled')
-      .map((item) => `${item.key}:${item.status}:${item.finishedAt ?? ''}`)
-      .join('|')
     if (!settled) return
     const timer = window.setTimeout(() => { void load() }, 350)
     return () => window.clearTimeout(timer)
-  }, [load, tracker.tracks])
+  }, [load, settled])
 
   const kindItems = Object.entries(labels).map(([key, label]) => ({ key, label }))
   const typeOptions = [
@@ -287,16 +260,11 @@ export function AssetWorkspace() {
       <div className="workspace-section-heading">
         <Typography.Title level={2}>项目资产库</Typography.Title>
         <Space wrap>
-          {assetQueue
-            ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingAssets()}>停止逐项生成</Button>
-            : <Button icon={<PlayCircleOutlined />} onClick={() => void generatePendingAssets()}>生成未完成标准图</Button>}
           <Dropdown menu={{ items: kindItems, onClick: ({ key }) => void create(key as AssetKind) }}>
             <Button type="primary" icon={<PlusOutlined />}>新建资产卡 <DownOutlined /></Button>
           </Dropdown>
         </Space>
       </div>
-
-      {assetQueue ? <div className="generation-queue-status"><Tag color={assetQueue.stopping ? 'warning' : 'processing'}>{assetQueue.stopping ? '正在停止' : '逐项生成中'}</Tag><span>{assetQueue.current ?? '准备中'} · 已处理 {Math.min(assetQueue.completed, assetQueue.total)}/{assetQueue.total}</span></div> : null}
 
       <div className="asset-panel-layout">
         <div className="asset-panel-content">
@@ -312,12 +280,12 @@ export function AssetWorkspace() {
                 <button type="button" className={`asset-tile${item.id === selectedId ? ' is-selected' : ''}`} key={item.id} onClick={() => setSelectedId(item.id)}>
                   <div className="asset-tile-image">
                     {item.image_url ? <img src={mediaUrl(item.image_url)} alt={item.name} /> : <div className="asset-tile-empty"><SafetyCertificateOutlined /><span>待生成标准图</span></div>}
-                    <span className="asset-tile-status">{item.image_url ? '已有标准图' : '待生成'}</span>
+                    <AssetStatusBadge state={generationState(item.id)} hasImage={Boolean(item.image_url)} />
                   </div>
                   <div className="asset-tile-body">
                     <strong>{item.name}</strong>
                     <p>{profileSummary(item.text_profile) || '尚未填写文本结构'}</p>
-                    <div className="asset-tile-tags"><span>{labels[item.kind]}</span><span>{outputLabels[item.output_type]}</span><span>{item.input_reference_images.length} 张输入参考图</span></div>
+                    <div className="asset-tile-tags"><span>{labels[item.kind]}</span><span>{item.input_reference_images.length} 张输入参考图</span></div>
                   </div>
                 </button>
               ))}</div> : !loading ? <Empty className="asset-gallery-empty" description="当前分类没有资产卡"><Dropdown menu={{ items: kindItems, onClick: ({ key }) => void create(key as AssetKind) }}><Button type="primary" icon={<PlusOutlined />}>新建资产卡</Button></Dropdown></Empty> : null}
@@ -332,14 +300,16 @@ export function AssetWorkspace() {
           generating={generating}
           deleting={deleting}
           track={selectedTrack}
-          onSave={() => void save()}
+          state={selectedState}
+          onDraftChange={rememberDraft}
+          onSave={() => void save().catch(() => undefined)}
           onRemove={() => void remove()}
           onGenerate={() => void generate()}
           onStop={() => selected && void tracker.cancel(assetImageKey(selected.id))}
           onSelectGeneration={(id) => void selectGeneration(id)}
           onUploadStandard={uploadStandard}
           onUploadInputReference={uploadInputReference}
-          onReferencesChange={(values) => form.setFieldValue('input_reference_images', values)}
+          onReferencesChange={(values) => { form.setFieldValue('input_reference_images', values); rememberDraft() }}
         />
       </div>
     </div>
@@ -354,6 +324,8 @@ function AssetDetailPanel({
   generating,
   deleting,
   track,
+  state,
+  onDraftChange,
   onSave,
   onRemove,
   onGenerate,
@@ -370,6 +342,8 @@ function AssetDetailPanel({
   generating: boolean
   deleting: boolean
   track?: { startedAt: string; finishedAt?: string; status: string; progress?: number; message?: string }
+  state?: AssetGenerationState
+  onDraftChange: () => void
   onSave: () => void
   onRemove: () => void
   onGenerate: () => void
@@ -384,9 +358,10 @@ function AssetDetailPanel({
   return <aside className="asset-detail-panel">
     <div className="asset-detail-header"><div><span>{labels[selected.kind]}</span><strong>{selected.name}</strong></div><Button type="primary" onClick={onSave}>保存</Button></div>
     <div className="asset-detail-scroll">
-      <Form form={form} layout="vertical" className="asset-detail-form">
+      <Form form={form} layout="vertical" className="asset-detail-form" onValuesChange={onDraftChange}>
         <div className="asset-standard-stage">
           {selected.image_url ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.name} /> : <div className="asset-standard-empty"><SafetyCertificateOutlined /><strong>还没有标准资产图</strong><span>可上传本地图，或按卡片输入生成</span></div>}
+          <AssetStatusBadge state={state} hasImage={Boolean(selected.image_url)} />
           <div className="asset-standard-status">
             <Tag color={selected.image_url ? 'green' : 'default'}>{selected.image_url ? '标准资产图' : '等待上传或生成'}</Tag>
             <Upload showUploadList={false} accept="image/jpeg,image/png,image/gif,image/webp" customRequest={async ({ file, onSuccess, onError }) => {
@@ -396,9 +371,6 @@ function AssetDetailPanel({
           </div>
         </div>
         <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: '请输入资产卡名称' }]}><Input /></Form.Item>
-        <Form.Item name="output_type" label="标准图产出方式" rules={[{ required: true, message: '请选择标准图产出方式' }]}>
-          <Select options={outputOptions[selected.kind]} />
-        </Form.Item>
         {profileGroups[selected.kind].map((group) => <section className="asset-profile-group" key={group.title}>
           <div className="asset-panel-heading"><strong>{group.title}</strong></div>
           <div className="asset-profile-grid">{group.fields.map((profileField) => <Form.Item key={profileField.key} name={['text_profile', profileField.key]} label={profileField.label}>
@@ -409,6 +381,12 @@ function AssetDetailPanel({
                 : <Input />}
           </Form.Item>)}</div>
         </section>)}
+        <section className="asset-output-prompt-panel">
+          <div className="asset-panel-heading"><strong>产出层提示词</strong></div>
+          <Form.Item name="output_prompt" label="最终生成提示词" rules={[{ required: true, whitespace: true, message: '请填写最终生成提示词' }]} extra="生成标准图时使用这里的完整文本。可自由修改主体、布局和约束；资产资料修改后，请在这里同步需要的内容。">
+            <Input.TextArea autoSize={{ minRows: 9, maxRows: 24 }} placeholder="直接描述要生成的标准资产图，包括主体、造型、布局与一致性要求。" />
+          </Form.Item>
+        </section>
         <section className="asset-generation-panel">
           <div className="asset-panel-heading"><strong>生成标准资产图</strong><RobotOutlined /></div>
           {track ? <GenerationElapsedTime startedAt={track.startedAt} finishedAt={track.finishedAt} active={active} progress={track.progress} message={track.message} /> : null}
@@ -418,7 +396,7 @@ function AssetDetailPanel({
           }}><Button size="small" icon={<CloudUploadOutlined />}>添加参考图</Button></Upload></div>
           <div className="asset-reference-grid">{references.length ? references.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除参考图" onClick={() => onReferencesChange(references.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">还没有生成输入参考图</span>}</div>
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Button type="primary" block loading={generating} onClick={onGenerate}>{references.length ? '按文本和参考图生成' : '按文本生成'}</Button>
+            <Button type="primary" block loading={generating} onClick={onGenerate}>{generating ? assetGenerationStatus(state).label : '保存并生成标准图'}</Button>
             {active ? <Button block danger icon={<StopOutlined />} onClick={onStop}>停止生成</Button> : null}
           </Space>
         </section>
@@ -438,6 +416,11 @@ function AssetDetailPanel({
       </Form>
     </div>
   </aside>
+}
+
+function AssetStatusBadge({ state, hasImage }: { state?: AssetGenerationState; hasImage: boolean }) {
+  const status = assetGenerationStatus(state, hasImage)
+  return <span className={`asset-tile-status is-${status.tone}`} role="status" aria-live="polite" title={state?.message}>{status.label}</span>
 }
 
 function field(key: string, label: string, multiline = false): ProfileField {

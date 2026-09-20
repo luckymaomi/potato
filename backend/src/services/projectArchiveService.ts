@@ -14,7 +14,7 @@ import { MediaArchiveService } from './mediaArchiveService';
 import { ProjectService } from './projectService';
 
 interface ArchivePayload {
-  format: 5;
+  format: 6;
   project: Drama;
   image_generations: Array<Record<string, unknown>>;
   video_generations: Array<Record<string, unknown>>;
@@ -45,7 +45,7 @@ export class ProjectArchiveService {
       .all(projectId) as Array<Record<string, unknown>>;
     const videos = this.db.prepare('SELECT * FROM video_generations WHERE drama_id = ? ORDER BY id')
       .all(projectId) as Array<Record<string, unknown>>;
-    const payload: ArchivePayload = { format: 5, project: archivalProject, image_generations: images, video_generations: videos };
+    const payload: ArchivePayload = { format: 6, project: archivalProject, image_generations: images, video_generations: videos };
     const relativePaths = collectLocalPaths(project, images, videos);
     for (const relativePath of relativePaths) {
       const absolute = this.mediaArchive.absolutePath(relativePath);
@@ -140,6 +140,7 @@ export class ProjectArchiveService {
         name: item.name,
         text_profile: item.text_profile,
         output_type: item.output_type,
+        output_prompt: item.output_prompt,
         input_reference_images: item.input_reference_images.map((url) => maps.urls.get(url) ?? url),
       });
       maps.projectAssets.set(item.id, created.id);
@@ -326,7 +327,7 @@ function parsePayload(text: string): ArchivePayload {
   let value: unknown;
   try { value = JSON.parse(text) as unknown; } catch { throw new ValidationError('项目归档 JSON 无法解析'); }
   const payload = asRecord(value);
-  if (payload?.format !== 5 || !asRecord(payload.project) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
+  if (payload?.format !== 6 || !asRecord(payload.project) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
     throw new ValidationError('项目归档格式无效或版本不受支持');
   }
   return payload as unknown as ArchivePayload;

@@ -1,6 +1,8 @@
 import type { AssetOutputType, ProjectAssetRow } from '../types/domain';
 import { compileAssetTextBlock } from './storyboardPromptAssembler';
 
+export type AssetOutputPromptSource = Pick<ProjectAssetRow, 'kind' | 'name' | 'text_profile' | 'output_type'>;
+
 const OUTPUT_INSTRUCTIONS: Record<AssetOutputType, string> = {
   'character-layout-a': '产出布局 A（三栏三视图）：左栏为无头全身正面站姿立绘；中栏为无头全身背面站姿立绘；右栏为大比例面部五官头部正侧特写。',
   'character-layout-b': '产出布局 B（左脸右身）：左侧为正脸特写，包含头部与肩部并锁定五官与发型；右侧为正面、90度侧面、背面三张等高全身视图，头顶与脚底对齐。',
@@ -17,7 +19,7 @@ const CHARACTER_CONSISTENCY = '角色一致性约束：所有视图必须是同�
 const SCENE_CONSISTENCY = '场景一致性约束：画面不出现角色，空间结构、尺度、建筑风格、陈设位置和色调必须与本卡文本一致。';
 const PROP_CONSISTENCY = '道具一致性约束：画面不出现无关物体，所有视图的尺寸比例、材质、颜色、形状和特殊标记必须一致，使用纯色或中性背景。';
 
-export function assembleAssetOutputPrompt(asset: ProjectAssetRow): string {
+export function assembleAssetOutputPrompt(asset: AssetOutputPromptSource): string {
   return [
     compileAssetTextBlock(asset),
     OUTPUT_INSTRUCTIONS[asset.output_type],
@@ -25,7 +27,7 @@ export function assembleAssetOutputPrompt(asset: ProjectAssetRow): string {
   ].join('\n');
 }
 
-function consistencyInstruction(asset: ProjectAssetRow): string {
+function consistencyInstruction(asset: Pick<ProjectAssetRow, 'kind'>): string {
   if (asset.kind === 'character') return CHARACTER_CONSISTENCY;
   if (asset.kind === 'scene') return SCENE_CONSISTENCY;
   return PROP_CONSISTENCY;

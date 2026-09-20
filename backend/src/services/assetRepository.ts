@@ -2,6 +2,7 @@ import { NotFoundError, ValidationError } from '../errors';
 import type { Logger, SQLiteDatabase } from '../types/core';
 import { asRecord, parseJson, readNumber, readString } from '../types/core';
 import type { AssetKind, AssetOutputType, AssetTextProfile, EpisodeRow, ProjectAssetRow, StoryboardRow } from '../types/domain';
+import { assembleAssetOutputPrompt } from './assetOutputPromptAssembler';
 
 const PROFILE_FIELDS: Record<AssetKind, readonly string[]> = {
   character: [
@@ -55,17 +56,23 @@ export class AssetRepository {
     const body = asRecord(input) ?? {};
     const kind = assetKind(body.kind);
     const name = readString(body.name) ?? `未命名${assetLabel(kind)}`;
+    const textProfile = normalizeTextProfile(kind, body.text_profile);
+    const outputType = normalizeOutputType(kind, body.output_type);
+    const outputPrompt = body.output_prompt === undefined
+      ? assembleAssetOutputPrompt({ kind, name, text_profile: textProfile, output_type: outputType })
+      : requiredOutputPrompt(body.output_prompt);
     const now = new Date().toISOString();
     const result = this.db.prepare(`
       INSERT INTO project_assets (
-        drama_id, kind, name, text_profile, output_type, input_reference_images, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        drama_id, kind, name, text_profile, output_type, output_prompt, input_reference_images, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       projectId,
       kind,
       name,
-      JSON.stringify(normalizeTextProfile(kind, body.text_profile)),
-      normalizeOutputType(kind, body.output_type),
+      JSON.stringify(textProfile),
+      outputType,
+      outputPrompt,
       JSON.stringify(normalizeStringArray(body.input_reference_images)),
       now,
       now,
@@ -90,11 +97,14 @@ export class AssetRepository {
     const inputReferences = body.input_reference_images === undefined
       ? current.input_reference_images
       : normalizeStringArray(body.input_reference_images);
+    const outputPrompt = body.output_prompt === undefined
+      ? current.output_prompt
+      : requiredOutputPrompt(body.output_prompt);
     this.db.prepare(`
       UPDATE project_assets
-      SET name = ?, text_profile = ?, output_type = ?, input_reference_images = ?, updated_at = ?
+      SET name = ?, text_profile = ?, output_type = ?, output_prompt = ?, input_reference_images = ?, updated_at = ?
       WHERE id = ?
-    `).run(name, JSON.stringify(textProfile), outputType, JSON.stringify(inputReferences), new Date().toISOString(), id);
+    `).run(name, JSON.stringify(textProfile), outputType, outputPrompt, JSON.stringify(inputReferences), new Date().toISOString(), id);
     const updated = this.getProjectAsset(id) as ProjectAssetRow;
     this.log?.audit?.('project.asset.updated', { projectId: current.drama_id, asset: updated });
     return updated;
@@ -329,6 +339,11 @@ export function normalizeOutputType(kind: AssetKind, value: unknown): AssetOutpu
   const outputType = readString(value) ?? DEFAULT_OUTPUT_TYPE[kind];
   if (OUTPUT_TYPES[kind].includes(outputType as AssetOutputType)) return outputType as AssetOutputType;
   throw new ValidationError(`${assetLabel(kind)}卡产出类型无效`);
+}
+
+function requiredOutputPrompt(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) throw new ValidationError('最终生成提示词不能为空');
+  return value;
 }
 
 function textOrNull(value: unknown): string | null {

@@ -31,6 +31,7 @@ test('项目资产库保存三类结构化卡和各自的生成输入参考图',
         speech_rate: '缓慢', accent: '标准普通话', signature_phrase: '这座城，从来不是你的。',
       },
       output_type: 'character-layout-d',
+      output_prompt: '红女王七图身份锚点组，保持同一造型。',
       input_reference_images: ['/static/uploads/queen-face.png', '/static/uploads/queen-dress.png'],
     });
     const scene = assets.createProjectAsset(projectId, {
@@ -38,6 +39,7 @@ test('项目资产库保存三类结构化卡和各自的生成输入参考图',
       name: '烛光王座厅',
       text_profile: { location_type: '王宫大厅', layout: '长厅尽头设王座', time_of_day: '深夜', light_source: '烛火', weather: '暴雨' },
       output_type: 'scene-detail',
+      output_prompt: '烛光王座厅局部材质与光影特写。',
       input_reference_images: ['/static/uploads/throne-hall.png'],
     });
     const prop = assets.createProjectAsset(projectId, {
@@ -45,6 +47,7 @@ test('项目资产库保存三类结构化卡和各自的生成输入参考图',
       name: '血色王冠',
       text_profile: { category: '王权信物', material: '暗金与红宝石', condition: '边缘有旧裂痕', default_state: '闭合完整' },
       output_type: 'prop-state-variant',
+      output_prompt: '血色王冠破损状态标准资产图。',
       input_reference_images: ['/static/uploads/crown.png'],
     });
 
@@ -54,6 +57,7 @@ test('项目资产库保存三类结构化卡和各自的生成输入参考图',
       name: item.name,
       text_profile: item.text_profile,
       output_type: item.output_type,
+      output_prompt: item.output_prompt,
       input_reference_images: item.input_reference_images,
     })), [
       {
@@ -62,6 +66,7 @@ test('项目资产库保存三类结构化卡和各自的生成输入参考图',
         name: '红女王（加冕）',
         text_profile: character.text_profile,
         output_type: 'character-layout-d',
+        output_prompt: '红女王七图身份锚点组，保持同一造型。',
         input_reference_images: ['/static/uploads/queen-face.png', '/static/uploads/queen-dress.png'],
       },
       {
@@ -70,6 +75,7 @@ test('项目资产库保存三类结构化卡和各自的生成输入参考图',
         name: '烛光王座厅',
         text_profile: scene.text_profile,
         output_type: 'scene-detail',
+        output_prompt: '烛光王座厅局部材质与光影特写。',
         input_reference_images: ['/static/uploads/throne-hall.png'],
       },
       {
@@ -78,6 +84,7 @@ test('项目资产库保存三类结构化卡和各自的生成输入参考图',
         name: '血色王冠',
         text_profile: prop.text_profile,
         output_type: 'prop-state-variant',
+        output_prompt: '血色王冠破损状态标准资产图。',
         input_reference_images: ['/static/uploads/crown.png'],
       },
     ]);
@@ -106,6 +113,24 @@ test('同项目各集复用同一资产 ID，分镜关系只保存当前项目�
   } finally { db.close(); }
 });
 
+test('独立产出提示词保留用户文本，资料更新后仍可读取同一份文本', () => {
+  const { db, projectId, assets } = setup();
+  try {
+    const card = assets.createProjectAsset(projectId, {
+      kind: 'character', name: '林岚', text_profile: { hairstyle: '短发' },
+    });
+    assert.match(card.output_prompt, /林岚.*短发/u);
+    assert.match(card.output_prompt, /同一张脸、同一发型、同一服装/u);
+    const prompt = '  用户手写的构图\n保持雀斑、短发和深蓝外套。\n';
+    assets.updateProjectAsset(card.id, { output_prompt: prompt });
+    const updated = assets.updateProjectAsset(card.id, {
+      name: '林岚（雨夜）', text_profile: { hairstyle: '湿润短发' },
+    });
+    assert.equal(updated.output_prompt, prompt);
+    assert.equal(assets.listProjectAssets(projectId)[0]?.output_prompt, prompt);
+  } finally { db.close(); }
+});
+
 test('更新资产卡会规范化结构化文本和参考图数组', () => {
   const { db, projectId, assets } = setup();
   try {
@@ -114,12 +139,14 @@ test('更新资产卡会规范化结构化文本和参考图数组', () => {
       name: '血色王冠',
       text_profile: { material: ' 暗金 ', color: '', interaction_states: ['手持', '放置', '手持', ' '] },
       output_type: 'prop-state-variant',
+      output_prompt: '  暗金王冠破损状态，多角度清晰呈现。  ',
       input_reference_images: [' /static/uploads/crown.png ', '/static/uploads/crown.png', ''],
     });
 
     assert.equal(updated.name, '血色王冠');
     assert.deepEqual(updated.text_profile, { material: '暗金', interaction_states: ['手持', '放置'] });
     assert.equal(updated.output_type, 'prop-state-variant');
+    assert.equal(updated.output_prompt, '  暗金王冠破损状态，多角度清晰呈现。  ');
     assert.deepEqual(updated.input_reference_images, ['/static/uploads/crown.png']);
   } finally { db.close(); }
 });

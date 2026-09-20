@@ -69,6 +69,7 @@ export interface ProjectAsset {
   name: string
   text_profile: AssetTextProfile
   output_type: AssetOutputType
+  output_prompt: string
   input_reference_images: string[]
   image_url?: string | null
   local_path?: string | null

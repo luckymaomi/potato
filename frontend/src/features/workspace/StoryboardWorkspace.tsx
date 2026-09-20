@@ -2,7 +2,6 @@ import {
   CloudUploadOutlined,
   DeleteOutlined,
   LeftOutlined,
-  PlayCircleOutlined,
   PlusOutlined,
   RightOutlined,
   SaveOutlined,
@@ -23,7 +22,7 @@ import {
   Typography,
   Upload,
 } from 'antd'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { aiConfigsApi } from '../../api/aiConfigs'
 import { uploadsApi } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
@@ -54,9 +53,6 @@ export function StoryboardWorkspace() {
   const [saving, setSaving] = useState(false)
   const [imageModels, setImageModels] = useState<ProviderModel[]>([])
   const [imageModelLabel, setImageModelLabel] = useState('读取中…')
-  const [imageQueue, setImageQueue] = useState<{ total: number; completed: number; current?: string; stopping?: boolean }>()
-  const stopImageQueueRef = useRef(false)
-  const currentImageQueueKeyRef = useRef<string>()
   const [form] = Form.useForm<StoryboardFormValues>()
   const tracker = useGenerationTracker(project.id)
   useAnnounceGenerationOutcomes(tracker.tracks)
@@ -216,48 +212,6 @@ export function StoryboardWorkspace() {
     }
   }
 
-  const generatePendingImages = async () => {
-    if (imageQueue) return
-    const pending = items.filter((item) => !item.image_url)
-    if (!pending.length) {
-      message.info('没有待生成的分镜图')
-      return
-    }
-    stopImageQueueRef.current = false
-    setImageQueue({ total: pending.length, completed: 0 })
-    try {
-      for (const item of pending) {
-        if (stopImageQueueRef.current) break
-        setImageQueue((current) => current ? { ...current, current: item.title || `镜头 ${item.storyboard_number}` } : current)
-        const key = storyboardImageKey(item.id)
-        currentImageQueueKeyRef.current = key
-        try {
-          const generation = await workspaceApi.generateStoryboardImage(project.id, item.id)
-          if (!generation.task_id) throw new Error('未返回任务号')
-          tracker.watch({ key, taskId: generation.task_id, generationId: generation.id, kind: 'image', label: item.title || `镜头 ${item.storyboard_number}`, startedAt: generation.created_at })
-          if (stopImageQueueRef.current) await tracker.cancel(key)
-          await tracker.waitForTerminal(key)
-        } catch (reason) {
-          if (!stopImageQueueRef.current) notifyAppError({ message, modal }, reason)
-        } finally {
-          currentImageQueueKeyRef.current = undefined
-          setImageQueue((current) => current ? { ...current, completed: current.completed + 1 } : current)
-        }
-      }
-    } finally {
-      currentImageQueueKeyRef.current = undefined
-      setImageQueue(undefined)
-      await load()
-    }
-  }
-
-  const stopPendingImages = async () => {
-    stopImageQueueRef.current = true
-    setImageQueue((current) => current ? { ...current, stopping: true } : current)
-    const key = currentImageQueueKeyRef.current
-    if (key) await tracker.cancel(key)
-  }
-
   const uploadImage = async (file: File) => {
     if (!selected) return
     try {
@@ -313,14 +267,9 @@ export function StoryboardWorkspace() {
         <Space wrap className="director-heading-actions">
           <div className="director-model-label"><span>分镜图模型</span><strong>{imageModelLabel}</strong></div>
           <div className="director-progress-summary"><strong>{items.length}</strong><span>镜头</span><i /><strong>{items.filter((item) => item.image_url).length}</strong><span>已出图</span></div>
-          {imageQueue
-            ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingImages()}>停止逐项生成</Button>
-            : <Button icon={<PlayCircleOutlined />} onClick={() => void generatePendingImages()}>生成未完成分镜图</Button>}
           <Button type="primary" icon={<PlusOutlined />} onClick={() => void create()}>加入镜头</Button>
         </Space>
       </div>
-
-      {imageQueue ? <div className="generation-queue-status"><Tag color={imageQueue.stopping ? 'warning' : 'processing'}>{imageQueue.stopping ? '正在停止' : '逐项生成中'}</Tag><span>{imageQueue.current ?? '准备中'} · 已处理 {Math.min(imageQueue.completed, imageQueue.total)}/{imageQueue.total}</span></div> : null}
 
       {!items.length ? (
         <Empty className="workspace-empty director-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有镜头">

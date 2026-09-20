@@ -49,6 +49,7 @@ test('半成品 Demo 会原位补齐为结构化短剧工作区且重复初始�
     assert.equal(repaired.episodes?.[0]?.storyboards?.length, 5);
     assert.equal(repaired.episodes?.[0]?.storyboards?.every((shot) => shot.project_asset_ids.length > 0), true);
     assert.equal(repaired.project_assets?.every((asset) => Object.keys(asset.text_profile).length > 0), true);
+    assert.equal(repaired.project_assets?.every((asset) => asset.output_prompt.trim().length > 0), true);
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'character')?.output_type, 'character-layout-a');
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'scene')?.output_type, 'scene-panorama');
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'prop')?.output_type, 'prop-multi-angle');
