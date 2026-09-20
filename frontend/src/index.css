@@ -165,8 +165,8 @@ button, input, textarea { font: inherit; }
 .asset-standard-stage > .asset-tile-status { top: 10px; bottom: auto; }
 .asset-output-prompt-panel { padding: 14px; background: #f1f5fb; border: 1px solid #c6d4e8; border-radius: 9px; }
 .asset-output-prompt-panel textarea { line-height: 1.7; }
-.asset-output-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
-.asset-output-controls > .ant-btn { margin-top: 2px; }
+.asset-output-controls { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+.asset-output-controls > .ant-btn { width: 100%; }
 .asset-tile-body { padding: 12px; }
 .asset-tile-body > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
 .asset-tile-body > p { height: 36px; margin: 6px 0 10px; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 18px; }
@@ -174,8 +174,7 @@ button, input, textarea { font: inherit; }
 .asset-tile-tags span { max-width: 130px; padding: 2px 6px; overflow: hidden; color: #5c6670; background: #f0f2f4; border: 1px solid #dfe3e6; border-radius: 5px; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .asset-gallery-empty { padding: 80px 20px; background: #fff; border: 1px solid var(--line); border-radius: 9px; }
 .asset-profile-group { padding-top: 4px; border-top: 1px solid var(--line); }
-.asset-profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
-.asset-profile-grid .ant-form-item:has(textarea), .asset-profile-grid .ant-form-item:has(.ant-select-multiple) { grid-column: 1 / -1; }
+.asset-profile-grid { display: grid; grid-template-columns: minmax(0, 1fr); }
 .asset-placeholder { height: 100%; display: grid; place-items: center; color: #848b92; }
 .asset-drawer-title { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .asset-drawer-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -283,8 +282,7 @@ button, input, textarea { font: inherit; }
 .director-form .ant-form-item { margin-bottom: 11px; }
 .director-form .ant-form-item-label { padding-bottom: 3px; }
 .director-form .ant-form-item-label label { color: #636b72; font-size: 11px; }
-.director-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.director-form-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.director-form-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .director-assemble-button { margin: 4px 0 8px; }
 .director-recipe-references { margin: -2px 0 14px; padding: 9px; background: #f5f7f9; border: 1px solid #dfe3e6; border-radius: 6px; }
 .director-recipe-references > div:first-child { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; color: #626a72; font-size: 11px; }
@@ -366,8 +364,6 @@ button, input, textarea { font: inherit; }
   .director-shot-list { min-height: 96px; }
   .director-stage, .director-inspector { min-height: 620px; }
   .director-asset-palette { grid-template-columns: 1fr; }
-  .director-form-grid, .director-form-grid-three { grid-template-columns: 1fr; }
-  .asset-output-controls { grid-template-columns: 1fr; }
   .production-shot-grid { grid-template-columns: 1fr; }
   .production-status-counts { align-items: flex-start; flex-direction: column; }
 }
