@@ -4,7 +4,7 @@ import { createProviderRegistry } from '../src/providers';
 import { ProviderError } from '../src/providers/errors';
 import type { AiServiceConfig } from '../src/types/ai';
 
-function config(provider: string, serviceType: 'text' | 'image' | 'video'): AiServiceConfig {
+function config(provider: string, serviceType: 'image' | 'video'): AiServiceConfig {
   return {
     id: 1,
     service_type: serviceType,
@@ -26,7 +26,8 @@ function config(provider: string, serviceType: 'text' | 'image' | 'video'): AiSe
 test('内置目录只注册 Agnes 与 PearAPI', () => {
   const registry = createProviderRegistry();
   assert.deepEqual(registry.list().map((item) => item.id), ['pearapi', 'agnes']);
-  assert.deepEqual(registry.list('text').map((item) => item.id), ['pearapi', 'agnes']);
+  assert.deepEqual(registry.list('image').map((item) => item.id), ['pearapi', 'agnes']);
+  assert.deepEqual(registry.list('video').map((item) => item.id), ['pearapi', 'agnes']);
 });
 
 test('注册中心只按供应商身份选择适配器', () => {
@@ -42,13 +43,5 @@ test('未知供应商明确拒绝，不走兼容协议兜底', () => {
     (error: unknown) => error instanceof ProviderError
       && error.code === 'configuration'
       && error.providerId === 'unknown-provider',
-  );
-});
-
-test('PearAPI 实时目录声明文本能力后由同一注册中心选择', () => {
-  const registry = createProviderRegistry();
-  assert.equal(
-    registry.require({ kind: 'text', config: config('pearapi', 'text'), model: 'model' }).descriptor.id,
-    'pearapi',
   );
 });

@@ -6,7 +6,8 @@ import multer from 'multer';
 import { NotFoundError, ValidationError } from '../errors';
 import { created, success } from '../response';
 import type { ServiceContainer } from '../services/container';
-import { assembleStoryboardRecipes, compileProjectAssetPrompt } from '../services/storyboardPromptAssembler';
+import { assembleAssetOutputPrompt } from '../services/assetOutputPromptAssembler';
+import { assembleStoryboardRecipes } from '../services/storyboardPromptAssembler';
 import type { AppConfig } from '../types/core';
 import { readNumber, readString } from '../types/core';
 import type { AssetKind, EpisodeRow, StoryboardRow } from '../types/domain';
@@ -70,7 +71,7 @@ export function workspaceRoutes(
     created(res, services.images.create({
       dramaId: projectId,
       projectAssetId: asset.id,
-      prompt: compileProjectAssetPrompt(asset),
+      prompt: assembleAssetOutputPrompt(asset),
       provider: readString(body.provider),
       model: readString(body.model),
       aspectRatio: readString(body.aspect_ratio),

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createAgnesAdapter } from '../src/providers/adapters/agnes';
 import { createPearApiAdapter } from '../src/providers/adapters/pearApi';
 
-test('Agnes 动态模型目录使用 GET /models 并按返回元数据分类', async () => {
+test('Agnes 动态模型目录使用 GET /models 并返回图片与视频模型', async () => {
   const requests: Array<{ url: string; method: string; authorization?: string }> = [];
   const adapter = createAgnesAdapter(async (input, init) => {
     requests.push({
@@ -26,10 +26,6 @@ test('Agnes 动态模型目录使用 GET /models 并按返回元数据分类', a
   assert.equal(requests[0]?.method, 'GET');
   assert.equal(requests[0]?.authorization, 'Bearer secret');
   assert.deepEqual(models, [
-    {
-      id: 'writer-live', label: 'Writer Live', kind: 'text',
-      capabilities: { modes: [], maxReferenceImages: null, aspectRatios: [], billingMode: 'unknown', supportsDuration: false, supportedDurations: null, source: 'adapter' },
-    },
     {
       id: 'artist-live', label: 'Artist Live', kind: 'image',
       capabilities: {

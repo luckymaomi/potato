@@ -22,7 +22,6 @@ function limited(capabilities: ProviderCapabilities): ProviderAdapter {
 }
 
 const baseCapabilities: ProviderCapabilities = {
-  text: false,
   textToImage: true,
   imageToImage: false,
   textToVideo: true,

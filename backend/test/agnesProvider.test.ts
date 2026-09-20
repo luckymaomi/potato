@@ -25,22 +25,6 @@ function config(serviceType: 'image' | 'video', model: string): AiServiceConfig 
   };
 }
 
-test('Agnes 文本适配器调用 chat completions 并归一化内容', async () => {
-  const adapter = createAgnesAdapter(async (input, init) => {
-    assert.equal(String(input), 'https://apihub.agnes-ai.com/v1/chat/completions');
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    assert.equal(body.model, 'agnes-text');
-    assert.deepEqual(body.messages, [{ role: 'user', content: '写一个开场' }]);
-    return new Response(JSON.stringify({ choices: [{ message: { content: '夜雨中的车站。' } }] }), { status: 200 });
-  });
-  const textConfig = { ...config('image', 'agnes-text'), service_type: 'text' as const, endpoint: '/chat/completions' };
-  const result = await adapter.generateText!({ config: textConfig, log }, {
-    model: 'agnes-text',
-    messages: [{ role: 'user', content: '写一个开场' }],
-  });
-  assert.deepEqual(result, { status: 'completed', text: '夜雨中的车站。' });
-});
-
 test('Agnes 图片适配器保留 size、ratio 和 extra_body 契约', async () => {
   const resolved: string[] = [];
   const adapter = createAgnesAdapter(async (input, init) => {

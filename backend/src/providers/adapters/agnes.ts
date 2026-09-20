@@ -7,8 +7,6 @@ import type {
   ProviderModelCapabilities,
   ProviderModelDiscoveryInput,
   ProviderTaskStatus,
-  TextProviderRequest,
-  TextProviderResult,
   VideoProviderRequest,
   VideoProviderResult,
 } from '../contracts';
@@ -50,7 +48,6 @@ export function createAgnesAdapter(fetchImpl: ProviderFetch = fetch): ProviderAd
       label: 'Agnes AI',
       aliases: [],
       capabilities: {
-        text: true,
         textToImage: true,
         imageToImage: true,
         textToVideo: true,
@@ -62,14 +59,12 @@ export function createAgnesAdapter(fetchImpl: ProviderFetch = fetch): ProviderAd
       configuration: {
         defaultBaseUrl: 'https://apihub.agnes-ai.com/v1',
         endpoints: {
-          text: { submit: '/chat/completions' },
           image: { submit: '/images/generations' },
           video: { submit: '/videos', query: '/videos/{taskId}' },
         },
       },
     },
     listModels: (input) => listModels(input, fetchImpl),
-    generateText: (context, request) => generateText(context, request, fetchImpl),
     submitImage: (context, request) => submitImage(context, request, fetchImpl),
     submitVideo: (context, request) => submitVideo(context, request, fetchImpl),
     pollVideo: (context, taskId, signal, model) => pollVideo(context, taskId, signal, model, fetchImpl),
@@ -108,13 +103,11 @@ function normalizeAgnesModel(value: unknown): ProviderModel | undefined {
     ? 'image'
     : rawType === 'video'
       ? 'video'
-      : rawType === 'chat'
-        ? 'text'
+      : rawType
+        ? undefined
         : /(?:^|-)image(?:-|$)/iu.test(id)
-          ? 'image'
-          : /(?:^|-)video(?:-|$)/iu.test(id)
-            ? 'video'
-            : /(?:^|-)embedding(?:-|$)/iu.test(id) ? undefined : 'text';
+        ? 'image'
+        : /(?:^|-)video(?:-|$)/iu.test(id) ? 'video' : undefined;
   if (!kind) return undefined;
   return {
     id,
@@ -124,7 +117,7 @@ function normalizeAgnesModel(value: unknown): ProviderModel | undefined {
   };
 }
 
-function agnesModelCapabilities(id: string, kind: 'text' | 'image' | 'video'): ProviderModelCapabilities {
+function agnesModelCapabilities(id: string, kind: 'image' | 'video'): ProviderModelCapabilities {
   if (kind === 'image') {
     return modelCapabilities(
       ['text-to-image', 'image-to-image'],
@@ -133,42 +126,13 @@ function agnesModelCapabilities(id: string, kind: 'text' | 'image' | 'video'): P
       'adapter',
     );
   }
-  if (kind === 'video') {
-    const maxReferences = /agnes-video-2\.5-flash/iu.test(id)
-      ? 5
-      : /agnes-video-2\.5/iu.test(id) ? 9 : 10;
-    const aspectRatios = isVideo25(id)
-      ? VIDEO_25_RATIOS.map(([ratio]) => ratio)
-      : Object.keys(VIDEO_20_DIMENSIONS);
-    return modelCapabilities(['text-to-video', 'image-to-video'], maxReferences, aspectRatios, 'adapter', 'duration');
-  }
-  return modelCapabilities([], null, [], 'adapter');
-}
-
-async function generateText(
-  context: ProviderExecutionContext,
-  request: TextProviderRequest,
-  fetchImpl: ProviderFetch,
-): Promise<TextProviderResult> {
-  const response = await requestProviderJson<Record<string, unknown>>({
-    providerId: 'agnes',
-    url: endpoint(context, '/chat/completions'),
-    headers: bearerHeaders(context.config.api_key),
-    body: {
-      model: required(request.model, '文本模型'),
-      messages: request.messages,
-      ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
-      ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
-      ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {}),
-    },
-    signal: request.signal,
-  }, fetchImpl);
-  const choices = Array.isArray(response.data.choices) ? response.data.choices : [];
-  const first = asRecord(choices[0]);
-  const message = asRecord(first?.message);
-  const text = readString(message?.content) || readString(first?.text) || readString(response.data.output_text);
-  if (!text) throw invalid('Agnes 文本响应没有返回内容', response.data);
-  return { status: 'completed', text };
+  const maxReferences = /agnes-video-2\.5-flash/iu.test(id)
+    ? 5
+    : /agnes-video-2\.5/iu.test(id) ? 9 : 10;
+  const aspectRatios = isVideo25(id)
+    ? VIDEO_25_RATIOS.map(([ratio]) => ratio)
+    : Object.keys(VIDEO_20_DIMENSIONS);
+  return modelCapabilities(['text-to-video', 'image-to-video'], maxReferences, aspectRatios, 'adapter', 'duration');
 }
 
 async function submitImage(

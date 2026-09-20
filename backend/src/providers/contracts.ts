@@ -1,7 +1,7 @@
 import type { AiServiceConfig } from '../types/ai';
 import type { Logger, SQLiteDatabase } from '../types/core';
 
-export type ProviderKind = 'text' | 'image' | 'video';
+export type ProviderKind = 'image' | 'video';
 export type ProviderTaskStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type ProviderModelMode = 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video';
 export type ProviderModelCapabilitySource = 'provider' | 'adapter' | 'unknown';
@@ -19,7 +19,6 @@ export interface ProviderModelCapabilities {
 }
 
 export interface ProviderCapabilities {
-  text: boolean;
   textToImage: boolean;
   imageToImage: boolean;
   textToVideo: boolean;
@@ -76,15 +75,6 @@ export interface ProviderExecutionContext {
   ) => Promise<string | undefined>;
 }
 
-export interface TextProviderRequest {
-  model: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
-  temperature?: number;
-  maxTokens?: number;
-  jsonMode?: boolean;
-  signal?: AbortSignal;
-}
-
 export interface ImageProviderRequest {
   prompt: string;
   model: string;
@@ -110,11 +100,6 @@ export interface VideoProviderRequest {
   signal?: AbortSignal;
 }
 
-export interface TextProviderResult {
-  status: 'completed';
-  text: string;
-}
-
 export interface ImageProviderResult {
   status: ProviderTaskStatus;
   taskId?: string;
@@ -134,7 +119,6 @@ export interface VideoProviderResult {
 export interface ProviderAdapter {
   descriptor: ProviderDescriptor;
   listModels?(input: ProviderModelDiscoveryInput): Promise<ProviderModel[]>;
-  generateText?(context: ProviderExecutionContext, request: TextProviderRequest): Promise<TextProviderResult>;
   submitImage?(context: ProviderExecutionContext, request: ImageProviderRequest): Promise<ImageProviderResult>;
   pollImage?(context: ProviderExecutionContext, taskId: string, signal?: AbortSignal): Promise<ImageProviderResult>;
   submitVideo?(context: ProviderExecutionContext, request: VideoProviderRequest): Promise<VideoProviderResult>;
@@ -147,7 +131,6 @@ export interface ProviderAdapter {
 }
 
 export const NO_PROVIDER_CAPABILITIES: ProviderCapabilities = Object.freeze({
-  text: false,
   textToImage: false,
   imageToImage: false,
   textToVideo: false,

@@ -61,7 +61,6 @@ export class ProviderRegistry {
 }
 
 function supportsKind(adapter: ProviderAdapter, kind: ProviderKind): boolean {
-  if (kind === 'text') return typeof adapter.generateText === 'function';
   if (kind === 'image') return typeof adapter.submitImage === 'function';
   return typeof adapter.submitVideo === 'function';
 }

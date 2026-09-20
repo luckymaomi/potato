@@ -15,7 +15,7 @@ import { useSearchParams } from 'react-router-dom'
 import { mediaHistoryApi, uploadsApi, type MediaGenerationHistory } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
-import type { AssetKind, AssetTextProfile, ProjectAsset } from '../../types/domain'
+import type { AssetKind, AssetOutputType, AssetTextProfile, ProjectAsset } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { useAnnounceGenerationOutcomes } from '../generation/useAnnounceGenerationOutcomes'
@@ -26,6 +26,7 @@ type AssetFilter = 'all' | AssetKind
 interface AssetFormValues {
   name?: string
   text_profile?: AssetTextProfile
+  output_type?: AssetOutputType
   input_reference_images?: string[]
 }
 
@@ -42,11 +43,31 @@ interface ProfileGroup {
 }
 
 const labels: Record<AssetKind, string> = { character: '角色卡', scene: '场景卡', prop: '道具卡' }
+const outputOptions: Record<AssetKind, Array<{ value: AssetOutputType; label: string }>> = {
+  character: [
+    { value: 'character-layout-a', label: '布局 A · 三栏三视图' },
+    { value: 'character-layout-b', label: '布局 B · 左脸右身' },
+    { value: 'character-layout-c', label: '布局 C · 4+3 双层' },
+    { value: 'character-layout-d', label: '布局 D · 7 图锚点组' },
+  ],
+  scene: [
+    { value: 'scene-panorama', label: '空间全景图' },
+    { value: 'scene-detail', label: '局部特写图' },
+    { value: 'scene-lighting-variant', label: '光影变体卡（独立资产）' },
+  ],
+  prop: [
+    { value: 'prop-multi-angle', label: '多角度图' },
+    { value: 'prop-state-variant', label: '状态变体卡（独立资产）' },
+  ],
+}
+const outputLabels = Object.fromEntries(
+  Object.values(outputOptions).flat().map((option) => [option.value, option.label]),
+) as Record<AssetOutputType, string>
 const profileGroups: Record<AssetKind, ProfileGroup[]> = {
   character: [
     { title: '身份', fields: [field('age', '年龄'), field('gender', '性别'), field('occupation', '职业'), field('faction', '阵营'), listField('identity_tags', '身份标签')] },
     { title: '外形', fields: [field('face_shape', '脸型'), field('facial_features', '五官', true), field('hairstyle', '发型'), field('body_type', '体型'), field('skin_tone', '肤色')] },
-    { title: '服装与神态', fields: [field('default_outfit', '默认穿搭', true), listField('outfit_versions', '换装版本'), field('personality', '性格'), field('common_expressions', '常见表情'), field('aura', '气场')] },
+    { title: '服装与神态', fields: [field('default_outfit', '默认穿搭', true), field('personality', '性格'), field('common_expressions', '常见表情'), field('aura', '气场')] },
     { title: '声音', fields: [field('voice_tone_id', '音色 ID'), field('speech_rate', '语速'), field('accent', '口音'), field('signature_phrase', '标志性语气', true)] },
   ],
   scene: [
@@ -58,7 +79,7 @@ const profileGroups: Record<AssetKind, ProfileGroup[]> = {
   prop: [
     { title: '物理', fields: [field('category', '类别'), field('size', '尺寸'), field('material', '材质'), field('color', '颜色'), field('shape', '形状')] },
     { title: '细节', fields: [field('condition', '新旧程度'), field('special_marks', '特殊标记', true), field('unique_design', '独特设计', true)] },
-    { title: '状态', fields: [field('default_state', '默认状态'), listField('interaction_states', '互动状态'), listField('state_versions', '状态版本'), listField('bindings', '绑定关系')] },
+    { title: '状态', fields: [field('default_state', '默认状态'), listField('interaction_states', '互动状态'), listField('bindings', '绑定关系')] },
   ],
 }
 
@@ -107,6 +128,7 @@ export function AssetWorkspace() {
     if (selected) form.setFieldsValue({
       name: selected.name,
       text_profile: selected.text_profile,
+      output_type: selected.output_type,
       input_reference_images: selected.input_reference_images,
     })
     else form.resetFields()
@@ -217,7 +239,7 @@ export function AssetWorkspace() {
     }
   }
 
-  const selectVersion = async (generationId: number) => {
+  const selectGeneration = async (generationId: number) => {
     try {
       await mediaHistoryApi.selectImage(generationId)
       await load()
@@ -295,7 +317,7 @@ export function AssetWorkspace() {
                   <div className="asset-tile-body">
                     <strong>{item.name}</strong>
                     <p>{profileSummary(item.text_profile) || '尚未填写文本结构'}</p>
-                    <div className="asset-tile-tags"><span>{labels[item.kind]}</span><span>{item.input_reference_images.length} 张输入参考图</span></div>
+                    <div className="asset-tile-tags"><span>{labels[item.kind]}</span><span>{outputLabels[item.output_type]}</span><span>{item.input_reference_images.length} 张输入参考图</span></div>
                   </div>
                 </button>
               ))}</div> : !loading ? <Empty className="asset-gallery-empty" description="当前分类没有资产卡"><Dropdown menu={{ items: kindItems, onClick: ({ key }) => void create(key as AssetKind) }}><Button type="primary" icon={<PlusOutlined />}>新建资产卡</Button></Dropdown></Empty> : null}
@@ -314,7 +336,7 @@ export function AssetWorkspace() {
           onRemove={() => void remove()}
           onGenerate={() => void generate()}
           onStop={() => selected && void tracker.cancel(assetImageKey(selected.id))}
-          onSelectVersion={(id) => void selectVersion(id)}
+          onSelectGeneration={(id) => void selectGeneration(id)}
           onUploadStandard={uploadStandard}
           onUploadInputReference={uploadInputReference}
           onReferencesChange={(values) => form.setFieldValue('input_reference_images', values)}
@@ -336,7 +358,7 @@ function AssetDetailPanel({
   onRemove,
   onGenerate,
   onStop,
-  onSelectVersion,
+  onSelectGeneration,
   onUploadStandard,
   onUploadInputReference,
   onReferencesChange,
@@ -352,7 +374,7 @@ function AssetDetailPanel({
   onRemove: () => void
   onGenerate: () => void
   onStop: () => void
-  onSelectVersion: (id: number) => void
+  onSelectGeneration: (id: number) => void
   onUploadStandard: (file: File) => Promise<void>
   onUploadInputReference: (file: File) => Promise<void>
   onReferencesChange: (values: string[]) => void
@@ -374,6 +396,9 @@ function AssetDetailPanel({
           </div>
         </div>
         <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: '请输入资产卡名称' }]}><Input /></Form.Item>
+        <Form.Item name="output_type" label="标准图产出方式" rules={[{ required: true, message: '请选择标准图产出方式' }]}>
+          <Select options={outputOptions[selected.kind]} />
+        </Form.Item>
         {profileGroups[selected.kind].map((group) => <section className="asset-profile-group" key={group.title}>
           <div className="asset-panel-heading"><strong>{group.title}</strong></div>
           <div className="asset-profile-grid">{group.fields.map((profileField) => <Form.Item key={profileField.key} name={['text_profile', profileField.key]} label={profileField.label}>
@@ -399,7 +424,7 @@ function AssetDetailPanel({
         </section>
         <section className="asset-history-panel">
           <div className="asset-panel-heading"><strong>标准图历史</strong><HistoryOutlined /></div>
-          <List size="small" locale={{ emptyText: '还没有生成历史' }} dataSource={history} renderItem={(item) => <List.Item actions={item.status === 'completed' && item.available ? [<Button key="select" size="small" onClick={() => onSelectVersion(item.id)}>选用这张</Button>] : []}>
+          <List size="small" locale={{ emptyText: '还没有生成历史' }} dataSource={history} renderItem={(item) => <List.Item actions={item.status === 'completed' && item.available ? [<Button key="select" size="small" onClick={() => onSelectGeneration(item.id)}>选用这张</Button>] : []}>
             <List.Item.Meta
               avatar={item.image_url ? <Image width={48} height={48} src={mediaUrl(item.image_url)} /> : undefined}
               title={<Space size={5}><Tag>{item.status}</Tag><span>{item.provider === 'local-upload' ? '本地上传' : (item.provider ?? '未提交')}</span></Space>}

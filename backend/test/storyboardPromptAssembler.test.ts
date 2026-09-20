@@ -37,6 +37,7 @@ const asset = (overrides: Partial<ProjectAssetRow>): ProjectAssetRow => ({
   kind: 'character',
   name: '林岚',
   text_profile: {},
+  output_type: 'character-layout-a',
   input_reference_images: [],
   image_url: null,
   local_path: null,

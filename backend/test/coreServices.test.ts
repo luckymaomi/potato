@@ -7,7 +7,8 @@ import Database from 'better-sqlite3';
 import { initializeDatabase } from '../src/db/schema';
 import { modelCapabilities, ProviderRegistry, type ProviderAdapter } from '../src/providers';
 import { createServices } from '../src/services/container';
-import { assembleStoryboardRecipes, compileProjectAssetPrompt } from '../src/services/storyboardPromptAssembler';
+import { assembleAssetOutputPrompt } from '../src/services/assetOutputPromptAssembler';
+import { assembleStoryboardRecipes } from '../src/services/storyboardPromptAssembler';
 import type { AppConfig, Logger } from '../src/types/core';
 
 const log: Logger = { info() {}, warn() {}, error() {}, audit() {} };
@@ -39,7 +40,6 @@ function setup(options: {
       label: 'Agnes test',
       aliases: [],
       capabilities: {
-        text: true,
         textToImage: true,
         imageToImage: true,
         textToVideo: true,
@@ -50,7 +50,6 @@ function setup(options: {
       },
     },
     listModels: async () => [
-      { id: 'agnes-text', label: 'Agnes Text', kind: 'text', capabilities: modelCapabilities([], null, [], 'adapter') },
       { id: 'agnes-image', label: 'Agnes Image', kind: 'image', capabilities: modelCapabilities(['text-to-image', 'image-to-image'], 8, ['1:1', '9:16'], 'adapter') },
       { id: 'agnes-video', label: 'Agnes Video', kind: 'video', capabilities: modelCapabilities(['text-to-video', 'image-to-video'], 8, ['16:9', '9:16'], 'adapter', 'duration', [4, 6, 8]) },
     ],
@@ -119,7 +118,7 @@ test('资产标准图生成消费结构化文本和资产卡输入参考图', as
     const row = services.images.create({
       dramaId: project.id,
       projectAssetId: asset.id,
-      prompt: compileProjectAssetPrompt(asset),
+      prompt: assembleAssetOutputPrompt(asset),
       model: 'agnes-image',
       aspectRatio: '9:16',
       referenceImages: asset.input_reference_images,
@@ -127,6 +126,8 @@ test('资产标准图生成消费结构化文本和资产卡输入参考图', as
     await taskDone(() => services.tasks.get(row.task_id as string));
 
     assert.match(receivedPrompt, /^角色卡「红女王」：职业：夜城女王；发型：黑色盘发/u);
+    assert.match(receivedPrompt, /布局 A（三栏三视图）/u);
+    assert.match(receivedPrompt, /身高比例和五官完全一致/u);
     assert.deepEqual(receivedReferences, ['/static/uploads/queen.png']);
     const current = services.assets.getProjectAsset(asset.id);
     assert.equal(current?.current_image_generation_id, row.id);
@@ -270,7 +271,7 @@ test('本地上传成为资产标准图并保留 generation 历史', async () =>
   } finally { db.close(); }
 });
 
-test('项目 ZIP 往返保存资产规格、分镜引用、参考图和媒体当前版本', async () => {
+test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当前标准图', async () => {
   const { db, services, storageRoot } = setup();
   try {
     await services.aiConfigs.refresh('agnes');
@@ -285,12 +286,13 @@ test('项目 ZIP 往返保存资产规格、分镜引用、参考图和媒体当
       kind: 'character',
       name: '林岚',
       text_profile: { occupation: '记者' },
+      output_type: 'character-layout-c',
       input_reference_images: ['/static/uploads/asset-input.png'],
     });
     const assetImage = services.images.create({
       dramaId: project.id,
       projectAssetId: asset.id,
-      prompt: compileProjectAssetPrompt(asset),
+      prompt: assembleAssetOutputPrompt(asset),
       model: 'agnes-image',
       referenceImages: asset.input_reference_images,
     });
@@ -321,6 +323,7 @@ test('项目 ZIP 往返保存资产规格、分镜引用、参考图和媒体当
     const importedAsset = imported.project_assets?.[0];
     const importedShot = imported.episodes?.[0]?.storyboards?.[0];
     assert.deepEqual(importedAsset?.text_profile, { occupation: '记者' });
+    assert.equal(importedAsset?.output_type, 'character-layout-c');
     assert.match(importedAsset?.input_reference_images[0] ?? '', new RegExp(`^/static/projects/${imported.id}/references/`, 'u'));
     assert.deepEqual(importedShot?.project_asset_ids, [importedAsset?.id]);
     assert.match(importedShot?.extra_reference_images[0] ?? '', new RegExp(`^/static/projects/${imported.id}/references/`, 'u'));
@@ -337,6 +340,7 @@ test('全新 schema 支持项目资产卡和分镜额外参考图', () => {
     const storyboardColumns = db.prepare('PRAGMA table_info(storyboards)').all() as Array<{ name: string }>;
     const imageColumns = db.prepare('PRAGMA table_info(image_generations)').all() as Array<{ name: string }>;
     assert.equal(assetColumns.some((column) => column.name === 'text_profile'), true);
+    assert.equal(assetColumns.some((column) => column.name === 'output_type'), true);
     assert.equal(assetColumns.some((column) => column.name === 'input_reference_images'), true);
     assert.equal(storyboardColumns.some((column) => column.name === 'extra_reference_images'), true);
     assert.equal(imageColumns.some((column) => column.name === 'project_asset_id'), true);

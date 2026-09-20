@@ -1,13 +1,13 @@
 import { NotFoundError, ValidationError } from '../errors';
 import type { Logger, SQLiteDatabase } from '../types/core';
 import { asRecord, parseJson, readNumber, readString } from '../types/core';
-import type { AssetKind, AssetTextProfile, EpisodeRow, ProjectAssetRow, StoryboardRow } from '../types/domain';
+import type { AssetKind, AssetOutputType, AssetTextProfile, EpisodeRow, ProjectAssetRow, StoryboardRow } from '../types/domain';
 
 const PROFILE_FIELDS: Record<AssetKind, readonly string[]> = {
   character: [
     'age', 'gender', 'occupation', 'faction', 'identity_tags',
     'face_shape', 'facial_features', 'hairstyle', 'body_type', 'skin_tone',
-    'default_outfit', 'outfit_versions', 'personality', 'common_expressions', 'aura',
+    'default_outfit', 'personality', 'common_expressions', 'aura',
     'voice_tone_id', 'speech_rate', 'accent', 'signature_phrase',
   ],
   scene: [
@@ -18,9 +18,20 @@ const PROFILE_FIELDS: Record<AssetKind, readonly string[]> = {
   ],
   prop: [
     'category', 'size', 'material', 'color', 'shape', 'condition',
-    'special_marks', 'unique_design', 'default_state', 'interaction_states',
-    'state_versions', 'bindings',
+    'special_marks', 'unique_design', 'default_state', 'interaction_states', 'bindings',
   ],
+};
+
+const OUTPUT_TYPES: Record<AssetKind, readonly AssetOutputType[]> = {
+  character: ['character-layout-a', 'character-layout-b', 'character-layout-c', 'character-layout-d'],
+  scene: ['scene-panorama', 'scene-detail', 'scene-lighting-variant'],
+  prop: ['prop-multi-angle', 'prop-state-variant'],
+};
+
+const DEFAULT_OUTPUT_TYPE: Record<AssetKind, AssetOutputType> = {
+  character: 'character-layout-a',
+  scene: 'scene-panorama',
+  prop: 'prop-multi-angle',
 };
 
 export class AssetRepository {
@@ -47,13 +58,14 @@ export class AssetRepository {
     const now = new Date().toISOString();
     const result = this.db.prepare(`
       INSERT INTO project_assets (
-        drama_id, kind, name, text_profile, input_reference_images, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        drama_id, kind, name, text_profile, output_type, input_reference_images, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       projectId,
       kind,
       name,
       JSON.stringify(normalizeTextProfile(kind, body.text_profile)),
+      normalizeOutputType(kind, body.output_type),
       JSON.stringify(normalizeStringArray(body.input_reference_images)),
       now,
       now,
@@ -72,14 +84,17 @@ export class AssetRepository {
     const textProfile = body.text_profile === undefined
       ? current.text_profile
       : normalizeTextProfile(current.kind, body.text_profile);
+    const outputType = body.output_type === undefined
+      ? current.output_type
+      : normalizeOutputType(current.kind, body.output_type);
     const inputReferences = body.input_reference_images === undefined
       ? current.input_reference_images
       : normalizeStringArray(body.input_reference_images);
     this.db.prepare(`
       UPDATE project_assets
-      SET name = ?, text_profile = ?, input_reference_images = ?, updated_at = ?
+      SET name = ?, text_profile = ?, output_type = ?, input_reference_images = ?, updated_at = ?
       WHERE id = ?
-    `).run(name, JSON.stringify(textProfile), JSON.stringify(inputReferences), new Date().toISOString(), id);
+    `).run(name, JSON.stringify(textProfile), outputType, JSON.stringify(inputReferences), new Date().toISOString(), id);
     const updated = this.getProjectAsset(id) as ProjectAssetRow;
     this.log?.audit?.('project.asset.updated', { projectId: current.drama_id, asset: updated });
     return updated;
@@ -308,6 +323,12 @@ export function normalizeTextProfile(kind: AssetKind, value: unknown): AssetText
 export function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))];
+}
+
+export function normalizeOutputType(kind: AssetKind, value: unknown): AssetOutputType {
+  const outputType = readString(value) ?? DEFAULT_OUTPUT_TYPE[kind];
+  if (OUTPUT_TYPES[kind].includes(outputType as AssetOutputType)) return outputType as AssetOutputType;
+  throw new ValidationError(`${assetLabel(kind)}卡产出类型无效`);
 }
 
 function textOrNull(value: unknown): string | null {

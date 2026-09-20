@@ -34,7 +34,6 @@ export function aiConfigRoutes(services: Pick<ServiceContainer, 'aiConfigs'>): R
   router.put('/ai-configs/model-presets', (req, res) => {
     const body = bodyRecord(req);
     success(res, services.aiConfigs.savePresets({
-      text: modelPreset(body.text, 'text'),
       image: modelPreset(body.image, 'image'),
       video: modelPreset(body.video, 'video'),
     }));
@@ -55,6 +54,6 @@ function modelPreset(value: unknown, type: AiServiceType): AiModelPreset | null 
 
 function serviceType(value: unknown): AiServiceType | undefined {
   if (value === undefined || value === null || value === '') return undefined;
-  if (value === 'text' || value === 'image' || value === 'video') return value;
-  throw new ValidationError('service_type 必须是 text、image 或 video');
+  if (value === 'image' || value === 'video') return value;
+  throw new ValidationError('service_type 必须是 image 或 video');
 }

@@ -4,7 +4,7 @@ Provider 层只有一个核心合同，当前接入 Agnes 与 PearAPI 两个适�
 
 ## 职责
 
-- `contracts.ts`：文本、图片、视频的标准输入、能力与结果。
+- `contracts.ts`：图片、视频的标准输入、能力与结果。
 - `registry.ts`：按明确的 Provider ID 查找适配器；未知 ID 必须拒绝。
 - `runtime.ts`：能力校验、标准状态和轮询控制。
 - `transport.ts`：HTTP、超时、JSON 与网络错误归一化。

@@ -20,7 +20,7 @@ const PROFILE_FIELDS: Record<AssetKind, ReadonlyArray<readonly [string, string]>
   character: [
     ['age', '年龄'], ['gender', '性别'], ['occupation', '职业'], ['faction', '阵营'], ['identity_tags', '身份标签'],
     ['face_shape', '脸型'], ['facial_features', '五官'], ['hairstyle', '发型'], ['body_type', '体型'], ['skin_tone', '肤色'],
-    ['default_outfit', '默认穿搭'], ['outfit_versions', '换装版本'], ['personality', '性格'],
+    ['default_outfit', '默认穿搭'], ['personality', '性格'],
     ['common_expressions', '常见表情'], ['aura', '气场'], ['voice_tone_id', '音色 ID'], ['speech_rate', '语速'],
     ['accent', '口音'], ['signature_phrase', '标志性语气'],
   ],
@@ -33,7 +33,7 @@ const PROFILE_FIELDS: Record<AssetKind, ReadonlyArray<readonly [string, string]>
   prop: [
     ['category', '类别'], ['size', '尺寸'], ['material', '材质'], ['color', '颜色'], ['shape', '形状'],
     ['condition', '新旧程度'], ['special_marks', '特殊标记'], ['unique_design', '独特设计'],
-    ['default_state', '默认状态'], ['interaction_states', '互动状态'], ['state_versions', '状态版本'], ['bindings', '绑定关系'],
+    ['default_state', '默认状态'], ['interaction_states', '互动状态'], ['bindings', '绑定关系'],
   ],
 };
 
@@ -73,10 +73,6 @@ export function assembleStoryboardRecipes({ shot, assets }: StoryboardRecipeInpu
   };
 }
 
-export function compileProjectAssetPrompt(asset: ProjectAssetRow): string {
-  return joinBlocks([compileAssetTextBlock(asset), assetSheetInstruction(asset.kind)]);
-}
-
 export function compileAssetTextBlock(asset: ProjectAssetRow): string {
   const fields = PROFILE_FIELDS[asset.kind].flatMap(([key, label]) => {
     const raw = asset.text_profile[key];
@@ -85,12 +81,6 @@ export function compileAssetTextBlock(asset: ProjectAssetRow): string {
   });
   const prefix = `${assetLabel(asset.kind)}卡「${asset.name}」`;
   return fields.length ? `${prefix}：${fields.join('；')}` : prefix;
-}
-
-function assetSheetInstruction(kind: AssetKind): string {
-  if (kind === 'character') return '标准资产图要求：同一人物、同一张脸、同一发型、同一服装，包含全身正面、侧面、背面与面部特写。';
-  if (kind === 'scene') return '标准资产图要求：呈现空间全景、关键陈设和统一的光影关系。';
-  return '标准资产图要求：呈现道具正面、侧面、局部细节和默认状态。';
 }
 
 function field(label: string, value: string | null | undefined): string {

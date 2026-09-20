@@ -7,11 +7,11 @@ import type { AiModelPresets, ProviderCatalogStatus, ProviderModel, ServiceType 
 import { modelCapabilityLabels, supportsService } from '../features/providers/catalog'
 import { emptyModelPresets, modelPresetFromKey, modelPresetKey, modelPresetOptions } from '../features/providers/modelPresets'
 
-const serviceLabels: Record<ServiceType, string> = { text: '文本', image: '图片', video: '视频' }
+const serviceLabels: Record<ServiceType, string> = { image: '图片', video: '视频' }
 
 export function AiConfigPage() {
   const { message } = AntdApp.useApp()
-  const [serviceType, setServiceType] = useState<ServiceType>('text')
+  const [serviceType, setServiceType] = useState<ServiceType>('image')
   const [providers, setProviders] = useState<ProviderCatalogStatus[]>([])
   const [models, setModels] = useState<ProviderModel[]>([])
   const [loading, setLoading] = useState(true)

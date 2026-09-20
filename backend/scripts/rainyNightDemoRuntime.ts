@@ -41,16 +41,19 @@ export function initializeRainyNightDemo(
         kind: 'character' as const,
         name: item.name,
         text_profile: { occupation: item.description, facial_features: item.appearance, default_outfit: item.assetPrompt },
+        output_type: 'character-layout-a' as const,
       })),
       ...RAINY_NIGHT_DEMO.scenes.map((item) => ({
         kind: 'scene' as const,
         name: item.location,
         text_profile: { location_type: item.location, layout: item.prompt },
+        output_type: 'scene-panorama' as const,
       })),
       ...RAINY_NIGHT_DEMO.props.map((item) => ({
         kind: 'prop' as const,
         name: item.name,
         text_profile: { category: item.description, unique_design: item.prompt },
+        output_type: 'prop-multi-angle' as const,
       })),
     ].map((item) => {
       const bound = services.assets.listProjectAssets(project.id, item.kind).find((candidate) => candidate.name === item.name)

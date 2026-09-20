@@ -1,7 +1,7 @@
 import type {
   ImageProviderRequest, ImageProviderResult, ProviderAdapter, ProviderExecutionContext,
   ProviderModel, ProviderModelCapabilities, ProviderModelDiscoveryInput, ProviderTaskStatus,
-  TextProviderRequest, TextProviderResult, VideoProviderRequest, VideoProviderResult,
+  VideoProviderRequest, VideoProviderResult,
 } from '../contracts';
 import { modelCapabilities } from '../modelCapabilities';
 import { ProviderError } from '../errors';
@@ -13,23 +13,13 @@ interface PearModelMetadata { model_id?: unknown; model_name?: unknown; model_ty
 /** PearAPI 官方 /v1 协议适配器；旧 /api/*、generation_key 与兼容视频字段均不再使用。 */
 export function createPearApiAdapter(fetchImpl: ProviderFetch = fetch): ProviderAdapter {
   return {
-    descriptor: { id: 'pearapi', label: 'PearAPI', aliases: [], capabilities: { text: true, textToImage: true, imageToImage: true, textToVideo: true, imageToVideo: true, asynchronous: true, multipleImageReferences: true, firstLastFrame: false }, configuration: { defaultBaseUrl: 'https://api.pearapi.ai', endpoints: { text: { submit: '/v1/chat/completions' }, image: { submit: '/v1/images/generations', query: '/v1/images/tasks' }, video: { submit: '/v1/video/generations', query: '/v1/video/generations' } } } },
+    descriptor: { id: 'pearapi', label: 'PearAPI', aliases: [], capabilities: { textToImage: true, imageToImage: true, textToVideo: true, imageToVideo: true, asynchronous: true, multipleImageReferences: true, firstLastFrame: false }, configuration: { defaultBaseUrl: 'https://api.pearapi.ai', endpoints: { image: { submit: '/v1/images/generations', query: '/v1/images/tasks' }, video: { submit: '/v1/video/generations', query: '/v1/video/generations' } } } },
     listModels: (input) => listModels(input, fetchImpl),
-    generateText: (context, request) => generateText(context, request, fetchImpl),
     submitImage: (context, request) => submitImage(context, request, fetchImpl),
     pollImage: (context, taskId, signal) => pollImage(context, taskId, signal, fetchImpl),
     submitVideo: (context, request) => submitVideo(context, request, fetchImpl),
     pollVideo: (context, taskId, signal) => pollVideo(context, taskId, signal, fetchImpl),
   };
-}
-
-async function generateText(context: ProviderExecutionContext, request: TextProviderRequest, fetchImpl: ProviderFetch): Promise<TextProviderResult> {
-  const response = await requestProviderJson<JsonRecord>({ providerId: 'pearapi', url: endpointUrl(context, 'text', 'submit'), headers: authHeaders(context), body: { model: required(request.model, '文本模型'), messages: request.messages, ...(request.temperature === undefined ? {} : { temperature: request.temperature }), ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }), ...(request.jsonMode ? { response_format: { type: 'json_object' } } : {}) }, signal: request.signal }, fetchImpl);
-  const choices = Array.isArray(response.data.choices) ? response.data.choices : [];
-  const first = asRecord(choices[0]); const message = asRecord(first?.message);
-  const text = readString(message?.content) || readString(first?.text) || readString(response.data.output_text);
-  if (!text) throw invalidResponse(response.data, 'PearAPI 文本响应没有返回内容');
-  return { status: 'completed', text };
 }
 
 async function listModels(input: ProviderModelDiscoveryInput, fetchImpl: ProviderFetch): Promise<ProviderModel[]> {
@@ -43,16 +33,25 @@ async function listModels(input: ProviderModelDiscoveryInput, fetchImpl: Provide
 function normalizePearModel(value: unknown): ProviderModel | undefined {
   const item = asRecord(value); const id = readString(item?.id); const endpoints = arrayStrings(item?.supported_endpoint_types); const rawType = readString(item?.model_type)?.toLowerCase();
   if (!id) return undefined;
-  const kind = rawType === 'chat' ? 'text' : rawType === 'image' ? 'image' : rawType === 'video' ? 'video' : endpoints.some((entry) => /image/iu.test(entry)) ? 'image' : endpoints.some((entry) => /video/iu.test(entry)) ? 'video' : endpoints.some((entry) => /chat|completions/iu.test(entry)) ? 'text' : inferModelKind(id);
+  const kind = rawType === 'image'
+    ? 'image'
+    : rawType === 'video'
+      ? 'video'
+      : rawType
+        ? undefined
+        : endpoints.some((entry) => /image/iu.test(entry))
+          ? 'image'
+          : endpoints.some((entry) => /video/iu.test(entry))
+            ? 'video'
+            : endpoints.length ? undefined : inferModelKind(id);
   if (!kind) return undefined;
   return { id, label: readString(item?.model) || readString(item?.name) || id, kind, capabilities: pearModelCapabilities(id, kind, endpoints, knownModelMetadata(id, item || {})) };
 }
 
-function inferModelKind(id: string): 'text' | 'image' | 'video' | undefined {
+function inferModelKind(id: string): 'image' | 'video' | undefined {
   if (/grok.*video|veo|sora|video|seedance|ltx/iu.test(id)) return 'video';
   if (/flux|image|seedream|nano.?banana|sdxl|stable.?diffusion/iu.test(id)) return 'image';
-  if (/embedding|rerank|tts|audio/iu.test(id)) return undefined;
-  return 'text';
+  return undefined;
 }
 
 function knownModelMetadata(id: string, item: JsonRecord): PearModelMetadata {
@@ -67,18 +66,15 @@ function knownModelMetadata(id: string, item: JsonRecord): PearModelMetadata {
   return metadata || {};
 }
 
-function pearModelCapabilities(modelId: string, kind: 'text' | 'image' | 'video', endpoints: string[], metadata: PearModelMetadata): ProviderModelCapabilities {
+function pearModelCapabilities(modelId: string, kind: 'image' | 'video', endpoints: string[], metadata: PearModelMetadata): ProviderModelCapabilities {
   if (kind === 'image') {
     const supportedModes = arrayStrings(metadata.supported_modes);
     const modes = [...(endpoints.some((e) => /images\.generations|text2image/iu.test(e)) || supportedModes.some((mode) => /text2image|text-to-image/iu.test(mode)) ? ['text-to-image' as const] : []), ...(endpoints.some((e) => /images\.edits|image2image/iu.test(e)) || supportedModes.some((mode) => /image2image|image-to-image/iu.test(mode)) ? ['image-to-image' as const] : [])];
     return modelCapabilities(modes, readNonNegativeInteger(metadata.reference_image) ?? (modes.includes('image-to-image') ? null : 0), pearAspectRatios(metadata.aspect_ratio), 'provider');
   }
-  if (kind === 'video') {
-    const supportedModes = arrayStrings(metadata.supported_modes); const modes = [...(supportedModes.some((m) => /text2video|text-to-video/iu.test(m)) ? ['text-to-video' as const] : []), ...(supportedModes.some((m) => /image2video|imageend2video|reference2video|image-to-video/iu.test(m)) ? ['image-to-video' as const] : [])];
-    const durations = readDurations(metadata.supported_durations ?? metadata.durations);
-    return modelCapabilities(modes.length ? modes : ['text-to-video', 'image-to-video'], readNonNegativeInteger(metadata.reference_image), pearAspectRatios(metadata.aspect_ratio), 'provider', billingMode(modelId, metadata), durations);
-  }
-  return modelCapabilities([], null, [], 'provider');
+  const supportedModes = arrayStrings(metadata.supported_modes); const modes = [...(supportedModes.some((m) => /text2video|text-to-video/iu.test(m)) ? ['text-to-video' as const] : []), ...(supportedModes.some((m) => /image2video|imageend2video|reference2video|image-to-video/iu.test(m)) ? ['image-to-video' as const] : [])];
+  const durations = readDurations(metadata.supported_durations ?? metadata.durations);
+  return modelCapabilities(modes.length ? modes : ['text-to-video', 'image-to-video'], readNonNegativeInteger(metadata.reference_image), pearAspectRatios(metadata.aspect_ratio), 'provider', billingMode(modelId, metadata), durations);
 }
 
 async function submitImage(context: ProviderExecutionContext, request: ImageProviderRequest, fetchImpl: ProviderFetch): Promise<ImageProviderResult> {
@@ -109,7 +105,7 @@ function normalizeVideo(payload: unknown, expectedTaskId?: string): VideoProvide
   const root = asRecord(payload); const taskId = readString(root?.task_id) || readString(root?.id) || expectedTaskId; const videoUrl = readString(root?.url) || readString(asRecord(root?.output)?.video_url); const status = normalizeStatus(root?.status); if (status === 'failed') return compact({ status, taskId, error: payloadError(root, 'PearAPI 视频生成失败') }); if (videoUrl) return compact({ status: 'completed' as const, taskId, videoUrl, progress: 100 }); if (taskId) return compact({ status, taskId, progress: readProgress(root?.progress) }); throw invalidResponse(payload, 'PearAPI 未返回视频地址或任务 ID');
 }
 function normalizeStatus(value: unknown): ProviderTaskStatus { const status = readString(value)?.toLowerCase(); if (['completed', 'success', 'succeeded', 'done'].includes(status || '')) return 'completed'; if (['failed', 'error', 'canceled', 'cancelled'].includes(status || '')) return 'failed'; if (['running', 'processing', 'in_progress'].includes(status || '')) return 'running'; return 'queued'; }
-function endpointUrl(context: ProviderExecutionContext, kind: 'text' | 'image' | 'video', operation: 'submit' | 'query', taskId?: string): string { const base = normalizeBaseUrl(context.config.base_url); const endpoint = kind === 'text' ? '/v1/chat/completions' : kind === 'image' ? (operation === 'query' ? '/v1/images/tasks' : '/v1/images/generations') : '/v1/video/generations'; const url = absoluteEndpoint(base, endpoint); return operation === 'query' && taskId ? `${url.replace(/\/+$/u, '')}/${encodeURIComponent(taskId)}` : url; }
+function endpointUrl(context: ProviderExecutionContext, kind: 'image' | 'video', operation: 'submit' | 'query', taskId?: string): string { const base = normalizeBaseUrl(context.config.base_url); const endpoint = kind === 'image' ? (operation === 'query' ? '/v1/images/tasks' : '/v1/images/generations') : '/v1/video/generations'; const url = absoluteEndpoint(base, endpoint); return operation === 'query' && taskId ? `${url.replace(/\/+$/u, '')}/${encodeURIComponent(taskId)}` : url; }
 function normalizeBaseUrl(value: string | undefined): string { return String(value || 'https://api.pearapi.ai').replace(/\/+$/u, '').replace(/\/v1$/iu, ''); }
 function absoluteEndpoint(base: string, endpoint: string): string { return /^https?:\/\//iu.test(endpoint) ? endpoint : `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`; }
 function authHeaders(context: ProviderExecutionContext): Record<string, string> { return { 'Content-Type': 'application/json', Authorization: `Bearer ${required(context.config.api_key, 'PearAPI API Key')}` }; }

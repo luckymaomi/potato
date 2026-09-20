@@ -34,12 +34,18 @@ CREATE TABLE IF NOT EXISTS project_assets (
   kind TEXT NOT NULL CHECK(kind IN ('character', 'scene', 'prop')),
   name TEXT NOT NULL,
   text_profile TEXT NOT NULL DEFAULT '{}',
+  output_type TEXT NOT NULL,
   input_reference_images TEXT NOT NULL DEFAULT '[]',
   image_url TEXT,
   local_path TEXT,
   current_image_generation_id INTEGER,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (kind = 'character' AND output_type IN ('character-layout-a', 'character-layout-b', 'character-layout-c', 'character-layout-d')) OR
+    (kind = 'scene' AND output_type IN ('scene-panorama', 'scene-detail', 'scene-lighting-variant')) OR
+    (kind = 'prop' AND output_type IN ('prop-multi-angle', 'prop-state-variant'))
+  )
 );
 CREATE TABLE IF NOT EXISTS storyboards (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,13 +82,13 @@ CREATE TABLE IF NOT EXISTS provider_model_catalog (
   provider TEXT NOT NULL,
   model_id TEXT NOT NULL,
   label TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK(kind IN ('text', 'image', 'video')),
+  kind TEXT NOT NULL CHECK(kind IN ('image', 'video')),
   capabilities TEXT NOT NULL DEFAULT '{}',
   synchronized_at TEXT NOT NULL,
   PRIMARY KEY(provider, model_id, kind)
 );
 CREATE TABLE IF NOT EXISTS ai_model_presets (
-  service_type TEXT PRIMARY KEY CHECK(service_type IN ('text', 'image', 'video')),
+  service_type TEXT PRIMARY KEY CHECK(service_type IN ('image', 'video')),
   provider TEXT NOT NULL,
   model_id TEXT NOT NULL,
   updated_at TEXT NOT NULL

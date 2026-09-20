@@ -50,6 +50,14 @@ export interface EpisodeRow {
 
 export type AssetKind = 'character' | 'scene' | 'prop';
 export type AssetTextProfile = Record<string, string | string[]>;
+export type CharacterOutputType =
+  | 'character-layout-a'
+  | 'character-layout-b'
+  | 'character-layout-c'
+  | 'character-layout-d';
+export type SceneOutputType = 'scene-panorama' | 'scene-detail' | 'scene-lighting-variant';
+export type PropOutputType = 'prop-multi-angle' | 'prop-state-variant';
+export type AssetOutputType = CharacterOutputType | SceneOutputType | PropOutputType;
 
 export interface ProjectAssetRow {
   id: number;
@@ -57,6 +65,7 @@ export interface ProjectAssetRow {
   kind: AssetKind;
   name: string;
   text_profile: AssetTextProfile;
+  output_type: AssetOutputType;
   input_reference_images: string[];
   image_url: string | null;
   local_path: string | null;

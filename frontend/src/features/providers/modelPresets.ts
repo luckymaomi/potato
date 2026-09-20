@@ -7,7 +7,7 @@ export interface ModelPresetOption {
 }
 
 export function emptyModelPresets(): AiModelPresets {
-  return { text: null, image: null, video: null }
+  return { image: null, video: null }
 }
 
 export function modelPresetKey(preset: AiModelPreset | null): string | undefined {

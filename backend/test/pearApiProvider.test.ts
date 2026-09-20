@@ -7,7 +7,7 @@ import type { AiServiceConfig } from '../src/types/ai';
 import type { Logger } from '../src/types/core';
 
 const log: Logger = { info() {}, warn() {}, error() {} };
-function config(serviceType: 'image' | 'video' | 'text'): AiServiceConfig { return { id: 1, service_type: serviceType, provider: 'pearapi', name: 'PearAPI', base_url: 'https://api.example.test', api_key: 'sk-test', model: ['test-model'], default_model: 'test-model', endpoint: '', query_endpoint: '', priority: 0, is_default: true, is_active: true, settings: null }; }
+function config(serviceType: 'image' | 'video'): AiServiceConfig { return { id: 1, service_type: serviceType, provider: 'pearapi', name: 'PearAPI', base_url: 'https://api.example.test', api_key: 'sk-test', model: ['test-model'], default_model: 'test-model', endpoint: '', query_endpoint: '', priority: 0, is_default: true, is_active: true, settings: null }; }
 interface CapturedRequest { url: string; method: string; authorization?: string; body: Record<string, unknown> }
 function queue(responses: Array<{ status?: number; body: unknown }>, requests: CapturedRequest[]): typeof fetch { return (async (input, init) => { const next = responses.shift(); if (!next) throw new Error('unexpected request'); requests.push({ url: String(input), method: String(init?.method || 'POST'), authorization: (init?.headers as Record<string, string> | undefined)?.Authorization, body: init?.body ? JSON.parse(String(init.body)) : {} }); return Response.json(next.body, { status: next.status || 200 }); }) as typeof fetch; }
 

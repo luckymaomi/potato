@@ -1,7 +1,7 @@
 import type { JsonValue } from './core';
 import type { ProviderCapabilities, ProviderModel } from '../providers/contracts';
 
-export type AiServiceType = 'text' | 'image' | 'video';
+export type AiServiceType = 'image' | 'video';
 
 export interface AiModelPreset {
   provider: string;

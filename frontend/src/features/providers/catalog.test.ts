@@ -16,7 +16,6 @@ import {
 } from './catalog'
 
 const capabilities = {
-  text: false,
   textToImage: true,
   imageToImage: true,
   textToVideo: false,
@@ -29,7 +28,6 @@ const capabilities = {
 describe('动态模型目录选择', () => {
   it('按供应商能力过滤服务类型', () => {
     expect(supportsService(capabilities, 'image')).toBe(true)
-    expect(supportsService(capabilities, 'text')).toBe(false)
     expect(supportsService(capabilities, 'video')).toBe(false)
   })
 

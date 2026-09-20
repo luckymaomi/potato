@@ -1,4 +1,4 @@
-export type ServiceType = 'text' | 'image' | 'video'
+export type ServiceType = 'image' | 'video'
 export type ProviderModelMode = 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video'
 export type VideoBillingMode = 'duration' | 'per-request' | 'unknown'
 
@@ -51,6 +51,16 @@ export interface Storyboard {
 export type AssetKind = 'character' | 'scene' | 'prop'
 
 export type AssetTextProfile = Record<string, string | string[]>
+export type AssetOutputType =
+  | 'character-layout-a'
+  | 'character-layout-b'
+  | 'character-layout-c'
+  | 'character-layout-d'
+  | 'scene-panorama'
+  | 'scene-detail'
+  | 'scene-lighting-variant'
+  | 'prop-multi-angle'
+  | 'prop-state-variant'
 
 export interface ProjectAsset {
   id: number
@@ -58,6 +68,7 @@ export interface ProjectAsset {
   kind: AssetKind
   name: string
   text_profile: AssetTextProfile
+  output_type: AssetOutputType
   input_reference_images: string[]
   image_url?: string | null
   local_path?: string | null
@@ -95,7 +106,6 @@ export interface MediaLifecycleState {
 }
 
 export interface ProviderCapabilities {
-  text: boolean
   textToImage: boolean
   imageToImage: boolean
   textToVideo: boolean

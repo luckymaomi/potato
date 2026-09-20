@@ -56,7 +56,6 @@ export class AiConfigService {
         enabled: runtime?.enabled !== false,
         configured: Boolean(readString(runtime?.api_key)),
         model_counts: {
-          text: rows.filter((row) => row.kind === 'text').length,
           image: rows.filter((row) => row.kind === 'image').length,
           video: rows.filter((row) => row.kind === 'video').length,
         },
@@ -78,7 +77,7 @@ export class AiConfigService {
   }
 
   presets(): AiModelPresets {
-    const presets: AiModelPresets = { text: null, image: null, video: null };
+    const presets: AiModelPresets = { image: null, video: null };
     const rows = this.db.prepare(`
       SELECT service_type, provider, model_id
       FROM ai_model_presets
@@ -90,7 +89,6 @@ export class AiConfigService {
 
   savePresets(presets: AiModelPresets): AiModelPresets {
     const normalized: AiModelPresets = {
-      text: this.validatePreset('text', presets.text),
       image: this.validatePreset('image', presets.image),
       video: this.validatePreset('video', presets.video),
     };
@@ -348,19 +346,17 @@ export class AiConfigService {
   }
 }
 
-const serviceTypes: AiServiceType[] = ['text', 'image', 'video'];
+const serviceTypes: AiServiceType[] = ['image', 'video'];
 
 function assertCapability(descriptor: ProviderDescriptor, serviceType: AiServiceType): void {
-  const supported = serviceType === 'text'
-    ? descriptor.capabilities.text
-    : serviceType === 'image'
-      ? descriptor.capabilities.textToImage || descriptor.capabilities.imageToImage
-      : descriptor.capabilities.textToVideo || descriptor.capabilities.imageToVideo;
+  const supported = serviceType === 'image'
+    ? descriptor.capabilities.textToImage || descriptor.capabilities.imageToImage
+    : descriptor.capabilities.textToVideo || descriptor.capabilities.imageToVideo;
   if (!supported) throw new ValidationError(`${descriptor.label} 不支持${serviceLabel(serviceType)}服务`);
 }
 
 function serviceLabel(serviceType: AiServiceType): string {
-  return serviceType === 'text' ? '文本' : serviceType === 'image' ? '图片' : '视频';
+  return serviceType === 'image' ? '图片' : '视频';
 }
 
 function modeLabel(mode: ProviderModelMode): string {

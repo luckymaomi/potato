@@ -311,7 +311,7 @@ export class VideoGenerationService {
     } catch (error) {
       await this.mediaArchive.remove(archived.relativePath).catch(() => undefined);
       if (reporter.signal.aborted) throw error;
-      throw new MediaArchiveError('本地归档失败：无法提交生成记录和当前版本指针', { cause: error });
+      throw new MediaArchiveError('本地归档失败：无法提交生成记录和当前 generation 指针', { cause: error });
     }
   }
 

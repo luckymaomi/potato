@@ -9,7 +9,6 @@ const modelModeLabels: Record<ProviderModelMode, string> = {
 }
 
 export function supportsService(capabilities: ProviderCapabilities, serviceType: ServiceType): boolean {
-  if (serviceType === 'text') return capabilities.text
   if (serviceType === 'image') return capabilities.textToImage || capabilities.imageToImage
   return capabilities.textToVideo || capabilities.imageToVideo
 }
@@ -42,7 +41,6 @@ export function modelSupportsMode(model: ProviderModel, mode: MediaGenerationMod
 }
 
 export function modelCapabilityLabels(model: ProviderModel): string[] {
-  if (model.kind === 'text') return ['文本生成']
   const labels = model.capabilities.modes.map((mode) => modelModeLabels[mode])
   if (!labels.length) labels.push('能力待确认')
   if (model.capabilities.maxReferenceImages === null) labels.push('参考图上限未知')
