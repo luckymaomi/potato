@@ -90,4 +90,6 @@ export const workspaceApi = {
   clearStoryboardImage: (projectId: number, id: number) => apiClient.delete<never, { cleared: boolean; storyboard: Storyboard }>(`/dramas/${projectId}/storyboards/${id}/current-image`),
   generateStoryboardVideo: (projectId: number, id: number, input: GenerateMediaInput = {}) => apiClient.post<never, MediaGenerationHistory>(`/dramas/${projectId}/storyboards/${id}/generate-video`, input),
   compose: (projectId: number, episodeId: number) => apiClient.post<never, ProductionSubmission>(`/dramas/${projectId}/episodes/${episodeId}/compose`),
+  exportPreview: (projectId: number, episodeId: number) => apiClient.get<never, Blob>(`/dramas/${projectId}/episodes/${episodeId}/export-preview`, { responseType: 'blob' }),
+  exportShots: (projectId: number, episodeId: number, storyboardIds: number[] = []) => apiClient.post<never, Blob>(`/dramas/${projectId}/episodes/${episodeId}/export-shots`, { storyboard_ids: storyboardIds }, { responseType: 'blob' }),
 }

@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
-import multer from 'multer';
 import type { ServiceContainer } from '../services/container';
 import type { AppConfig } from '../types/core';
 import { created, page, success } from '../response';
@@ -10,18 +9,12 @@ import { asyncRoute, bodyRecord, idParam } from './http';
 import { NotFoundError, ValidationError } from '../errors';
 
 export function projectRoutes(
-  services: Pick<ServiceContainer, 'projects' | 'projectArchives'>,
+  services: Pick<ServiceContainer, 'projects' | 'delivery'>,
   config: AppConfig,
 ): Router {
   const router = Router();
-  const archiveDirectory = path.join(storageRoot(config), 'archive-transfers');
-  fs.mkdirSync(archiveDirectory, { recursive: true });
-  const archiveUpload = multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, callback) => callback(null, archiveDirectory),
-      filename: (_req, _file, callback) => callback(null, `${randomUUID()}.zip`),
-    }),
-  });
+  const deliveryDirectory = path.join(storageRoot(config), 'delivery-transfers');
+  fs.mkdirSync(deliveryDirectory, { recursive: true });
 
   router.get('/dramas', (req, res) => {
     const current = positiveInt(req.query.page, 1);
@@ -64,24 +57,32 @@ export function projectRoutes(
     success(res, { removed: true });
   });
 
-  router.get('/dramas/:id/export', asyncRoute(async (req, res) => {
-    const temporary = path.join(archiveDirectory, `${randomUUID()}.zip`);
+  router.get('/dramas/:id/episodes/:episodeId/export-preview', asyncRoute(async (req, res) => {
+    const episode = services.projects.require(idParam(req)).episodes?.find((item) => item.id === episodeIdParam(req));
+    if (!episode) throw new NotFoundError('剧集不存在');
+    const media = services.delivery.episodeVideo(idParam(req), episode.id);
+    await new Promise<void>((resolve, reject) => {
+      res.download(media.filePath, `${safeDownloadName(episode.title)}-成片.mp4`, (error) => error ? reject(error) : resolve());
+    });
+  }));
+
+  router.post('/dramas/:id/episodes/:episodeId/export-shots', asyncRoute(async (req, res) => {
+    const projectId = idParam(req);
+    const episodeId = episodeIdParam(req);
+    const body = bodyRecord(req);
+    const shotIds = Array.isArray(body.storyboard_ids)
+      ? body.storyboard_ids.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0)
+      : [];
+    const temporary = path.join(deliveryDirectory, `${randomUUID()}.zip`);
     try {
-      await services.projectArchives.export(idParam(req), temporary);
+      const episode = services.projects.require(projectId).episodes?.find((item) => item.id === episodeId);
+      if (!episode) throw new NotFoundError('剧集不存在');
+      await services.delivery.exportShots(projectId, episodeId, shotIds, temporary);
       await new Promise<void>((resolve, reject) => {
-        res.download(temporary, 'potato-project.zip', (error) => error ? reject(error) : resolve());
+        res.download(temporary, `${safeDownloadName(episode.title)}-镜头包.zip`, (error) => error ? reject(error) : resolve());
       });
     } finally {
       await fs.promises.rm(temporary, { force: true });
-    }
-  }));
-
-  router.post('/dramas/import', archiveUpload.single('file'), asyncRoute(async (req, res) => {
-    if (!req.file) throw new ValidationError('请选择项目归档');
-    try {
-      created(res, await services.projectArchives.import(req.file.path));
-    } finally {
-      await fs.promises.rm(req.file.path, { force: true });
     }
   }));
 
@@ -101,4 +102,8 @@ function episodeIdParam(req: { params: { episodeId?: string } }): number {
   const parsed = Number(req.params.episodeId);
   if (!Number.isInteger(parsed) || parsed < 1) throw new ValidationError('剧集 ID 无效');
   return parsed;
+}
+
+function safeDownloadName(value: string): string {
+  return value.trim().replace(/[\\/:*?"<>|\u0000-\u001f]/gu, '_').slice(0, 80) || '未命名剧集';
 }

@@ -10,10 +10,4 @@ export const projectsApi = {
   saveEpisodes: (id: number | string, episodes: Partial<Episode>[]) => apiClient.put<never, { episodes: Episode[] }>(`/dramas/${id}/episodes`, { episodes }),
   updateEpisode: (id: number | string, episodeId: number, data: Partial<Pick<Episode, 'title' | 'episode_number' | 'description' | 'status'>>) => apiClient.patch<never, Episode>(`/dramas/${id}/episodes/${episodeId}`, data),
   removeEpisode: (id: number | string, episodeId: number) => apiClient.delete<never, { removed: boolean }>(`/dramas/${id}/episodes/${episodeId}`),
-  export: (id: number) => apiClient.get<never, Blob>(`/dramas/${id}/export`, { responseType: 'blob' }),
-  import: (file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return apiClient.post<never, Project>('/dramas/import', form, { headers: { 'Content-Type': 'multipart/form-data' } })
-  },
 }

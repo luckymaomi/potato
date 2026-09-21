@@ -14,7 +14,9 @@ import {
 import {
   App,
   Button,
+  Checkbox,
   Collapse,
+  Dropdown,
   Empty,
   Form,
   Image,
@@ -77,6 +79,8 @@ export function StoryboardWorkspace() {
   const [shotDurations, setShotDurations] = useState<Record<number, number>>({})
   const [shotAspects, setShotAspects] = useState<Record<number, string>>({})
   const [composeRunning, setComposeRunning] = useState(false)
+  const [exporting, setExporting] = useState<'preview' | 'all' | 'selected'>()
+  const [exportShotIds, setExportShotIds] = useState<number[]>([])
   const [videoQueue, setVideoQueue] = useState<{ total: number; completed: number; current?: string; stopping?: boolean }>()
   const [videoPreviewOpen, setVideoPreviewOpen] = useState(false)
   const stopVideoQueueRef = useRef(false)
@@ -108,6 +112,7 @@ export function StoryboardWorkspace() {
       ])
       const readinessEntries = await Promise.all(storyboards.items.map(async (item) => [item.id, await workspaceApi.storyboardReadiness(project.id, item.id)] as const))
       setItems(storyboards.items)
+      setExportShotIds((current) => current.filter((id) => storyboards.items.some((item) => item.id === id)))
       setAssets(projectAssets.items)
       setReadiness(Object.fromEntries(readinessEntries))
       setSelectedId((current) => storyboards.items.some((item) => item.id === current) ? current : storyboards.items[0]?.id)
@@ -457,6 +462,27 @@ export function StoryboardWorkspace() {
     finally { setComposeRunning(false) }
   }
 
+  const exportPreview = async () => {
+    setExporting('preview')
+    try {
+      const blob = await workspaceApi.exportPreview(project.id, episode.id)
+      downloadBlob(blob, `${safeFilename(episode.title)}-成片.mp4`)
+      notifyAppSuccess(message, '成片已导出')
+    } catch (reason) { notifyAppError({ message, modal }, reason) }
+    finally { setExporting(undefined) }
+  }
+
+  const exportShots = async (mode: 'all' | 'selected') => {
+    if (mode === 'selected' && !exportShotIds.length) return
+    setExporting(mode)
+    try {
+      const blob = await workspaceApi.exportShots(project.id, episode.id, mode === 'selected' ? exportShotIds : [])
+      downloadBlob(blob, `${safeFilename(episode.title)}-镜头包.zip`)
+      notifyAppSuccess(message, mode === 'selected' ? `已导出 ${exportShotIds.length} 个镜头` : '整集镜头包已导出')
+    } catch (reason) { notifyAppError({ message, modal }, reason) }
+    finally { setExporting(undefined) }
+  }
+
   const toggleAsset = (kind: AssetKind, id: number) => {
     const field = kind === 'character' ? 'character_asset_ids' : kind === 'scene' ? 'scene_asset_ids' : 'prop_asset_ids'
     const current = form.getFieldValue(field) ?? []
@@ -503,6 +529,15 @@ export function StoryboardWorkspace() {
           <div className="director-progress-summary"><strong>{items.length}</strong><span>镜头</span><i /><strong>{items.filter((item) => item.image_url).length}</strong><span>已出图</span></div>
           {videoQueue ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingVideos()}>停止逐项生成</Button> : <Button onClick={() => void generatePendingVideos()}>生成未完成视频</Button>}
           <Button type="primary" disabled={composeBlocked} loading={composeRunning} onClick={() => void composeEpisode()}>合成整集</Button>
+          <Button icon={<DownloadOutlined />} loading={exporting === 'preview'} onClick={() => void exportPreview()}>导出成片</Button>
+          <Dropdown
+            menu={{ items: [
+              { key: 'all', label: '导出整集镜头包', onClick: () => void exportShots('all') },
+              { key: 'selected', label: `导出选中镜头（${exportShotIds.length}）`, disabled: !exportShotIds.length, onClick: () => void exportShots('selected') },
+            ] }}
+          >
+            <Button icon={<DownloadOutlined />} loading={exporting === 'all' || exporting === 'selected'}>导出镜头包 <DownOutlined /></Button>
+          </Dropdown>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => void create()}>加入镜头</Button>
         </Space>
       </div>
@@ -522,6 +557,8 @@ export function StoryboardWorkspace() {
                 key={item.id}
                 item={item}
                 active={item.id === selectedId}
+                checked={exportShotIds.includes(item.id)}
+                onChecked={(checked) => setExportShotIds((current) => checked ? [...new Set([...current, item.id])] : current.filter((id) => id !== item.id))}
                 onClick={() => setSelectedId(item.id)}
                 onRemove={() => void remove(item.id)}
               />
@@ -742,16 +779,21 @@ function ReviewTags({ item }: { item: Storyboard }) {
 function ShotCard({
   item,
   active,
+  checked,
+  onChecked,
   onClick,
   onRemove,
 }: {
   item: Storyboard
   active: boolean
+  checked: boolean
+  onChecked: (checked: boolean) => void
   onClick: () => void
   onRemove: () => void
 }) {
   const displayTitle = shotDisplayTitle(item)
   return <div className={`director-shot-card${active ? ' is-active' : ''}`}>
+    <Checkbox checked={checked} aria-label={`选择镜头 ${item.storyboard_number}`} onChange={(event) => onChecked(event.target.checked)} />
     <button type="button" className="director-shot-card-main" onClick={onClick}>
       <div className="director-shot-thumb">
         {item.image_url ? <><img src={mediaUrl(item.image_url)} alt="" /><span className="director-shot-number">{item.storyboard_number}</span></> : <span className="director-shot-placeholder-number">{item.storyboard_number}</span>}
@@ -778,6 +820,19 @@ function shotDisplayTitle(item: Storyboard): string {
   if (!title || title === String(item.storyboard_number)) return '未命名镜头'
   const numberedPrefix = new RegExp(`^镜头\\s*0*${item.storyboard_number}(?:(?:\\s*[|｜:：·\\-—]\\s*)|(?:\\s+)|$)`)
   return title.replace(numberedPrefix, '').trim() || '未命名镜头'
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function safeFilename(value: string): string {
+  return value.trim().replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || '未命名剧集'
 }
 
 function RecipeReferences({ label, values }: { label: string; values: string[] }) {

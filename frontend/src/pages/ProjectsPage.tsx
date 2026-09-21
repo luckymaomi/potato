@@ -1,14 +1,12 @@
 import {
   DeleteOutlined,
-  DownloadOutlined,
   EditOutlined,
   FileTextOutlined,
-  ImportOutlined,
   PlayCircleOutlined,
   PlusOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
-import { App as AntdApp, Button, Empty, Form, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Upload } from 'antd'
+import { App as AntdApp, Button, Empty, Form, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { projectsApi } from '../api/projects'
@@ -25,15 +23,6 @@ interface ProjectFormValues {
   tone?: string
   reference_setting?: string
   genre?: string
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
 }
 
 export function ProjectsPage() {
@@ -128,26 +117,6 @@ export function ProjectsPage() {
     }
   }
 
-  const importProject = async (file: File) => {
-    try {
-      const project = await projectsApi.import(file)
-      message.success('项目已导入')
-      navigate(`/film/${project.id}/script`)
-    } catch (error) {
-      message.error(userErrorMessage(error))
-    }
-    return false
-  }
-
-  const exportProject = async (project: Project) => {
-    try {
-      const blob = await projectsApi.export(project.id)
-      downloadBlob(blob, `${project.title || 'project'}.zip`)
-    } catch (error) {
-      message.error(userErrorMessage(error))
-    }
-  }
-
   const openDemo = async () => {
     setCreatingDemo(true)
     try {
@@ -225,9 +194,6 @@ export function ProjectsPage() {
       <header className="page-heading projects-heading">
         <div><h1>项目</h1><span className="projects-heading-count">{projects.length} 个项目</span></div>
         <Space wrap>
-          <Upload accept=".zip" showUploadList={false} beforeUpload={importProject}>
-            <Button icon={<ImportOutlined />}>导入项目</Button>
-          </Upload>
           <Button icon={<PlayCircleOutlined />} loading={creatingDemo} onClick={() => void openDemo()}>打开示例</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建项目</Button>
         </Space>
@@ -307,7 +273,6 @@ export function ProjectsPage() {
                       </div>
                       <div className="project-card-secondary-actions">
                         <Tooltip title="编辑"><Button type="text" icon={<EditOutlined />} aria-label="编辑项目" onClick={() => openEdit(project)} /></Tooltip>
-                        <Tooltip title="导出"><Button type="text" icon={<DownloadOutlined />} aria-label="导出项目" onClick={() => void exportProject(project)} /></Tooltip>
                         <Popconfirm
                           title="删除项目"
                           description={`确定删除“${project.title}”及其全部项目数据吗？`}

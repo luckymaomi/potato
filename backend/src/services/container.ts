@@ -6,7 +6,7 @@ import { AssetRepository } from './assetRepository';
 import { ImageGenerationService } from './imageGenerationService';
 import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveService } from './mediaArchiveService';
-import { ProjectArchiveService } from './projectArchiveService';
+import { EpisodeDeliveryService } from './episodeDeliveryService';
 import { ProjectService } from './projectService';
 import { TaskService } from './taskService';
 import { VideoGenerationService } from './videoGenerationService';
@@ -16,7 +16,7 @@ export interface ServiceContainer {
   composition: CompositionService;
   assets: AssetRepository;
   images: ImageGenerationService;
-  projectArchives: ProjectArchiveService;
+  delivery: EpisodeDeliveryService;
   projects: ProjectService;
   tasks: TaskService;
   videos: VideoGenerationService;
@@ -37,12 +37,13 @@ export function createServices(
   const images = new ImageGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log, assets);
   const videos = new VideoGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log, assets);
   const composition = new CompositionService(db, config, tasks, log);
+  const delivery = new EpisodeDeliveryService(db, config);
   return {
     aiConfigs,
     composition,
     assets,
     images,
-    projectArchives: new ProjectArchiveService(db, projects, assets, mediaArchive),
+    delivery,
     projects,
     tasks,
     videos,

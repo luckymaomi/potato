@@ -605,3 +605,10 @@
 - 产品显示名改为「土豆短剧」；README 定位为 AI 短剧工作流，远端仓库改为 `https://github.com/luckymaomi/potato`。
 - 包名、文档、Skill、测试临时目录前缀与环境变量 `POTATO_CONFIG_PATH` / `POTATO_AUDIT_LOG_PATH` 统一为 potato；保留本地工作目录名与 `tomato_ai_drama.db` 文件名不改。
 - favicon 使用土豆样式；主题布局、手选生成与刷新分项计数一并收口。
+
+## 2026-09-21：删除工程 ZIP，改为成片与镜头包交付
+
+- 删除 `projectArchiveService`、项目 ZIP 导入导出路由、项目列表导入/导出入口、ZIP 往返测试及 `unzipper` 依赖；旧 `GET /dramas/:id/export` 与 `POST /dramas/import` 现在返回 404。
+- 新增 `EpisodeDeliveryService` 作为交付事实 owner：成片下载只接受当前已完成且本地存在的合成 generation；镜头包按本集顺序支持整集或选中镜头，写入当前镜头视频、分镜图、绑定资产标准图和 `shots.csv` / `meta.txt`，不带输入参考图或 generation 历史。
+- 分镜台新增导出成片、勾选镜头和整集/选中镜头包下载；项目列表移除工程归档操作。`spec.md`、`README.md` 与 `media-archive` skill 同步为交接导出合同。
+- 自动验证：后端 80/80、typecheck、build；前端 25/25、lint、build 均通过。保留前端 4 条既有 lint warning 与 Vite 大包体 warning；未调用真实供应商，未进行浏览器人工打开包验收；commit/push 由 owner 本次明确授权执行。
