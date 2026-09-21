@@ -1,6 +1,6 @@
 ---
 name: media-archive
-description: 修改 tomato-ai-drama 的图片/视频本地归档、generation 历史、版本选择、上传参考图或项目 ZIP 导入导出时使用。
+description: 修改 potato 的图片/视频本地归档、generation 历史、版本选择、上传参考图或项目 ZIP 导入导出时使用。
 ---
 
 # Media Archive

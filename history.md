@@ -1,4 +1,4 @@
-# tomato-ai-drama 变更记录
+# potato 变更记录
 
 > 硬规则：本文件严格按时间从前到后排列，最新历史只能追加到最下面；不得把新记录插入文件顶部，也不得删除既有历史。
 
@@ -96,7 +96,7 @@
 ## 2026-09-17：画布保存合同断裂式重构
 
 
-- 调研 `C:\Users\Administrator\Desktop\repository\mo` 的 `StorySaveCoordinator`、`WorkspaceRepository`、Web Locks、BroadcastChannel 和编辑器接线：确认成熟保存必须同时处理不可变快照、防抖合并、写入串行、expected revision、失败保留、冲突停止与离开保护。tomato-ai-drama 的持久化 owner 是 Node/SQLite，因此没有照搬 IndexedDB、浏览器锁或本地广播。
+- 调研 `C:\Users\Administrator\Desktop\repository\mo` 的 `StorySaveCoordinator`、`WorkspaceRepository`、Web Locks、BroadcastChannel 和编辑器接线：确认成熟保存必须同时处理不可变快照、防抖合并、写入串行、expected revision、失败保留、冲突停止与离开保护。potato 的持久化 owner 是 Node/SQLite，因此没有照搬 IndexedDB、浏览器锁或本地广播。
 - 对照 AICON 的节点级 300ms 防抖和生成前 flush、tldraw 的 document/session 分离、ComfyUI 的 revision dirty 语义；拒绝 AICON 仅记录控制台错误且无冲突保护的做法，也没有引入超出单机产品需求的 CRDT。
 - 删除“900ms effect 直接 PUT”的旧保存主干，新增独立 `CanvasSaveCoordinator`：规范快照指纹去重、700ms 防抖、单 Promise 串行写入、保存中继续排队、失败快照保留和显式 idle/dirty/saving/error/conflict 状态。生成、手动保存和画布内部导航统一 flush，待保存内容触发浏览器关闭提示。
 - 画布快照成为唯一 owner：`canvas_layout` 内含节点、坐标、连线、工作流组和模板；删除重复的顶层 `workflow_groups` 写入。React Flow 的节点/连线 selected、dragging 等瞬时 UI 状态不入库。
@@ -131,7 +131,7 @@
 - 物理删除旧画布节点目录、旧编排器、旧工作台生成服务和旧生成 API；节点快照只保存稳定生产角色 `role`，材料、生产阶段、资产分类、文本动作与默认生成方式全部由 `features/production/catalog.ts` 派生。读取画布不识别、不升级也不报错提示旧节点结构；空数据库只生成当前合同。
 - 前端执行器把手动文本、AI 文本、图片、视频和整集合成翻译成统一生产命令；后端 `ProductionWorkflowService` 成为唯一编排入口，HTTP 字段解析、领域编排、底层生成服务、Provider 适配、任务和持久化各自独立。核心测试确认文本、文生图、图生图、文生视频和图生视频全部经过同一生产主干。
 - 建立前后端统一错误合同：保留机器错误码、HTTP 状态、供应商和可重试事实，集中展示 400、401、403、404、408、409、413、422、429、500、502、503、504、网络、超时、配置和能力错误。批量运行首次失败即终止当前范围，未开始节点不提交；429 只做短暂有界重试，耗尽后由用户手动重跑。
-- 产品身份从旧名断裂式统一为 `tomato-ai-drama`：npm 包、页面标题、应用品牌、根配置、SQLite 文件名、导出文件、启动日志、文档、测试临时目录和仓库 skill 均已同步；磁盘根目录按 owner 要求暂不改名。Git 远端切换到 `https://github.com/luckymaomi/tomato-ai-drama.git`。
+- 产品身份从旧名断裂式统一为 `potato`：npm 包、页面标题、应用品牌、根配置、SQLite 文件名、导出文件、启动日志、文档、测试临时目录和仓库 skill 均已同步；磁盘根目录按 owner 要求暂不改名。Git 远端切换到 `https://github.com/luckymaomi/potato.git`。
 - 确定性验证：前端 25/25 测试、lint、build 通过；后端 44/44 测试、全局 strict typecheck、build 通过；前后端依赖审计均为 0 漏洞。实际启动返回新应用名和 0.0.1，页面标题、六类提示词、项目 CRUD 与 Vite API 代理通过；临时项目删除，服务停止。
 - 主实现提交 `9f24838` 已推送新远端 `origin/master`；私有配置、运行数据库和媒体目录均未进入提交。
 - 本轮未调用真实供应商、未部署、未发布。前端构建仍有约 1.47 MB 单块警告；第三方不支持撤销时，本地停止不能物理撤回已经到达供应商的计算。
@@ -218,7 +218,7 @@
 ### 模块对照与和当前实现的差别
 
 - 项目 / 剧集：容器。剧本台：故事与剧本等文本。资产库：可复用的人物/场景/道具标准图。分镜台：按镜头打包剧情、资产托盘和生成提示。生产：产出分镜图与镜头视频。成片台：多镜合成。
-- 成熟短剧是先组织“项目里有什么”（剧本、资产、镜头规格），再决定“怎么生成”。当前 tomato-ai-drama 更像先组织“怎么生成”的 DAG，领域对象藏在节点结果和 SQLite 里。后端已有角色、场景、道具、分镜及分镜–资产关联表，数据上能支撑按模块拆视图；页面上仍是纯画布。
+- 成熟短剧是先组织“项目里有什么”（剧本、资产、镜头规格），再决定“怎么生成”。当前 potato 更像先组织“怎么生成”的 DAG，领域对象藏在节点结果和 SQLite 里。后端已有角色、场景、道具、分镜及分镜–资产关联表，数据上能支撑按模块拆视图；页面上仍是纯画布。
 - 与实现的关系：上述是信息架构共识，**本轮未改代码**。是否拆出剧本、资产库、分镜台等独立视图，仍待 owner 明确授权后再做。
 - 验证：仅文档沉淀；未跑测试、未调用供应商、未修改 `backend/data`。
 
@@ -599,3 +599,9 @@
 - 资产详情与分镜台闭合手选门闸：无图片/视频预设、无画幅、无（声明档位时）视频时长时禁用生成并显示原因；切镜保留合法画幅；批量「生成未完成视频」在缺手选参数时提前警告。
 - AI 配置刷新成功文案改为「图片 X / 视频 Y」（`refreshCatalogMessage`），避免全量合计与 Tab 过滤列表混报。
 - 删除主题迁移临时文件；文档同步手选与唯一主题入口合同。
+
+## 2026-09-21：品牌统一为土豆短剧 / potato
+
+- 产品显示名改为「土豆短剧」；README 定位为 AI 短剧工作流，远端仓库改为 `https://github.com/luckymaomi/potato`。
+- 包名、文档、Skill、测试临时目录前缀与环境变量 `POTATO_CONFIG_PATH` / `POTATO_AUDIT_LOG_PATH` 统一为 potato；保留本地工作目录名与 `tomato_ai_drama.db` 文件名不改。
+- favicon 使用土豆样式；主题布局、手选生成与刷新分项计数一并收口。

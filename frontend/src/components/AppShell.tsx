@@ -12,7 +12,7 @@ export function AppShell() {
       <header className="app-header">
         <div className="app-brand">
           <img className="app-brand-mark" src="/favicon.svg" width={22} height={22} alt="" />
-          <span>番茄短剧</span>
+          <span>土豆短剧</span>
         </div>
         <nav className="app-nav" aria-label="主导航">
           <NavLink to="/" end><AppstoreOutlined />项目</NavLink>

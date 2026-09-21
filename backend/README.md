@@ -1,4 +1,4 @@
-# tomato-ai-drama 后端
+# potato 后端
 
 Node.js、Express、SQLite 后端，默认监听 `5679`，API 前缀为 `/api/v1`。源码、测试和构建使用严格 TypeScript。
 

@@ -1,6 +1,6 @@
 ---
 name: observability
-description: 修改 tomato-ai-drama 的 Everything JSONL 日志、审计事件、结构化失败或运行诊断信息时使用；不把普通 UI 文案变化路由到本 Skill。
+description: 修改 potato 的 Everything JSONL 日志、审计事件、结构化失败或运行诊断信息时使用；不把普通 UI 文案变化路由到本 Skill。
 ---
 
 # Observability

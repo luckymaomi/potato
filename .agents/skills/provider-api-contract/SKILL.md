@@ -1,6 +1,6 @@
 ---
 name: provider-api-contract
-description: "维护并验证 tomato-ai-drama 的生图、生视频 Provider API 协议、模型能力目录与适配器映射；修改 Agnes/PearAPI 请求、模型能力或协议文档时使用。"
+description: "维护并验证 potato 的生图、生视频 Provider API 协议、模型能力目录与适配器映射；修改 Agnes/PearAPI 请求、模型能力或协议文档时使用。"
 ---
 
 # Provider API 协议合同

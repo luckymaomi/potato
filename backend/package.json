@@ -1,7 +1,7 @@
 {
-  "name": "tomato-ai-drama-backend",
+  "name": "potato-backend",
   "version": "0.0.1",
-  "description": "TypeScript backend for tomato-ai-drama",
+  "description": "TypeScript backend for potato",
   "main": "dist/server.js",
   "scripts": {
     "start": "tsx src/server.ts",

@@ -87,6 +87,7 @@ export function AssetDetailPanel({
           <AssetStatusBadge state={state} hasImage={Boolean(selected.image_url)} />
           <div className="asset-standard-status">
             <Tag color={selected.image_url ? 'green' : 'default'}>{selected.image_url ? '标准资产图' : '等待上传或生成'}</Tag>
+            {selected.image_url ? <Button size="small" icon={<DownloadOutlined />} href={mediaUrl(selected.image_url)} download={`${selected.name || 'asset'}-original`}>下载原图</Button> : null}
             <Upload showUploadList={false} accept="image/jpeg,image/png,image/gif,image/webp" customRequest={async ({ file, onSuccess, onError }) => {
               try { await onUploadStandard(file as File); onSuccess?.(file) } catch (reason) { onError?.(reason as Error) }
             }}><Button size="small" icon={<CloudUploadOutlined />}>上传标准图</Button></Upload>

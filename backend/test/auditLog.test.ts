@@ -7,7 +7,7 @@ import { configureAuditLog, sanitizeAuditValue } from '../src/auditLog';
 import logger from '../src/logger';
 
 test('Everything 日志持久追加 JSONL 并统一脱敏凭据、查询串与二进制内容', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-audit-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-audit-'));
   const file = path.join(directory, 'everything.log');
   try {
     configureAuditLog(file);

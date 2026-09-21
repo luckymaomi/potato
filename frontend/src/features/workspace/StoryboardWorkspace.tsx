@@ -1,8 +1,10 @@
 import {
   BuildOutlined,
+  CheckOutlined,
   CloudUploadOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  DownOutlined,
   EyeOutlined,
   LeftOutlined,
   PlusOutlined,
@@ -18,6 +20,7 @@ import {
   Image,
   Input,
   Modal,
+  Popover,
   Popconfirm,
   Select,
   Space,
@@ -56,7 +59,7 @@ const assetLabels: Record<AssetKind, string> = { character: '人物', scene: '�
 
 export function StoryboardWorkspace() {
   const { message, modal } = App.useApp()
-  const { project, episode } = useProjectWorkspace()
+  const { project, episode, setHeaderTools } = useProjectWorkspace()
   const [items, setItems] = useState<Storyboard[]>([])
   const [assets, setAssets] = useState<ProjectAsset[]>([])
   const [readiness, setReadiness] = useState<Record<number, StoryboardReadiness>>({})
@@ -460,13 +463,43 @@ export function StoryboardWorkspace() {
     form.setFieldValue(field, current.includes(id) ? current.filter((item: number) => item !== id) : [...current, id])
   }
 
+  const modelHeaderTools = useMemo(() => {
+    const imageCapability = imageModel ? modelCapabilitySummary(imageModel) : '请到 AI 配置手选图片预设'
+    const videoCapability = videoModel ? modelCapabilitySummary(videoModel) : '请到 AI 配置手选视频预设'
+    const compactSummary = `${imageModel?.id ?? '图片未选择'} · ${videoModel?.id ?? '视频未选择'}`
+    return <Popover
+      trigger="click"
+      placement="bottomRight"
+      content={<div className="workspace-model-details">
+        <section>
+          <span>分镜图模型</span>
+          <strong>{imageModelLabel}</strong>
+          <p>{imageCapability}</p>
+        </section>
+        <section>
+          <span>视频模型</span>
+          <strong>{videoModelLabel}</strong>
+          <p>{videoCapability}</p>
+        </section>
+      </div>}
+    >
+      <button type="button" className="workspace-model-trigger" aria-label="查看生成模型详情">
+        <span><small>生成模型</small><strong title={compactSummary}>{compactSummary}</strong></span>
+        <DownOutlined aria-hidden="true" />
+      </button>
+    </Popover>
+  }, [imageModel, imageModelLabel, videoModel, videoModelLabel])
+
+  useEffect(() => {
+    setHeaderTools(modelHeaderTools)
+    return () => setHeaderTools(null)
+  }, [modelHeaderTools, setHeaderTools])
+
   return (
     <div className="workspace-column director-room">
       <div className="workspace-section-heading director-heading">
         <div><Typography.Title level={2}>分镜台</Typography.Title></div>
         <Space wrap className="director-heading-actions">
-          <div className="director-model-label"><span>分镜图模型</span><strong>{imageModelLabel}</strong>{imageModel ? <small>{modelCapabilitySummary(imageModel)}</small> : <small>请到 AI 配置手选图片预设</small>}</div>
-          <div className="director-model-label"><span>视频模型</span><strong>{videoModelLabel}</strong>{videoModel ? <small>{modelCapabilitySummary(videoModel)}</small> : <small>请到 AI 配置手选视频预设</small>}</div>
           <div className="director-progress-summary"><strong>{items.length}</strong><span>镜头</span><i /><strong>{items.filter((item) => item.image_url).length}</strong><span>已出图</span></div>
           {videoQueue ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingVideos()}>停止逐项生成</Button> : <Button onClick={() => void generatePendingVideos()}>生成未完成视频</Button>}
           <Button type="primary" disabled={composeBlocked} loading={composeRunning} onClick={() => void composeEpisode()}>合成整集</Button>
@@ -548,10 +581,14 @@ export function StoryboardWorkspace() {
                     const selectedIds = kind === 'character' ? characterAssetIds : kind === 'scene' ? sceneAssetIds : propAssetIds
                     return <section className="director-palette-group" key={kind}>
                       <span>{assetLabels[kind]}</span>
-                      <div>{kindAssets.length ? kindAssets.map((asset) => <button type="button" key={asset.id} aria-pressed={selectedIds.includes(asset.id)} className={`director-palette-item${selectedIds.includes(asset.id) ? ' is-selected' : ''}`} onClick={() => toggleAsset(kind, asset.id)}>
-                        {asset.image_url ? <img src={mediaUrl(asset.image_url)} alt={asset.name} /> : <span className="director-palette-placeholder" aria-hidden="true" />}
-                        <strong>{asset.name}</strong>
-                      </button>) : <em>暂无{assetLabels[kind]}资产</em>}</div>
+                      <div>{kindAssets.length ? kindAssets.map((asset) => {
+                        const isSelected = selectedIds.includes(asset.id)
+                        return <button type="button" key={asset.id} aria-pressed={isSelected} className={`director-palette-item${isSelected ? ' is-selected' : ''}`} onClick={() => toggleAsset(kind, asset.id)}>
+                          {asset.image_url ? <img src={mediaUrl(asset.image_url)} alt="" /> : <span className="director-palette-placeholder" aria-hidden="true" />}
+                          <strong title={asset.name}>{asset.name}</strong>
+                          {isSelected ? <CheckOutlined className="director-palette-selected-icon" aria-hidden="true" /> : null}
+                        </button>
+                      }) : <em>暂无{assetLabels[kind]}资产</em>}</div>
                     </section>
                   })}
                 </div>
@@ -565,48 +602,50 @@ export function StoryboardWorkspace() {
                   <Tag color={imageReady ? 'green' : 'default'}>{imageReady ? '已有分镜图' : '待出图'}</Tag>
                   <ReviewTags item={selected} />
                 </div>
-                <Collapse bordered={false} defaultActiveKey={['story', 'camera', 'generation', 'recipes']} expandIconPosition="end">
-                <Collapse.Panel key="story" header="叙事">
-                  <Form.Item name="title" label="标题"><Input placeholder="例如：意外闯入" /></Form.Item>
-                  <Form.Item name="description" label="剧情"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="这一镜发生什么？" /></Form.Item>
-                  <div className="director-form-grid"><Form.Item name="action" label="动作"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="可留空" /></Form.Item><Form.Item name="dialogue" label="对白"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="可留空" /></Form.Item></div>
-                </Collapse.Panel>
-                <Collapse.Panel key="camera" header="镜头语言">
-                  <div className="director-form-grid director-form-grid-three"><Form.Item name="shot_size" label="景别"><Input placeholder="远景 / 中景 / 近景" /></Form.Item><Form.Item name="camera_angle" label="机位"><Input placeholder="平视 / 俯拍" /></Form.Item><Form.Item name="camera_movement" label="运镜"><Input placeholder="固定 / 推 / 拉" /></Form.Item></div>
-                  <Form.Item name="composition" label="构图"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="主体位置、前中后景" /></Form.Item>
-                  <div className="director-form-grid director-form-grid-three"><Form.Item name="lighting" label="光线"><Input placeholder="雨夜霓虹" /></Form.Item><Form.Item name="mood" label="氛围"><Input placeholder="紧张 / 克制" /></Form.Item><Form.Item name="sound" label="声音"><Input placeholder="环境声 / 音效" /></Form.Item></div>
-                </Collapse.Panel>
-                <Collapse.Panel key="generation" header="提示词素材">
-                  <Form.Item name="image_prompt" label="图片描述"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="静态画面内容；留空时使用剧情或标题" /></Form.Item>
-                  <Form.Item name="video_prompt" label="视频描述"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="镜头运动内容；留空时使用剧情或标题" /></Form.Item>
-                  <div className="asset-reference-heading"><span>本镜额外参考图 · {extraReferences.length} 张</span><Upload showUploadList={false} accept="image/*" multiple customRequest={async ({ file, onSuccess, onError }) => {
-                    try { await uploadExtraReference(file as File); onSuccess?.(file) }
-                    catch (reason) { onError?.(reason as Error) }
-                  }}><Button size="small" icon={<CloudUploadOutlined />}>添加参考图</Button></Upload></div>
-                  <div className="asset-reference-grid">{extraReferences.length ? extraReferences.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除本镜参考图" onClick={() => form.setFieldValue('extra_reference_images', extraReferences.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">还没有本镜额外参考图</span>}</div>
-                </Collapse.Panel>
-                <Collapse.Panel key="recipes" header="图片与视频提示词">
-                  <Button className="director-assemble-button" block icon={<BuildOutlined />} loading={assemblingId === selected.id} onClick={() => void assembleRecipes()}>组装提示词</Button>
-                  <Form.Item name="image_recipe_prompt" label="图片最终提示词">
-                    <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="填写图片提示词" />
-                  </Form.Item>
-                  <RecipeReferences label="图片参考图" values={imageRecipeReferences} />
-                  <ReferenceLimitNotice kind="图片" model={imageModel} count={imageRecipeReferences.length} />
-                  <Form.Item name="video_recipe_prompt" label="视频最终提示词">
-                    <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="填写视频提示词" />
-                  </Form.Item>
-                  <RecipeReferences label="视频参考图" values={videoRecipeReferences} />
-                  <ReferenceLimitNotice kind="视频（含首帧）" model={videoModel} count={videoRecipeReferences.length + 1} />
-                  {aspectOptions.length ? (
-                    <Form.Item name="aspect_ratio" label="图片画幅" rules={[{ required: true, message: '请选择图片画幅' }]}>
-                      <Select options={aspectOptions.map((value) => ({ value, label: value }))} placeholder="请选择画幅" />
+                <div className="director-inspector-editor">
+                  <Collapse bordered={false} defaultActiveKey={['story', 'camera', 'generation', 'recipes']} expandIconPosition="end">
+                  <Collapse.Panel key="story" header="叙事">
+                    <Form.Item name="title" label="标题"><Input placeholder="例如：意外闯入" /></Form.Item>
+                    <Form.Item name="description" label="剧情"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="这一镜发生什么？" /></Form.Item>
+                    <div className="director-form-grid"><Form.Item name="action" label="动作"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="可留空" /></Form.Item><Form.Item name="dialogue" label="对白"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="可留空" /></Form.Item></div>
+                  </Collapse.Panel>
+                  <Collapse.Panel key="camera" header="镜头语言">
+                    <div className="director-form-grid director-form-grid-three"><Form.Item name="shot_size" label="景别"><Input placeholder="远景 / 中景 / 近景" /></Form.Item><Form.Item name="camera_angle" label="机位"><Input placeholder="平视 / 俯拍" /></Form.Item><Form.Item name="camera_movement" label="运镜"><Input placeholder="固定 / 推 / 拉" /></Form.Item></div>
+                    <Form.Item name="composition" label="构图"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="主体位置、前中后景" /></Form.Item>
+                    <div className="director-form-grid director-form-grid-three"><Form.Item name="lighting" label="光线"><Input placeholder="雨夜霓虹" /></Form.Item><Form.Item name="mood" label="氛围"><Input placeholder="紧张 / 克制" /></Form.Item><Form.Item name="sound" label="声音"><Input placeholder="环境声 / 音效" /></Form.Item></div>
+                  </Collapse.Panel>
+                  <Collapse.Panel key="generation" header="提示词素材">
+                    <Form.Item name="image_prompt" label="图片描述"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="静态画面内容；留空时使用剧情或标题" /></Form.Item>
+                    <Form.Item name="video_prompt" label="视频描述"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="镜头运动内容；留空时使用剧情或标题" /></Form.Item>
+                    <div className="asset-reference-heading"><span>本镜额外参考图 · {extraReferences.length} 张</span><Upload showUploadList={false} accept="image/*" multiple customRequest={async ({ file, onSuccess, onError }) => {
+                      try { await uploadExtraReference(file as File); onSuccess?.(file) }
+                      catch (reason) { onError?.(reason as Error) }
+                    }}><Button size="small" icon={<CloudUploadOutlined />}>添加参考图</Button></Upload></div>
+                    <div className="asset-reference-grid">{extraReferences.length ? extraReferences.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除本镜参考图" onClick={() => form.setFieldValue('extra_reference_images', extraReferences.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">还没有本镜额外参考图</span>}</div>
+                  </Collapse.Panel>
+                  <Collapse.Panel key="recipes" header="图片与视频提示词">
+                    <Button className="director-assemble-button" block icon={<BuildOutlined />} loading={assemblingId === selected.id} onClick={() => void assembleRecipes()}>组装提示词</Button>
+                    <Form.Item name="image_recipe_prompt" label="图片最终提示词">
+                      <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="填写图片提示词" />
                     </Form.Item>
-                  ) : (
-                    <Typography.Text type="secondary">{imageModel ? '当前模型无可选图片画幅' : '未选择图片模型，无法选择画幅'}</Typography.Text>
-                  )}
-                  {imageTrack ? <GenerationElapsedTime startedAt={imageTrack.startedAt} finishedAt={imageTrack.finishedAt} active={imageBusy} progress={imageTrack.progress} message={imageTrack.message} /> : null}
-                </Collapse.Panel>
-                </Collapse>
+                    <RecipeReferences label="图片参考图" values={imageRecipeReferences} />
+                    <ReferenceLimitNotice kind="图片" model={imageModel} count={imageRecipeReferences.length} />
+                    <Form.Item name="video_recipe_prompt" label="视频最终提示词">
+                      <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="填写视频提示词" />
+                    </Form.Item>
+                    <RecipeReferences label="视频参考图" values={videoRecipeReferences} />
+                    <ReferenceLimitNotice kind="视频（含首帧）" model={videoModel} count={videoRecipeReferences.length + 1} />
+                    {aspectOptions.length ? (
+                      <Form.Item name="aspect_ratio" label="图片画幅" rules={[{ required: true, message: '请选择图片画幅' }]}>
+                        <Select options={aspectOptions.map((value) => ({ value, label: value }))} placeholder="请选择画幅" />
+                      </Form.Item>
+                    ) : (
+                      <Typography.Text type="secondary">{imageModel ? '当前模型无可选图片画幅' : '未选择图片模型，无法选择画幅'}</Typography.Text>
+                    )}
+                    {imageTrack ? <GenerationElapsedTime startedAt={imageTrack.startedAt} finishedAt={imageTrack.finishedAt} active={imageBusy} progress={imageTrack.progress} message={imageTrack.message} /> : null}
+                  </Collapse.Panel>
+                  </Collapse>
+                </div>
                 <div className="director-inspector-actions">
                   <div className="director-video-params">
                     {durationOptions.length ? (
@@ -711,10 +750,14 @@ function ShotCard({
   onClick: () => void
   onRemove: () => void
 }) {
+  const displayTitle = shotDisplayTitle(item)
   return <div className={`director-shot-card${active ? ' is-active' : ''}`}>
     <button type="button" className="director-shot-card-main" onClick={onClick}>
-      <div className="director-shot-thumb">{item.image_url ? <img src={mediaUrl(item.image_url)} alt="" /> : <span>{item.storyboard_number}</span>}<div className="shot-status-dots"><i className={item.image_url ? 'is-ready' : ''} /><i className={item.video_url ? 'is-ready is-video' : ''} /></div></div>
-      <div className="director-shot-copy"><div><strong>{item.storyboard_number}</strong><span>{item.title || '未命名镜头'}</span></div><small>{item.shot_size || '景别待定'}</small><ReviewTags item={item} />{item.dialogue && <em>“{item.dialogue}”</em>}</div>
+      <div className="director-shot-thumb">
+        {item.image_url ? <><img src={mediaUrl(item.image_url)} alt="" /><span className="director-shot-number">{item.storyboard_number}</span></> : <span className="director-shot-placeholder-number">{item.storyboard_number}</span>}
+        <div className="shot-status-dots"><i className={item.image_url ? 'is-ready' : ''} /><i className={item.video_url ? 'is-ready is-video' : ''} /></div>
+      </div>
+      <div className="director-shot-copy"><strong title={displayTitle}>{displayTitle}</strong><small>{item.shot_size || '景别待定'}</small><ReviewTags item={item} />{item.dialogue && <em>“{item.dialogue}”</em>}</div>
     </button>
     <Popconfirm title="删除这个镜头？" okText="删除" okButtonProps={{ danger: true }} onConfirm={onRemove}>
       <Button
@@ -728,6 +771,13 @@ function ShotCard({
       />
     </Popconfirm>
   </div>
+}
+
+function shotDisplayTitle(item: Storyboard): string {
+  const title = item.title?.trim()
+  if (!title || title === String(item.storyboard_number)) return '未命名镜头'
+  const numberedPrefix = new RegExp(`^镜头\\s*0*${item.storyboard_number}(?:(?:\\s*[|｜:：·\\-—]\\s*)|(?:\\s+)|$)`)
+  return title.replace(numberedPrefix, '').trim() || '未命名镜头'
 }
 
 function RecipeReferences({ label, values }: { label: string; values: string[] }) {

@@ -10,7 +10,7 @@ function isConfig(value: unknown): value is AppConfig {
 }
 
 export function loadConfig(): AppConfig {
-  const explicitPath = process.env.TOMATO_CONFIG_PATH?.trim();
+  const explicitPath = process.env.POTATO_CONFIG_PATH?.trim();
   const configPaths = explicitPath
     ? [path.resolve(explicitPath)]
     : [

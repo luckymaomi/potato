@@ -1,6 +1,6 @@
 ---
 name: plan
-description: tomato-ai-drama 的跨模块、迁移、外部副作用、恢复或长期任务需要持久执行合同时使用；也在 owner 明确要求按 plan.md 开发时使用。
+description: potato 的跨模块、迁移、外部副作用、恢复或长期任务需要持久执行合同时使用；也在 owner 明确要求按 plan.md 开发时使用。
 ---
 
 # Plan

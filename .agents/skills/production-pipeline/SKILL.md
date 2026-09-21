@@ -1,6 +1,6 @@
 ---
 name: production-pipeline
-description: 修改 tomato-ai-drama 的节点插件、显式上下文、DAG 执行范围、Demo 工作区或整集合成编排时使用；不负责 Provider HTTP 细节。
+description: 修改 potato 的节点插件、显式上下文、DAG 执行范围、Demo 工作区或整集合成编排时使用；不负责 Provider HTTP 细节。
 ---
 
 # Production Pipeline

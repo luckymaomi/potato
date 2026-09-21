@@ -11,7 +11,7 @@ import { TaskService } from '../src/services/taskService';
 import type { AppConfig } from '../src/types/core';
 
 test('整集合成按分镜顺序生成本地 MP4', async () => {
-  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-composition-'));
+  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-composition-'));
   const db = new Database(':memory:');
   try {
     initializeDatabase(db);
@@ -65,7 +65,7 @@ test('整集合成按分镜顺序生成本地 MP4', async () => {
 });
 
 test('整集合成拒绝用供应商 HTTP 地址绕过本地归档', async () => {
-  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-remote-composition-'));
+  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-remote-composition-'));
   const db = new Database(':memory:');
   try {
     initializeDatabase(db);

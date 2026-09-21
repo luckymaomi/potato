@@ -1,6 +1,6 @@
 ---
 name: provider-integration
-description: 修改 tomato-ai-drama 的 Agnes/PearAPI 适配器、模型目录、超时、限流重试、任务轮询或供应商进度时使用；不负责画布交互。
+description: 修改 potato 的 Agnes/PearAPI 适配器、模型目录、超时、限流重试、任务轮询或供应商进度时使用；不负责画布交互。
 ---
 
 # Provider Integration

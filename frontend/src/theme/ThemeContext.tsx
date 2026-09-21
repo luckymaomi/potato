@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type PropsWith
 
 export type ThemeMode = 'light' | 'dark'
 
-const STORAGE_KEY = 'tomato-ai-drama-theme-v2'
+const STORAGE_KEY = 'potato-theme-v2'
 
 function getInitialTheme(): ThemeMode {
   if (typeof window === 'undefined') return 'light'

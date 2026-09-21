@@ -69,7 +69,7 @@ export function projectRoutes(
     try {
       await services.projectArchives.export(idParam(req), temporary);
       await new Promise<void>((resolve, reject) => {
-        res.download(temporary, 'tomato-ai-drama-project.zip', (error) => error ? reject(error) : resolve());
+        res.download(temporary, 'potato-project.zip', (error) => error ? reject(error) : resolve());
       });
     } finally {
       await fs.promises.rm(temporary, { force: true });

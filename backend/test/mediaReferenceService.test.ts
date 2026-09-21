@@ -13,7 +13,7 @@ const ONE_PIXEL_PNG = Buffer.from(
 );
 
 function createFixture(database?: Database.Database): { root: string; service: MediaReferenceService } {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-media-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-media-'));
   fs.mkdirSync(path.join(root, 'uploads'));
   const config: AppConfig = {
     app: { name: 'test', version: '1' },

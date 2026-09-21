@@ -1,6 +1,6 @@
 ---
 name: canvas-ui
-description: 修改 tomato-ai-drama 的 React Flow 画布、节点选择、高亮、检查器、保存交互或渲染稳定性时使用；不负责生产命令和供应商协议。
+description: 修改 potato 的 React Flow 画布、节点选择、高亮、检查器、保存交互或渲染稳定性时使用；不负责生产命令和供应商协议。
 ---
 
 # Canvas UI

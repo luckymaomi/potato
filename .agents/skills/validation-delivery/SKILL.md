@@ -1,6 +1,6 @@
 ---
 name: validation-delivery
-description: 为 tomato-ai-drama 做回归验证、真实外部验收、人工验收交接、commit 或 push 收口时使用。
+description: 为 potato 做回归验证、真实外部验收、人工验收交接、commit 或 push 收口时使用。
 ---
 
 # Validation and Delivery

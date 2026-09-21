@@ -1,4 +1,4 @@
-# tomato-ai-drama 前端
+# potato 前端
 
 React 18 + TypeScript 工作台，包含项目列表、AI 配置和项目制作区。
 

@@ -127,7 +127,7 @@ test('视频主干、运镜和动作同时为空时只返回风险提示，不�
 
 test('生成和合成入口把就绪失败返回为 4xx', async () => {
   const db = new Database(':memory:');
-  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-readiness-'));
+  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-readiness-'));
   initializeDatabase(db);
   const config: AppConfig = { app: { name: 'test', version: '1' }, server: {}, database: { path: ':memory:' }, storage: { local_path: storage }, ai: { providers: {} } };
   const services = createServices(db, config, new ProviderRegistry(), log);

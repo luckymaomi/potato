@@ -1,6 +1,7 @@
-import { BookOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, MoonOutlined, PictureOutlined, PlusOutlined, SunOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, BookOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, MoonOutlined, PictureOutlined, PlusOutlined, SunOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Spin } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { NavLink, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { projectsApi } from '../../api/projects'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
@@ -25,6 +26,7 @@ export function ProjectShell() {
   const [creatingEpisode, setCreatingEpisode] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
+  const [headerTools, setHeaderTools] = useState<ReactNode>(null)
   const [renameForm] = Form.useForm<{ title: string }>()
 
   const refreshProject = useCallback(async () => {
@@ -42,7 +44,7 @@ export function ProjectShell() {
   const episode = project?.episodes?.find((item) => item.id === requestedEpisode) ?? project?.episodes?.[0]
   const query = episode ? `?episode_id=${episode.id}` : ''
   const context = useMemo<ProjectWorkspaceContext | undefined>(() => (
-    project && episode ? { project, episode, refreshProject } : undefined
+    project && episode ? { project, episode, refreshProject, setHeaderTools } : undefined
   ), [episode, project, refreshProject])
   const canDeleteEpisode = (project?.episodes?.length ?? 0) > 1
 
@@ -106,7 +108,6 @@ export function ProjectShell() {
     <section className="project-workspace">
       <aside className="project-tabbar" aria-label="制作阶段">
         <div className="project-tabbar-header">
-          <Button className="project-tabbar-back" type="text" onClick={() => navigate('/')}>返回项目</Button>
           <div className="project-tabbar-project">
             <strong title={project.title}>{project.title}</strong>
           </div>
@@ -142,7 +143,7 @@ export function ProjectShell() {
                 onChange={(value) => setSearchParams({ episode_id: String(value) })}
               />
             </label>
-            <Space size={4}>
+            <Space size={4} wrap>
               <Button icon={<EditOutlined />} onClick={() => openRename(episode)}>重命名</Button>
               <Popconfirm
                 title="删除这一集？"
@@ -157,6 +158,10 @@ export function ProjectShell() {
               </Popconfirm>
               <Button icon={<PlusOutlined />} loading={creatingEpisode} onClick={() => void createEpisode()}>新建集</Button>
             </Space>
+          </div>
+          <div className="workspace-header-tools">
+            {headerTools}
+            <Button className="workspace-header-back" type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>返回项目</Button>
           </div>
         </header>
         <div className="project-workspace-body"><Outlet context={context} /></div>

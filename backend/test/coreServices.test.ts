@@ -26,7 +26,7 @@ function setup(options: {
 } = {}) {
   const db = new Database(':memory:');
   initializeDatabase(db);
-  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tomato-ai-drama-test-'));
+  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-test-'));
   roots.push(storageRoot);
   const config: AppConfig = {
     app: { name: 'test', version: '1' },

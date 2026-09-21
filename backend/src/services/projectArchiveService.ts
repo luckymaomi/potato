@@ -427,7 +427,7 @@ function textOrNull(value: unknown): string | null {
 }
 
 async function extractArchive(archivePath: string): Promise<string> {
-  const extractedRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'tomato-ai-drama-import-'));
+  const extractedRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'potato-import-'));
   try {
     const directory = await unzipper.Open.file(archivePath);
     for (const entry of directory.files) {
