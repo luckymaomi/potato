@@ -5,7 +5,6 @@ import {
   LeftOutlined,
   PlusOutlined,
   RightOutlined,
-  SaveOutlined,
   StopOutlined,
 } from '@ant-design/icons'
 import {
@@ -27,7 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { aiConfigsApi } from '../../api/aiConfigs'
 import { tasksApi } from '../../api/tasks'
 import { uploadsApi } from '../../api/media'
-import { workspaceApi } from '../../api/workspace'
+import { workspaceApi, type StoryboardReadiness } from '../../api/workspace'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { useAnnounceGenerationOutcomes } from '../generation/useAnnounceGenerationOutcomes'
@@ -57,9 +56,11 @@ export function StoryboardWorkspace() {
   const { project, episode } = useProjectWorkspace()
   const [items, setItems] = useState<Storyboard[]>([])
   const [assets, setAssets] = useState<ProjectAsset[]>([])
+  const [readiness, setReadiness] = useState<Record<number, StoryboardReadiness>>({})
   const [selectedId, setSelectedId] = useState<number>()
   const [saving, setSaving] = useState(false)
   const [assemblingId, setAssemblingId] = useState<number>()
+  const [recipeReassembledId, setRecipeReassembledId] = useState<number>()
   const [imageModels, setImageModels] = useState<ProviderModel[]>([])
   const [imageModelLabel, setImageModelLabel] = useState('读取中…')
   const [videoModelLabel, setVideoModelLabel] = useState('读取中…')
@@ -82,6 +83,7 @@ export function StoryboardWorkspace() {
   const imageRecipeReferences = Form.useWatch('image_recipe_references', { form, preserve: true }) ?? []
   const videoRecipeReferences = Form.useWatch('video_recipe_references', { form, preserve: true }) ?? []
   const selected = useMemo(() => items.find((item) => item.id === selectedId), [items, selectedId])
+  const selectedReadiness = selected ? readiness[selected.id] : undefined
   const selectedIdRef = useRef(selectedId)
   selectedIdRef.current = selectedId
   const selectedIndex = selected ? items.findIndex((item) => item.id === selected.id) : -1
@@ -95,8 +97,10 @@ export function StoryboardWorkspace() {
         workspaceApi.storyboards(project.id, episode.id),
         workspaceApi.assets(project.id),
       ])
+      const readinessEntries = await Promise.all(storyboards.items.map(async (item) => [item.id, await workspaceApi.storyboardReadiness(project.id, item.id)] as const))
       setItems(storyboards.items)
       setAssets(projectAssets.items)
+      setReadiness(Object.fromEntries(readinessEntries))
       setSelectedId((current) => storyboards.items.some((item) => item.id === current) ? current : storyboards.items[0]?.id)
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
@@ -187,8 +191,12 @@ export function StoryboardWorkspace() {
     if (!selected) return
     setSaving(true)
     try {
-      await workspaceApi.updateStoryboard(project.id, selected.id, storyboardPayload(form.getFieldsValue(true)))
+      await workspaceApi.updateStoryboard(project.id, selected.id, {
+        ...storyboardPayload(form.getFieldsValue(true)),
+        ...(recipeReassembledId === selected.id ? { recipe_reassembled: true } : {}),
+      })
       await load()
+      setRecipeReassembledId((current) => current === selected.id ? undefined : current)
       notifyAppSuccess(message, '镜头已保存')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
@@ -210,6 +218,7 @@ export function StoryboardWorkspace() {
         image_recipe_references: recipes.imageRecipe.imageReferences,
         video_recipe_references: recipes.videoRecipe.videoReferences,
       })
+      setRecipeReassembledId(storyboardId)
       notifyAppSuccess(message, '图片与视频提示词已组装')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
@@ -235,7 +244,10 @@ export function StoryboardWorkspace() {
     try {
       const values = form.getFieldsValue(true)
       const { aspect_ratio, ...fields } = values
-      await workspaceApi.updateStoryboard(project.id, selected.id, storyboardPayload(fields))
+      await workspaceApi.updateStoryboard(project.id, selected.id, {
+        ...storyboardPayload(fields),
+        ...(recipeReassembledId === selected.id ? { recipe_reassembled: true } : {}),
+      })
       const generation = await workspaceApi.generateStoryboardImage(project.id, selected.id, {
         aspect_ratio,
       })
@@ -290,6 +302,17 @@ export function StoryboardWorkspace() {
     }
   }
 
+  const confirmReview = async (media: 'image' | 'video') => {
+    if (!selected) return
+    try {
+      await workspaceApi.confirmStoryboardReview(project.id, selected.id, media)
+      await load()
+      notifyAppSuccess(message, media === 'image' ? '已确认图片通过' : '已确认视频通过')
+    } catch (reason) {
+      notifyAppError({ message, modal }, reason)
+    }
+  }
+
   const selectRelative = (offset: number) => {
     const next = items[selectedIndex + offset]
     if (next) setSelectedId(next.id)
@@ -300,6 +323,10 @@ export function StoryboardWorkspace() {
   const videoReady = Boolean(selected?.video_url)
   const videoTrack = selected ? tracker.get(storyboardVideoKey(selected.id)) : undefined
   const videoBusy = videoTrack?.status === 'pending' || videoTrack?.status === 'processing'
+  const composeBlocked = !items.length || items.some((item) => !item.video_url || item.video_needs_review)
+  const composeReason = items.some((item) => item.video_needs_review)
+    ? `待复核视频：${items.filter((item) => item.video_needs_review).map((item) => item.storyboard_number).join('、')}`
+    : items.some((item) => !item.video_url) ? '仍有镜头缺少视频' : undefined
 
   useEffect(() => {
     setShotDurations((current) => {
@@ -404,10 +431,11 @@ export function StoryboardWorkspace() {
           <div className="director-model-label"><span>视频模型</span><strong>{videoModelLabel}</strong></div>
           <div className="director-progress-summary"><strong>{items.length}</strong><span>镜头</span><i /><strong>{items.filter((item) => item.image_url).length}</strong><span>已出图</span></div>
           {videoQueue ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingVideos()}>停止逐项生成</Button> : <Button onClick={() => void generatePendingVideos()}>生成未完成视频</Button>}
-          <Button type="primary" disabled={!items.length || items.some((item) => !item.video_url)} loading={composeRunning} onClick={() => void composeEpisode()}>合成整集</Button>
+          <Button type="primary" disabled={composeBlocked} loading={composeRunning} onClick={() => void composeEpisode()}>合成整集</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => void create()}>加入镜头</Button>
         </Space>
       </div>
+      {composeReason ? <Typography.Text type="secondary">{composeReason}</Typography.Text> : null}
       {videoQueue ? <div className="generation-queue-status"><Tag color={videoQueue.stopping ? 'warning' : 'processing'}>{videoQueue.stopping ? '正在停止' : '视频逐项生成中'}</Tag><span>{videoQueue.current ?? '准备中'} · 已处理 {Math.min(videoQueue.completed, videoQueue.total)}/{videoQueue.total}</span></div> : null}
 
       {!items.length ? (
@@ -435,6 +463,7 @@ export function StoryboardWorkspace() {
               {selected ? <>
                 <div className="director-stage-toolbar">
                   <div><strong>{selected.title || '未命名镜头'}</strong><span className="stage-muted">{selected.shot_size || '景别待定'}</span></div>
+                  <ReviewTags item={selected} />
                   <Space size={4}>
                     <Button type="text" icon={<LeftOutlined />} disabled={selectedIndex <= 0} onClick={() => selectRelative(-1)} />
                     <Button type="text" icon={<RightOutlined />} disabled={selectedIndex < 0 || selectedIndex >= items.length - 1} onClick={() => selectRelative(1)} />
@@ -444,58 +473,35 @@ export function StoryboardWorkspace() {
                   <section className="director-media-panel">
                     <div className="director-media-panel-heading"><strong>分镜图</strong><span>{imageReady ? '已完成' : '待生成'}</span></div>
                     <div className="director-frame-area">
-                    <div className="director-frame-wrap">
-                    {selected.image_url
-                      ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.title || '分镜图'} className="director-frame-image" />
-                      : <div className="director-frame-empty">
-                        <strong>这一镜还没有分镜图</strong>
-                        {imageTrack ? <GenerationElapsedTime startedAt={imageTrack.startedAt} finishedAt={imageTrack.finishedAt} active={imageBusy} progress={imageTrack.progress} message={imageTrack.message} /> : null}
-                        <Space wrap>
-                          <Upload showUploadList={false} accept="image/jpeg,image/png,image/gif,image/webp" disabled={imageBusy} customRequest={async ({ file, onSuccess, onError }) => {
-                            try {
-                              await uploadImage(file as File)
-                              onSuccess?.(file)
-                            } catch (reason) { onError?.(reason as Error) }
-                          }}>
-                            <Button icon={<CloudUploadOutlined />} disabled={imageBusy}>上传分镜图</Button>
-                          </Upload>
-                          <Button type="primary" loading={imageBusy} onClick={() => void generateImage()}>生成这一镜</Button>
-                          {imageBusy ? <Button danger icon={<StopOutlined />} onClick={() => void tracker.cancel(storyboardImageKey(selected.id))}>停止</Button> : null}
-                        </Space>
-                      </div>}
-                    </div>
+                      <div className="director-frame-wrap">
+                        {selected.image_url
+                          ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.title || '分镜图'} className="director-frame-image" />
+                          : <div className="director-frame-empty">
+                            <strong>这一镜还没有分镜图</strong>
+                            <span>在右侧栏上传或生成</span>
+                            {imageTrack ? <GenerationElapsedTime startedAt={imageTrack.startedAt} finishedAt={imageTrack.finishedAt} active={imageBusy} progress={imageTrack.progress} message={imageTrack.message} /> : null}
+                          </div>}
+                      </div>
                     </div>
                   </section>
                   <section className="director-media-panel director-video-panel">
-                    <div className="director-media-panel-heading"><strong>镜头视频</strong><span>{videoReady ? '已完成' : videoBusy ? (videoTrack?.message || '正在生成') : '待生成'}</span></div>
-                    <div className="director-video-preview">
-                      {selected.video_url ? <video controls src={mediaUrl(selected.video_url)} /> : <div className="director-video-empty"><strong>这一镜还没有视频</strong><span>生成视频时会使用当前分镜图作为首帧</span></div>}
+                    <div className="director-media-panel-heading">
+                      <strong>镜头视频</strong>
+                      <span>{videoReady ? '已完成' : videoBusy ? (videoTrack?.message || '正在生成') : '待生成'}</span>
                     </div>
-                    <div className="director-video-params">
-                      {durationOptions.length ? <label><span>时长</span><Select size="small" value={shotDurations[selected.id]} options={durationOptions.map((value) => ({ value, label: `${value} 秒` }))} onChange={(value) => setShotDurations((current) => ({ ...current, [selected.id]: value }))} disabled={videoBusy} /></label> : null}
-                      {videoAspectOptions.length ? <label><span>画幅</span><Select size="small" value={shotAspects[selected.id]} options={videoAspectOptions.map((value) => ({ value, label: aspectRatioLabel(value) }))} onChange={(value) => setShotAspects((current) => ({ ...current, [selected.id]: value }))} disabled={videoBusy} /></label> : null}
+                    <div className="director-frame-area">
+                      <div className="director-frame-wrap">
+                        {selected.video_url
+                          ? <video controls src={mediaUrl(selected.video_url)} className="director-frame-video" />
+                          : <div className="director-frame-empty">
+                            <strong>这一镜还没有视频</strong>
+                            <span>以当前分镜图为首帧，在右侧生成</span>
+                            {videoTrack ? <GenerationElapsedTime startedAt={videoTrack.startedAt} finishedAt={videoTrack.finishedAt} active={videoBusy} progress={videoTrack.progress} message={videoTrack.message} /> : null}
+                          </div>}
+                      </div>
                     </div>
-                    {videoTrack ? <GenerationElapsedTime startedAt={videoTrack.startedAt} finishedAt={videoTrack.finishedAt} active={videoBusy} progress={videoTrack.progress} message={videoTrack.message} /> : null}
-                    {videoBusy ? <Button danger icon={<StopOutlined />} onClick={() => void tracker.cancel(storyboardVideoKey(selected.id))}>停止生成</Button> : <Button type="primary" disabled={!imageReady} onClick={() => void generateVideo(selected.id)}>{videoReady ? '重新生成视频' : '生成视频'}</Button>}
                   </section>
                 </div>
-                {selected.image_url ? (
-                  <div className="director-frame-actions">
-                    <Space wrap>
-                      <Upload showUploadList={false} accept="image/jpeg,image/png,image/gif,image/webp" disabled={imageBusy} customRequest={async ({ file, onSuccess, onError }) => {
-                        try {
-                          await uploadImage(file as File)
-                          onSuccess?.(file)
-                        } catch (reason) { onError?.(reason as Error) }
-                      }}>
-                        <Button size="small" icon={<CloudUploadOutlined />} disabled={imageBusy}>重新上传</Button>
-                      </Upload>
-                      <Popconfirm title="清除这一镜的分镜图？" onConfirm={() => void clearImage()}>
-                        <Button size="small" danger icon={<DeleteOutlined />} disabled={imageBusy}>清除分镜图</Button>
-                      </Popconfirm>
-                    </Space>
-                  </div>
-                ) : null}
                 <div className="director-asset-palette">
                   <div className="director-palette-heading"><strong>本镜资产</strong><span>{selectedAssetIds.length} 项已选择</span></div>
                   {(['character', 'scene', 'prop'] as AssetKind[]).map((kind) => {
@@ -518,6 +524,7 @@ export function StoryboardWorkspace() {
                 <div className="director-inspector-heading">
                   <strong>{selected.title || '未命名镜头'}</strong>
                   <Tag color={imageReady ? 'green' : 'default'}>{imageReady ? '已有分镜图' : '待出图'}</Tag>
+                  <ReviewTags item={selected} />
                 </div>
                 <Collapse bordered={false} defaultActiveKey={['story', 'camera', 'generation', 'recipes']} expandIconPosition="end">
                 <Collapse.Panel key="story" header="叙事">
@@ -556,30 +563,73 @@ export function StoryboardWorkspace() {
                   ) : (
                     <Typography.Text type="secondary">当前模型无可选图片画幅</Typography.Text>
                   )}
-                  <Space wrap>
-                    <Upload showUploadList={false} accept="image/jpeg,image/png,image/gif,image/webp" disabled={imageBusy} customRequest={async ({ file, onSuccess, onError }) => {
+                  {imageTrack ? <GenerationElapsedTime startedAt={imageTrack.startedAt} finishedAt={imageTrack.finishedAt} active={imageBusy} progress={imageTrack.progress} message={imageTrack.message} /> : null}
+                </Collapse.Panel>
+                </Collapse>
+                <div className="director-inspector-actions">
+                  <div className="director-video-params">
+                    {durationOptions.length ? (
+                      <label>
+                        <span>视频时长</span>
+                        <Select
+                          size="small"
+                          value={shotDurations[selected.id]}
+                          options={durationOptions.map((value) => ({ value, label: `${value} 秒` }))}
+                          onChange={(value) => setShotDurations((current) => ({ ...current, [selected.id]: value }))}
+                          disabled={videoBusy}
+                        />
+                      </label>
+                    ) : null}
+                    {videoAspectOptions.length ? (
+                      <label>
+                        <span>视频画幅</span>
+                        <Select
+                          size="small"
+                          value={shotAspects[selected.id]}
+                          options={videoAspectOptions.map((value) => ({ value, label: aspectRatioLabel(value) }))}
+                          onChange={(value) => setShotAspects((current) => ({ ...current, [selected.id]: value }))}
+                          disabled={videoBusy}
+                        />
+                      </label>
+                    ) : (
+                      <Typography.Text type="secondary">当前模型无可选视频画幅</Typography.Text>
+                    )}
+                  </div>
+                  {videoTrack ? <GenerationElapsedTime startedAt={videoTrack.startedAt} finishedAt={videoTrack.finishedAt} active={videoBusy} progress={videoTrack.progress} message={videoTrack.message} /> : null}
+                  {selectedReadiness?.video.warning ? <Typography.Text type="warning">{selectedReadiness.video.warning}</Typography.Text> : null}
+                  {!selectedReadiness?.video.ready && selectedReadiness?.video.reason ? <Typography.Text type="danger">{selectedReadiness.video.reason}</Typography.Text> : null}
+                  {videoBusy
+                    ? <Button danger block onClick={() => void tracker.cancel(storyboardVideoKey(selected.id))}>停止生成视频</Button>
+                    : <Button type="primary" block disabled={!selectedReadiness?.video.ready} onClick={() => void generateVideo(selected.id)}>{videoReady ? '重新生成视频' : '生成视频'}</Button>}
+                  <Upload
+                    className="director-action-upload"
+                    showUploadList={false}
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    disabled={imageBusy}
+                    customRequest={async ({ file, onSuccess, onError }) => {
                       try {
                         await uploadImage(file as File)
                         onSuccess?.(file)
                       } catch (reason) { onError?.(reason as Error) }
-                    }}>
-                      <Button icon={<CloudUploadOutlined />} disabled={imageBusy}>{imageReady ? '重新上传' : '上传分镜图'}</Button>
-                    </Upload>
-                    <Button type="primary" loading={imageBusy} onClick={() => void generateImage()}>{imageReady ? '重做分镜图' : '生成分镜图'}</Button>
-                    {imageBusy ? <Button danger icon={<StopOutlined />} onClick={() => void tracker.cancel(storyboardImageKey(selected.id))}>停止</Button> : null}
-                    {imageReady ? <Popconfirm title="清除这一镜的分镜图？" onConfirm={() => void clearImage()}><Button danger disabled={imageBusy}>清除</Button></Popconfirm> : null}
-                  </Space>
-                  {imageTrack ? <GenerationElapsedTime startedAt={imageTrack.startedAt} finishedAt={imageTrack.finishedAt} active={imageBusy} progress={imageTrack.progress} message={imageTrack.message} /> : null}
-                </Collapse.Panel>
-                </Collapse>
-                <div className="director-inspector-footer">
-                  <Space>
-                    <Popconfirm title="删除这个镜头？删除后不可恢复。" okText="删除" okButtonProps={{ danger: true }} onConfirm={() => void remove()}>
-                      <Button danger icon={<DeleteOutlined />}>删除镜头</Button>
+                    }}
+                  >
+                    <Button block disabled={imageBusy}>{imageReady ? '重新上传分镜图' : '上传分镜图'}</Button>
+                  </Upload>
+                  {imageBusy
+                    ? <Button danger block onClick={() => void tracker.cancel(storyboardImageKey(selected.id))}>停止生成分镜图</Button>
+                    : <Button type="primary" block loading={imageBusy} disabled={!selectedReadiness?.image.ready} onClick={() => void generateImage()}>{imageReady ? '重做分镜图' : '生成分镜图'}</Button>}
+                  {!selectedReadiness?.image.ready && selectedReadiness?.image.reason ? <Typography.Text type="danger">{selectedReadiness.image.reason}</Typography.Text> : null}
+                  {selected.image_needs_review ? <Button block onClick={() => void confirmReview('image')}>确认图片通过</Button> : null}
+                  {selected.video_needs_review ? <Button block onClick={() => void confirmReview('video')}>确认视频通过</Button> : null}
+                  {imageReady ? (
+                    <Popconfirm title="清除这一镜的分镜图？" onConfirm={() => void clearImage()}>
+                      <Button danger block disabled={imageBusy}>清除分镜图</Button>
                     </Popconfirm>
-                    <Button icon={<SaveOutlined />} type="primary" loading={saving} onClick={() => void save()}>保存</Button>
-                  </Space>
-                  <span>{videoReady ? '视频已生成' : '视频未生成'}</span>
+                  ) : null}
+                  <Popconfirm title="删除这个镜头？删除后不可恢复。" okText="删除" okButtonProps={{ danger: true }} onConfirm={() => void remove()}>
+                    <Button danger block>删除镜头</Button>
+                  </Popconfirm>
+                  <Button type="primary" block loading={saving} onClick={() => void save()}>保存</Button>
                 </div>
               </Form> : <Empty description="选择镜头后编辑" />}
             </aside>
@@ -588,6 +638,15 @@ export function StoryboardWorkspace() {
       )}
     </div>
   )
+}
+
+function ReviewTags({ item }: { item: Storyboard }) {
+  if (!item.image_needs_review && !item.video_needs_review && !item.recipe_needs_reassembly) return null
+  return <Space size={4} wrap>
+    {item.recipe_needs_reassembly ? <Tag color="orange">配方待重装</Tag> : null}
+    {item.image_needs_review ? <Tag color="gold">图片待复核</Tag> : null}
+    {item.video_needs_review ? <Tag color="gold">视频待复核</Tag> : null}
+  </Space>
 }
 
 function ShotCard({
@@ -604,7 +663,7 @@ function ShotCard({
   return <div className={`director-shot-card${active ? ' is-active' : ''}`}>
     <button type="button" className="director-shot-card-main" onClick={onClick}>
       <div className="director-shot-thumb">{item.image_url ? <img src={mediaUrl(item.image_url)} alt="" /> : <span>{item.storyboard_number}</span>}<div className="shot-status-dots"><i className={item.image_url ? 'is-ready' : ''} /><i className={item.video_url ? 'is-ready is-video' : ''} /></div></div>
-      <div className="director-shot-copy"><div><strong>{item.storyboard_number}</strong><span>{item.title || '未命名镜头'}</span></div><small>{item.shot_size || '景别待定'}</small>{item.dialogue && <em>“{item.dialogue}”</em>}</div>
+      <div className="director-shot-copy"><div><strong>{item.storyboard_number}</strong><span>{item.title || '未命名镜头'}</span></div><small>{item.shot_size || '景别待定'}</small><ReviewTags item={item} />{item.dialogue && <em>“{item.dialogue}”</em>}</div>
     </button>
     <Popconfirm title="删除这个镜头？" okText="删除" okButtonProps={{ danger: true }} onConfirm={onRemove}>
       <Button

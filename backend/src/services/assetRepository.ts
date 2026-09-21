@@ -102,6 +102,9 @@ export class AssetRepository {
       SET name = ?, text_profile = ?, output_type = ?, output_prompt = ?, input_reference_images = ?, updated_at = ?
       WHERE id = ?
     `).run(name, JSON.stringify(textProfile), outputType, outputPrompt, JSON.stringify(inputReferences), new Date().toISOString(), id);
+    if (JSON.stringify(textProfile) !== JSON.stringify(current.text_profile) || outputPrompt !== current.output_prompt) {
+      this.markAssetImageChanged(id);
+    }
     const updated = this.getProjectAsset(id) as ProjectAssetRow;
     this.log?.audit?.('project.asset.updated', { projectId: current.drama_id, asset: updated });
     return updated;
@@ -189,11 +192,17 @@ export class AssetRepository {
     const videoRecipeReferences = body.video_recipe_references === undefined
       ? current.video_recipe_references
       : normalizeStringArray(body.video_recipe_references);
+    const nextAssetIds = Object.prototype.hasOwnProperty.call(body, 'project_asset_ids')
+      ? this.validAssetIds(current.episode_id, body.project_asset_ids)
+      : current.project_asset_ids;
+    const specificationChanged = storyboardSpecificationChanged(current, body, extraReferences, nextAssetIds);
+    const recipeSaved = hasCompleteRecipeSnapshot(body);
     this.db.prepare(`
       UPDATE storyboards SET storyboard_number = ?, title = ?, description = ?, action = ?, dialogue = ?,
         shot_size = ?, camera_angle = ?, camera_movement = ?, composition = ?, lighting = ?, mood = ?, sound = ?,
         image_prompt = ?, video_prompt = ?, image_recipe_prompt = ?, video_recipe_prompt = ?,
-        image_recipe_references = ?, video_recipe_references = ?, extra_reference_images = ?, updated_at = ?
+        image_recipe_references = ?, video_recipe_references = ?, extra_reference_images = ?,
+        image_needs_review = ?, video_needs_review = ?, recipe_needs_reassembly = ?, updated_at = ?
       WHERE id = ?
     `).run(
       readNumber(body.storyboard_number) ?? current.storyboard_number,
@@ -215,12 +224,15 @@ export class AssetRepository {
       JSON.stringify(imageRecipeReferences),
       JSON.stringify(videoRecipeReferences),
       JSON.stringify(extraReferences),
+      specificationChanged ? Number(Boolean(current.image_url || current.image_recipe_prompt.trim())) : Number(current.image_needs_review),
+      specificationChanged ? Number(Boolean(current.video_url || current.video_recipe_prompt.trim())) : Number(current.video_needs_review),
+      recipeSaved ? 0 : (specificationChanged ? 1 : Number(current.recipe_needs_reassembly)),
       new Date().toISOString(),
       id,
     );
     if (Object.prototype.hasOwnProperty.call(body, 'project_asset_ids')) {
       const episode = this.episode(current.episode_id) as EpisodeRow;
-      this.syncStoryboardAssets(id, episode.drama_id, body.project_asset_ids);
+      this.syncStoryboardAssets(id, episode.drama_id, nextAssetIds);
     }
     const updated = this.getStoryboard(id) as StoryboardRow;
     this.log?.audit?.('storyboard.updated', { storyboard: updated });
@@ -266,6 +278,47 @@ export class AssetRepository {
     return storyboards;
   }
 
+  markAssetImageChanged(assetId: number): void {
+    if (!this.getProjectAsset(assetId)) throw new NotFoundError('项目资产不存在');
+    this.db.prepare(`
+      UPDATE storyboards
+      SET image_needs_review = CASE WHEN image_url IS NOT NULL OR image_recipe_prompt <> '' THEN 1 ELSE image_needs_review END,
+          video_needs_review = CASE WHEN video_url IS NOT NULL OR video_recipe_prompt <> '' THEN 1 ELSE video_needs_review END,
+          updated_at = ?
+      WHERE id IN (SELECT storyboard_id FROM storyboard_project_assets WHERE project_asset_id = ?)
+    `).run(new Date().toISOString(), assetId);
+  }
+
+  markStoryboardImageChanged(storyboardId: number, input: { imageSelected: boolean }): void {
+    const changed = this.db.prepare(`
+      UPDATE storyboards
+      SET image_needs_review = ?,
+          video_needs_review = CASE WHEN video_url IS NOT NULL OR video_recipe_prompt <> '' THEN 1 ELSE video_needs_review END,
+          updated_at = ?
+      WHERE id = ?
+    `).run(input.imageSelected ? 0 : 1, new Date().toISOString(), storyboardId).changes;
+    if (!changed) throw new NotFoundError('分镜不存在');
+  }
+
+  markStoryboardVideoSelected(storyboardId: number): void {
+    const changed = this.db.prepare('UPDATE storyboards SET video_needs_review = 0, updated_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), storyboardId).changes;
+    if (!changed) throw new NotFoundError('分镜不存在');
+  }
+
+  confirmStoryboardReview(storyboardId: number, media: 'image' | 'video'): StoryboardRow {
+    const column = media === 'image' ? 'image_needs_review' : 'video_needs_review';
+    const changed = this.db.prepare(`UPDATE storyboards SET ${column} = 0, updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), storyboardId).changes;
+    if (!changed) throw new NotFoundError('分镜不存在');
+    return this.getStoryboard(storyboardId) as StoryboardRow;
+  }
+
+  setStoryboardReviewState(storyboardId: number, input: Pick<StoryboardRow, 'image_needs_review' | 'video_needs_review' | 'recipe_needs_reassembly'>): void {
+    this.db.prepare('UPDATE storyboards SET image_needs_review = ?, video_needs_review = ?, recipe_needs_reassembly = ? WHERE id = ?')
+      .run(Number(input.image_needs_review), Number(input.video_needs_review), Number(input.recipe_needs_reassembly), storyboardId);
+  }
+
   private requireProject(projectId: number): void {
     if (!this.db.prepare('SELECT id FROM dramas WHERE id = ?').get(projectId)) throw new NotFoundError('项目不存在');
   }
@@ -277,6 +330,9 @@ export class AssetRepository {
       extra_reference_images: parseJson<string[]>(row.extra_reference_images, []),
       image_recipe_references: parseJson<string[]>(row.image_recipe_references, []),
       video_recipe_references: parseJson<string[]>(row.video_recipe_references, []),
+      image_needs_review: Boolean(row.image_needs_review),
+      video_needs_review: Boolean(row.video_needs_review),
+      recipe_needs_reassembly: Boolean(row.recipe_needs_reassembly),
     };
   }
 
@@ -287,6 +343,13 @@ export class AssetRepository {
     const insert = this.db.prepare('INSERT INTO storyboard_project_assets (storyboard_id, project_asset_id) VALUES (?, ?)');
     valid.forEach((assetId) => insert.run(storyboardId, assetId));
   }
+
+  private validAssetIds(episodeId: number, rawIds: unknown): number[] {
+    const episode = this.episode(episodeId);
+    if (!episode) return [];
+    const ids = Array.isArray(rawIds) ? rawIds.map(readNumber).filter((id): id is number => Boolean(id)) : [];
+    return [...new Set(ids)].filter((id) => this.getProjectAsset(id)?.drama_id === episode.drama_id);
+  }
 }
 
 interface RawProjectAsset extends Omit<ProjectAssetRow, 'text_profile' | 'input_reference_images'> {
@@ -294,10 +357,38 @@ interface RawProjectAsset extends Omit<ProjectAssetRow, 'text_profile' | 'input_
   input_reference_images: string;
 }
 
-interface RawStoryboard extends Omit<StoryboardRow, 'project_asset_ids' | 'extra_reference_images' | 'image_recipe_references' | 'video_recipe_references'> {
+interface RawStoryboard extends Omit<StoryboardRow, 'project_asset_ids' | 'extra_reference_images' | 'image_recipe_references' | 'video_recipe_references' | 'image_needs_review' | 'video_needs_review' | 'recipe_needs_reassembly'> {
   extra_reference_images: string;
   image_recipe_references: string;
   video_recipe_references: string;
+  image_needs_review: number;
+  video_needs_review: number;
+  recipe_needs_reassembly: number;
+}
+
+const STORYBOARD_SPECIFICATION_FIELDS = [
+  'title', 'description', 'action', 'dialogue', 'shot_size', 'camera_angle', 'camera_movement',
+  'composition', 'lighting', 'mood', 'sound', 'image_prompt', 'video_prompt',
+] as const;
+
+function storyboardSpecificationChanged(current: StoryboardRow, body: Record<string, unknown>, extraReferences: string[], assetIds: number[]): boolean {
+  if (STORYBOARD_SPECIFICATION_FIELDS.some((field) => body[field] !== undefined && optionalText(body, field, current[field]) !== current[field])) return true;
+  if (body.extra_reference_images !== undefined && !sameStrings(extraReferences, current.extra_reference_images)) return true;
+  return body.project_asset_ids !== undefined && !sameNumbers(assetIds, current.project_asset_ids);
+}
+
+function hasCompleteRecipeSnapshot(body: Record<string, unknown>): boolean {
+  return body.recipe_reassembled === true
+    && typeof body.image_recipe_prompt === 'string' && body.image_recipe_prompt.trim().length > 0
+    && typeof body.video_recipe_prompt === 'string' && body.video_recipe_prompt.trim().length > 0;
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function sameNumbers(left: number[], right: number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function hydrateProjectAsset(row: RawProjectAsset): ProjectAssetRow {

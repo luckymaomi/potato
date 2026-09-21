@@ -52,6 +52,11 @@ export interface StoryboardRecipes {
   videoRecipe: { videoPrompt: string; videoReferences: string[] }
 }
 
+export interface StoryboardReadiness {
+  image: { ready: boolean; reason?: string }
+  video: { ready: boolean; reason?: string; warning?: string }
+}
+
 export const workspaceApi = {
   getScript: (projectId: number, episodeId?: number) => apiClient.get<never, ScriptWorkspace>(`/dramas/${projectId}/script`, { params: { episode_id: episodeId } }),
   saveScript: (projectId: number, input: { episode_id: number; overview: StoryOverview; episode_plan: EpisodeStoryPlan; script_content: string }) => apiClient.put<never, ScriptWorkspace>(`/dramas/${projectId}/script`, input),
@@ -71,7 +76,9 @@ export const workspaceApi = {
 
   storyboards: (projectId: number, episodeId?: number) => apiClient.get<never, StoryboardWorkspace>(`/dramas/${projectId}/storyboards`, { params: { episode_id: episodeId } }),
   createStoryboard: (projectId: number, input: Partial<Storyboard> & { episode_id: number }) => apiClient.post<never, Storyboard>(`/dramas/${projectId}/storyboards`, input),
-  updateStoryboard: (projectId: number, id: number, input: Partial<Storyboard>) => apiClient.patch<never, Storyboard>(`/dramas/${projectId}/storyboards/${id}`, input),
+  updateStoryboard: (projectId: number, id: number, input: Partial<Storyboard> & { recipe_reassembled?: boolean }) => apiClient.patch<never, Storyboard>(`/dramas/${projectId}/storyboards/${id}`, input),
+  storyboardReadiness: (projectId: number, id: number) => apiClient.get<never, StoryboardReadiness>(`/dramas/${projectId}/storyboards/${id}/readiness`),
+  confirmStoryboardReview: (projectId: number, id: number, media: 'image' | 'video') => apiClient.post<never, Storyboard>(`/dramas/${projectId}/storyboards/${id}/confirm-review`, { media }),
   assembleStoryboardRecipes: (projectId: number, id: number, input: Partial<Storyboard>) => apiClient.post<never, StoryboardRecipes>(`/dramas/${projectId}/storyboards/${id}/assemble-recipes`, input),
   removeStoryboard: (projectId: number, id: number) => apiClient.delete<never, { removed: boolean }>(`/dramas/${projectId}/storyboards/${id}`),
   generateStoryboardImage: (projectId: number, id: number, input: GenerateMediaInput = {}) => apiClient.post<never, MediaGenerationHistory>(`/dramas/${projectId}/storyboards/${id}/generate-image`, input),

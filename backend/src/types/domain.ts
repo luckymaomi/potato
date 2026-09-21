@@ -110,6 +110,9 @@ export interface StoryboardRow {
   video_url: string | null;
   current_image_generation_id: number | null;
   current_video_generation_id: number | null;
+  image_needs_review?: boolean;
+  video_needs_review?: boolean;
+  recipe_needs_reassembly?: boolean;
   project_asset_ids: number[];
   extra_reference_images: string[];
   created_at: string;

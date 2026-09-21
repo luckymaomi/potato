@@ -34,8 +34,8 @@ export function createServices(
   const projects = new ProjectService(db, mediaArchive, log);
   const assets = new AssetRepository(db, log);
   const mediaReferences = new MediaReferenceService(config, db);
-  const images = new ImageGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);
-  const videos = new VideoGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log);
+  const images = new ImageGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log, assets);
+  const videos = new VideoGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log, assets);
   const composition = new CompositionService(db, config, tasks, log);
   return {
     aiConfigs,

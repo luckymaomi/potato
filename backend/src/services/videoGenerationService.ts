@@ -8,6 +8,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveError, MediaArchiveService } from './mediaArchiveService';
 import { ProviderError } from '../providers/errors';
+import { AssetRepository } from './assetRepository';
 
 export interface VideoGenerationInput {
   dramaId: number;
@@ -64,6 +65,7 @@ export class VideoGenerationService {
     private readonly tasks: TaskService,
     private readonly registry: ProviderRegistry,
     private readonly log: Logger,
+    private readonly assets: AssetRepository,
   ) {}
 
   list(dramaId?: number): VideoGenerationRow[] {
@@ -86,6 +88,7 @@ export class VideoGenerationService {
     if (row.storyboard_id) {
       this.db.prepare('UPDATE storyboards SET video_url = ?, current_video_generation_id = ?, updated_at = ? WHERE id = ?')
         .run(row.video_url, row.id, now, row.storyboard_id);
+      this.assets.markStoryboardVideoSelected(row.storyboard_id);
     } else if (row.episode_id) {
       this.db.prepare('UPDATE episodes SET video_url = ?, current_video_generation_id = ?, updated_at = ? WHERE id = ?')
         .run(row.video_url, row.id, now, row.episode_id);
@@ -301,6 +304,7 @@ export class VideoGenerationService {
         if (storyboardId) this.db.prepare('UPDATE storyboards SET video_url = ?, current_video_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, id, now, storyboardId);
       });
       commit();
+      if (storyboardId) this.assets.markStoryboardVideoSelected(storyboardId);
       this.log.audit?.('video.generation.completed', {
         generationId: id,
         projectId,

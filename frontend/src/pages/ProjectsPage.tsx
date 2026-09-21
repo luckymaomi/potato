@@ -7,7 +7,6 @@ import {
   PlayCircleOutlined,
   PlusOutlined,
   SearchOutlined,
-  VideoCameraOutlined,
 } from '@ant-design/icons'
 import { App as AntdApp, Button, Empty, Form, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Upload } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
@@ -171,10 +170,8 @@ export function ProjectsPage() {
     try {
       const nextNumber = Math.max(0, ...(project.episodes ?? []).map((item) => item.episode_number)) + 1
       const result = await projectsApi.saveEpisodes(project.id, [{ episode_number: nextNumber, title: `第${nextNumber}集` }])
-      const created = result.episodes.find((item) => item.episode_number === nextNumber)
       setProjects((current) => current.map((item) => item.id === project.id ? { ...item, episodes: result.episodes } : item))
       message.success(`已新建第${nextNumber}集`)
-      if (created) openEpisode({ ...project, episodes: result.episodes }, created)
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -269,15 +266,12 @@ export function ProjectsPage() {
                       openEpisode(project, episodes[0].id ? episodes[0] : undefined)
                     }}
                   >
-                    <div className="project-card-cover">
-                      <VideoCameraOutlined />
-                      {project.metadata?.demo === true ? <Tag bordered={false}>示例</Tag> : null}
-                    </div>
                     <div className="project-card-body">
                       <div className="project-title-row">
                         <h2 className="project-title" title={project.title}>{project.title}</h2>
                         <span className="project-card-count">{episodes.length} 集</span>
                       </div>
+                      {project.metadata?.demo === true ? <Tag bordered={false}>示例</Tag> : null}
                       <p className="project-card-hook">{project.story_hook || '还没有填写核心钩子'}</p>
                       <div className="project-meta">
                         <span>{project.genre || '未分类'}</span>
@@ -287,8 +281,7 @@ export function ProjectsPage() {
                         {episodes.slice(0, 3).map((episode) => (
                           <div className="project-card-episode" key={`${project.id}-${episode.id || episode.episode_number}`}>
                             <button type="button" className="project-card-episode-open" onClick={() => openEpisode(project, episode.id ? episode : undefined)}>
-                              <span>第{episode.episode_number}集</span>
-                              <strong>{episode.title || `第${episode.episode_number}集`}</strong>
+                              <strong>{episode.title?.trim() || '未命名剧集'}</strong>
                               <FileTextOutlined />
                             </button>
                             {episode.id ? <span className="project-card-episode-actions">
@@ -310,7 +303,6 @@ export function ProjectsPage() {
                         {episodes.length > 3 ? <span className="project-card-more">还有 {episodes.length - 3} 集</span> : null}
                       </div>
                       <div className="project-card-actions">
-                        <Button type="primary" icon={<FileTextOutlined />} onClick={() => openEpisode(project, episodes[0].id ? episodes[0] : undefined)}>打开总览</Button>
                         <Button icon={<PlusOutlined />} loading={creatingEpisodeId === project.id} onClick={() => void createEpisode(project)}>新建集</Button>
                       </div>
                       <div className="project-card-secondary-actions">
@@ -364,7 +356,7 @@ export function ProjectsPage() {
       </Modal>
 
       <Modal
-        title={episodeEditor ? `重命名第${episodeEditor.episode.episode_number}集` : '重命名剧集'}
+        title="重命名剧集"
         open={Boolean(episodeEditor)}
         confirmLoading={episodeSaving}
         onOk={() => void saveEpisodeTitle()}

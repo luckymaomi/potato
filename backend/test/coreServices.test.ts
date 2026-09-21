@@ -478,6 +478,11 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
       referenceImages: recipeReferences,
     });
     await taskDone(() => services.tasks.get(shotImage.task_id as string));
+    services.assets.setStoryboardReviewState(shot.id, {
+      image_needs_review: true,
+      video_needs_review: true,
+      recipe_needs_reassembly: true,
+    });
 
     const archivePath = path.join(storageRoot, 'project.zip');
     await services.projectArchives.export(project.id, archivePath);
@@ -499,6 +504,9 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
     assert.equal(importedShot?.video_recipe_prompt, '用户确认的雨夜归来视频配方。');
     assert.deepEqual(importedShot?.image_recipe_references, [importedAsset?.image_url, importedShot?.extra_reference_images[0]]);
     assert.deepEqual(importedShot?.video_recipe_references, importedShot?.image_recipe_references);
+    assert.equal(importedShot?.image_needs_review, true);
+    assert.equal(importedShot?.video_needs_review, true);
+    assert.equal(importedShot?.recipe_needs_reassembly, true);
     assert.equal(importedAsset?.current_image_generation_id, services.images.list(imported.id).find((item) => item.project_asset_id === importedAsset?.id)?.id);
     assert.equal(importedShot?.current_image_generation_id, services.images.list(imported.id).find((item) => item.storyboard_id === importedShot?.id)?.id);
   } finally { db.close(); }
@@ -532,6 +540,9 @@ test('全新 schema 支持项目资产卡和分镜额外参考图', () => {
     assert.equal(storyboardColumns.some((column) => column.name === 'video_recipe_prompt'), true);
     assert.equal(storyboardColumns.some((column) => column.name === 'image_recipe_references'), true);
     assert.equal(storyboardColumns.some((column) => column.name === 'video_recipe_references'), true);
+    assert.equal(storyboardColumns.some((column) => column.name === 'image_needs_review'), true);
+    assert.equal(storyboardColumns.some((column) => column.name === 'video_needs_review'), true);
+    assert.equal(storyboardColumns.some((column) => column.name === 'recipe_needs_reassembly'), true);
     assert.equal(imageColumns.some((column) => column.name === 'project_asset_id'), true);
   } finally { db.close(); }
 });

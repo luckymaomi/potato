@@ -7,6 +7,7 @@ import { TaskService } from './taskService';
 import { ConflictError, NotFoundError, ValidationError } from '../errors';
 import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveError, MediaArchiveService } from './mediaArchiveService';
+import { AssetRepository } from './assetRepository';
 
 export interface ImageGenerationInput {
   dramaId: number;
@@ -55,6 +56,7 @@ export class ImageGenerationService {
     private readonly tasks: TaskService,
     private readonly registry: ProviderRegistry,
     private readonly log: Logger,
+    private readonly assets: AssetRepository,
   ) {}
 
   list(dramaId?: number): ImageGenerationRow[] {
@@ -81,9 +83,11 @@ export class ImageGenerationService {
     if (target[0] === 'storyboards') {
       this.db.prepare('UPDATE storyboards SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
         .run(row.image_url, row.id, now, target[1]);
+      this.assets.markStoryboardImageChanged(target[1], { imageSelected: true });
     } else {
       this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
         .run(row.image_url, row.local_path, row.id, now, target[1]);
+      this.assets.markAssetImageChanged(target[1]);
     }
     return row;
   }
@@ -163,6 +167,7 @@ export class ImageGenerationService {
       'UPDATE storyboards SET image_url = NULL, current_image_generation_id = NULL, updated_at = ? WHERE id = ?',
     ).run(now, storyboardId).changes;
     if (!changed) throw new NotFoundError('分镜不存在');
+    this.assets.markStoryboardImageChanged(storyboardId, { imageSelected: false });
     this.log.audit?.('image.generation.cleared', { storyboardId });
   }
 
@@ -288,6 +293,8 @@ export class ImageGenerationService {
       if (input.storyboardId) this.db.prepare('UPDATE storyboards SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, id, now, input.storyboardId);
     });
     commit();
+    if (input.projectAssetId) this.assets.markAssetImageChanged(input.projectAssetId);
+    if (input.storyboardId) this.assets.markStoryboardImageChanged(input.storyboardId, { imageSelected: true });
   }
 
   private assertTargetAvailable(input: ImageGenerationInput): void {

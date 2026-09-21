@@ -21,9 +21,11 @@ export function ProjectShell() {
   const [project, setProject] = useState<Project>()
   const [error, setError] = useState('')
   const [creatingEpisode, setCreatingEpisode] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameForm] = Form.useForm<{ title: string }>()
+  const [createForm] = Form.useForm<{ title: string }>()
 
   const refreshProject = useCallback(async () => {
     try {
@@ -125,7 +127,10 @@ export function ProjectShell() {
               <span>当前剧集</span>
               <Select
                 value={episode.id}
-                options={(project.episodes ?? []).map((item) => ({ value: item.id, label: `第${item.episode_number}集 · ${item.title}` }))}
+                options={(project.episodes ?? []).map((item) => ({
+                  value: item.id,
+                  label: item.title?.trim() || '未命名剧集',
+                }))}
                 onChange={(value) => setSearchParams({ episode_id: String(value) })}
               />
             </label>
@@ -150,7 +155,7 @@ export function ProjectShell() {
       </main>
 
       <Modal
-        title={`重命名第${episode.episode_number}集`}
+        title="重命名剧集"
         open={renameOpen}
         confirmLoading={renaming}
         onOk={() => void saveRename()}

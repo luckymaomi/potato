@@ -5,12 +5,14 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
+FRONTEND_URL = "http://127.0.0.1:3012/"
 
 
 def fail(message: str) -> int:
@@ -51,7 +53,8 @@ def main() -> int:
         start_posix()
 
     print("[tomato-ai-drama] Backend: http://localhost:5679")
-    print("[tomato-ai-drama] Frontend: http://localhost:3012")
+    print(f"[tomato-ai-drama] Frontend: {FRONTEND_URL}")
+    webbrowser.open(FRONTEND_URL)
     return 0
 
 

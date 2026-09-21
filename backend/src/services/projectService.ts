@@ -73,6 +73,9 @@ export class ProjectService {
         extra_reference_images: parseJson<string[]>(String(storyboard.extra_reference_images), []),
         image_recipe_references: parseJson<string[]>(String(storyboard.image_recipe_references), []),
         video_recipe_references: parseJson<string[]>(String(storyboard.video_recipe_references), []),
+        image_needs_review: Boolean(storyboard.image_needs_review),
+        video_needs_review: Boolean(storyboard.video_needs_review),
+        recipe_needs_reassembly: Boolean(storyboard.recipe_needs_reassembly),
       })),
     }));
     drama.project_assets = (this.db.prepare('SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id').all(id) as ProjectAssetRow[])

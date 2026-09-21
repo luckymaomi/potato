@@ -10,6 +10,7 @@ import { assembleAssetOutputPrompt } from '../services/assetOutputPromptAssemble
 import { normalizeOutputType, normalizeStringArray, normalizeTextProfile } from '../services/assetRepository';
 import { assembleScriptScenes } from '../services/scriptAssembler';
 import { assembleStoryboardRecipes } from '../services/storyboardPromptAssembler';
+import { assertEpisodeReadyForComposition, assertStoryboardImageReady, assertStoryboardVideoReady } from '../services/storyboardReadiness';
 import type { AppConfig } from '../types/core';
 import { readNumber, readString } from '../types/core';
 import type { AssetKind, EpisodeRow, StoryboardRow } from '../types/domain';
@@ -130,6 +131,11 @@ export function workspaceRoutes(
     const episode = selectEpisode(project.episodes ?? [], req.query.episode_id);
     success(res, { episode, items: services.assets.listStoryboards(episode.id) });
   });
+  router.get('/dramas/:id/storyboards/:storyboardId/readiness', (req, res) => {
+    const projectId = idParam(req);
+    const storyboard = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
+    success(res, storyboardReadiness(services, projectId, storyboard));
+  });
   router.post('/dramas/:id/storyboards', (req, res) => {
     const project = services.projects.require(idParam(req));
     const body = bodyRecord(req);
@@ -146,6 +152,12 @@ export function workspaceRoutes(
     const storyboard = requireStoryboard(services, idParam(req), positive(req.params.storyboardId, '分镜'));
     success(res, services.assets.updateStoryboard(storyboard.id, req.body));
   });
+  router.post('/dramas/:id/storyboards/:storyboardId/confirm-review', (req, res) => {
+    const storyboard = requireStoryboard(services, idParam(req), positive(req.params.storyboardId, '分镜'));
+    const media = bodyRecord(req).media;
+    if (media !== 'image' && media !== 'video') throw new ValidationError('确认类型必须是 image 或 video');
+    success(res, services.assets.confirmStoryboardReview(storyboard.id, media));
+  });
   router.post('/dramas/:id/storyboards/:storyboardId/assemble-recipes', (req, res) => {
     const projectId = idParam(req);
     const storyboard = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
@@ -161,7 +173,8 @@ export function workspaceRoutes(
     const projectId = idParam(req);
     const shot = requireStoryboard(services, projectId, positive(req.params.storyboardId, '分镜'));
     const body = bodyRecord(req);
-    if (!shot.image_recipe_prompt.trim()) throw new ValidationError('请先组装并保存图片配方');
+    const assets = shot.project_asset_ids.map((assetId) => requireProjectAsset(services, projectId, assetId));
+    assertStoryboardImageReady(shot, assets);
     created(res, services.images.create({
       dramaId: projectId,
       storyboardId: shot.id,
@@ -200,8 +213,8 @@ export function workspaceRoutes(
     const generationId = shot.current_image_generation_id;
     const image = generationId ? services.images.get(generationId) : undefined;
     if (!image?.image_url || image.status !== 'completed') throw new ValidationError('请先完成并选择这一镜的分镜图');
-    if (!shot.video_recipe_prompt.trim()) throw new ValidationError('请先组装并保存视频配方');
-    success(res, services.videos.create({
+    const readiness = assertStoryboardVideoReady(shot);
+    success(res, { ...services.videos.create({
       dramaId: projectId,
       storyboardId: shot.id,
       prompt: shot.video_recipe_prompt,
@@ -211,7 +224,7 @@ export function workspaceRoutes(
       aspectRatio: readString(body.aspect_ratio),
       firstFrame: image.image_url,
       referenceImages: shot.video_recipe_references,
-    }));
+    }), ...(readiness.warning ? { readiness_warning: readiness.warning } : {}) });
   });
 
   router.post('/dramas/:id/episodes/:episodeId/compose', (req, res) => {
@@ -222,10 +235,38 @@ export function workspaceRoutes(
     if (!shots.length) throw new ValidationError('整集合成前至少需要一个分镜');
     const missing = shots.filter((shot) => !shot.video_url).map((shot) => shot.storyboard_number);
     if (missing.length) throw new ValidationError(`整集合成缺少镜头视频：${missing.join('、')}`);
+    assertEpisodeReadyForComposition(shots);
     success(res, { status: 'pending', task_id: services.composition.finalize(episode.id, shots.map((shot) => shot.video_url as string)) });
   });
 
   return router;
+}
+
+function storyboardReadiness(
+  services: Pick<ServiceContainer, 'assets' | 'images'>,
+  projectId: number,
+  shot: StoryboardRow,
+): { image: { ready: boolean; reason?: string }; video: { ready: boolean; reason?: string; warning?: string } } {
+  const image = readinessResult(() => assertStoryboardImageReady(
+    shot,
+    shot.project_asset_ids.map((assetId) => requireProjectAsset(services, projectId, assetId)),
+  ));
+  const video = readinessResult(() => {
+    const generation = shot.current_image_generation_id ? services.images.get(shot.current_image_generation_id) : undefined;
+    if (!generation?.image_url || generation.status !== 'completed') throw new ValidationError('请先完成并选择这一镜的分镜图');
+    return assertStoryboardVideoReady(shot);
+  });
+  return { image, video };
+}
+
+function readinessResult(value: () => { warning?: string } | void): { ready: boolean; reason?: string; warning?: string } {
+  try {
+    const result = value();
+    return { ready: true, ...(result?.warning ? { warning: result.warning } : {}) };
+  } catch (error) {
+    if (error instanceof ValidationError) return { ready: false, reason: error.message };
+    throw error;
+  }
 }
 
 function storyOverview(project: { story_hook: string; worldview: string; storyline: string; tone: string; reference_setting: string }) {

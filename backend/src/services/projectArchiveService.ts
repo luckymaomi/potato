@@ -14,7 +14,7 @@ import { MediaArchiveService } from './mediaArchiveService';
 import { ProjectService } from './projectService';
 
 interface ArchivePayload {
-  format: 7;
+  format: 8;
   project: Drama;
   image_generations: Array<Record<string, unknown>>;
   video_generations: Array<Record<string, unknown>>;
@@ -45,7 +45,7 @@ export class ProjectArchiveService {
       .all(projectId) as Array<Record<string, unknown>>;
     const videos = this.db.prepare('SELECT * FROM video_generations WHERE drama_id = ? ORDER BY id')
       .all(projectId) as Array<Record<string, unknown>>;
-    const payload: ArchivePayload = { format: 7, project: archivalProject, image_generations: images, video_generations: videos };
+    const payload: ArchivePayload = { format: 8, project: archivalProject, image_generations: images, video_generations: videos };
     const relativePaths = collectLocalPaths(project, images, videos);
     for (const relativePath of relativePaths) {
       const absolute = this.mediaArchive.absolutePath(relativePath);
@@ -161,7 +161,14 @@ export class ProjectArchiveService {
       })));
       (episode.storyboards ?? []).forEach((item, index) => {
         const target = storyboards[index];
-        if (target) maps.storyboards.set(item.id, target.id);
+        if (target) {
+          maps.storyboards.set(item.id, target.id);
+          this.assets.setStoryboardReviewState(target.id, {
+            image_needs_review: item.image_needs_review ?? false,
+            video_needs_review: item.video_needs_review ?? false,
+            recipe_needs_reassembly: item.recipe_needs_reassembly ?? false,
+          });
+        }
       });
     }
   }
@@ -346,7 +353,7 @@ function parsePayload(text: string): ArchivePayload {
   let value: unknown;
   try { value = JSON.parse(text) as unknown; } catch { throw new ValidationError('项目归档 JSON 无法解析'); }
   const payload = asRecord(value);
-  if (payload?.format !== 7 || !asRecord(payload.project) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
+  if (payload?.format !== 8 || !asRecord(payload.project) || !Array.isArray(payload.image_generations) || !Array.isArray(payload.video_generations)) {
     throw new ValidationError('项目归档格式无效或版本不受支持');
   }
   return payload as unknown as ArchivePayload;
