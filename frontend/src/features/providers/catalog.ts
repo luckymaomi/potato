@@ -43,6 +43,7 @@ export function modelSupportsMode(model: ProviderModel, mode: MediaGenerationMod
 export function modelCapabilityLabels(model: ProviderModel): string[] {
   const labels = model.capabilities.modes.map((mode) => modelModeLabels[mode])
   if (!labels.length) labels.push('能力待确认')
+  if (model.capabilities.source === 'adapter-override') labels.push('适配器补全')
   if (model.capabilities.maxReferenceImages === null) labels.push('参考图上限未知')
   else if (model.capabilities.maxReferenceImages > 0) labels.push(`参考图最多 ${model.capabilities.maxReferenceImages} 张`)
   else labels.push('不支持参考图')
@@ -114,6 +115,13 @@ export function aspectRatioLabel(aspectRatio: string): string {
     '21:9': '超宽银幕',
   }
   return names[aspectRatio] ? `${aspectRatio} · ${names[aspectRatio]}` : aspectRatio
+}
+
+/** 刷新模型目录后的成功文案：按图片/视频分项，避免与当前 Tab 列表数混报。 */
+export function refreshCatalogMessage(providerLabel: string, models: Array<Pick<ProviderModel, 'kind'>>): string {
+  const imageCount = models.filter((model) => model.kind === 'image').length
+  const videoCount = models.filter((model) => model.kind === 'video').length
+  return `${providerLabel} 已更新：图片 ${imageCount} / 视频 ${videoCount}`
 }
 
 function isProviderModelMode(mode: MediaGenerationMode | undefined): mode is ProviderModelMode {

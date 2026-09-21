@@ -5,6 +5,8 @@ description: 修改 tomato-ai-drama 的 Agnes/PearAPI 适配器、模型目录�
 
 # Provider Integration
 
+涉及外部媒体字段、模型能力数字、PearAPI/Agnes 请求路径或协议文档时，先读取仓库内的 [provider-api-contract](../provider-api-contract/SKILL.md)；PearAPI 标准化证据见其 `references/pearapi-media-contract.md`。
+
 ## 分层
 
 - 通用合同、注册中心、HTTP 传输、轮询运行时和供应商适配器分别维护；业务服务不得按供应商名称分支。

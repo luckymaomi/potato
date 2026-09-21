@@ -8,8 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mediaHistoryApi, uploadsApi, type MediaGenerationHistory } from '../../api/media'
 import { workspaceApi } from '../../api/workspace'
+import { aiConfigsApi } from '../../api/aiConfigs'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
-import type { AssetKind, ProjectAsset } from '../../types/domain'
+import type { AssetKind, ProjectAsset, ProviderModel } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { useAnnounceGenerationOutcomes } from '../generation/useAnnounceGenerationOutcomes'
 import { assetImageKey, useGenerationTracker } from '../generation/useGenerationTracker'
@@ -17,6 +18,7 @@ import { useProjectWorkspace } from './workspaceContext'
 import { assetLabels, parseKindFilter, profileSummary, type AssetFilter, type AssetFormValues } from './assetWorkspaceConfig'
 import { AssetDetailPanel, AssetStatusBadge } from './AssetDetailPanel'
 import type { AssetGenerationState } from './assetGenerationStatus'
+import { modelAspectRatioOptions } from '../providers/catalog'
 
 export function AssetWorkspace() {
   const { message, modal } = App.useApp()
@@ -30,6 +32,8 @@ export function AssetWorkspace() {
   const [deleting, setDeleting] = useState(false)
   const [assemblingId, setAssemblingId] = useState<number>()
   const [submissions, setSubmissions] = useState<Record<number, AssetGenerationState>>({})
+  const [imageModel, setImageModel] = useState<ProviderModel>()
+  const [imageModelLabel, setImageModelLabel] = useState('未选择图片模型')
   const submittingIds = useRef(new Set<number>())
   const drafts = useRef(new Map<number, AssetFormValues>())
   const formAssetId = useRef<number>()
@@ -70,6 +74,25 @@ export function AssetWorkspace() {
 
   useEffect(() => { void load() }, [load])
   useEffect(() => {
+    let active = true
+    void Promise.all([aiConfigsApi.models({ service_type: 'image' }), aiConfigsApi.modelPresets()])
+      .then(([models, presets]) => {
+        if (!active) return
+        const preferred = presets.image
+        const selectedModel = preferred
+          ? models.find((model) => model.provider === preferred.provider && model.id === preferred.model)
+          : undefined
+        setImageModel(selectedModel)
+        setImageModelLabel(preferred ? `${preferred.provider} / ${preferred.model}` : '未选择图片模型')
+      })
+      .catch(() => {
+        if (!active) return
+        setImageModel(undefined)
+        setImageModelLabel('未读取到图片预设')
+      })
+    return () => { active = false }
+  }, [])
+  useEffect(() => {
     if (formAssetId.current === selected?.id) return
     formAssetId.current = selected?.id
     form.resetFields()
@@ -79,8 +102,14 @@ export function AssetWorkspace() {
       output_type: selected.output_type,
       output_prompt: selected.output_prompt,
       input_reference_images: selected.input_reference_images,
+       aspect_ratio: undefined,
     })
-  }, [form, selected])
+  }, [form, imageModel, selected])
+
+  useEffect(() => {
+    if (!selected || !imageModel) return
+    // 画幅必须由用户显式选择，不根据目录首项自动填充。
+  }, [form, imageModel, selected])
 
   const rememberDraft = () => {
     if (formAssetId.current) drafts.current.set(formAssetId.current, structuredClone(form.getFieldsValue(true)))
@@ -151,7 +180,11 @@ export function AssetWorkspace() {
     try {
       setSubmissions((current) => ({ ...current, [id]: { status: 'submitting' } }))
       await save(false)
-      const generation = await workspaceApi.generateAssetImage(project.id, id, {})
+      const values = form.getFieldsValue(true)
+      if (!values.aspect_ratio) throw new Error('请显式选择图片画幅')
+      const generation = await workspaceApi.generateAssetImage(project.id, id, {
+        aspect_ratio: values.aspect_ratio,
+      })
       if (!generation.task_id) throw new Error('已提交但未返回任务号，请打开「AI 配置」确认密钥与模型目录后重试')
       tracker.watch({
         key: assetImageKey(selected.id),
@@ -217,6 +250,11 @@ export function AssetWorkspace() {
     if (!selected) return
     const assetId = selected.id
     rememberDraft()
+    const currentReferences = drafts.current.get(assetId)?.input_reference_images ?? references
+    const maxReferences = imageModel?.capabilities.maxReferenceImages ?? null
+    if (maxReferences !== null && currentReferences.length >= maxReferences) {
+      throw new Error(`当前图片模型最多支持 ${maxReferences} 张参考图`)
+    }
     const uploaded = await uploadsApi.image(file, project.id)
     const draft = drafts.current.get(assetId) ?? {}
     draft.input_reference_images = [...new Set([...(draft.input_reference_images ?? []), uploaded.url])]
@@ -297,6 +335,10 @@ export function AssetWorkspace() {
           onUploadStandard={uploadStandard}
           onUploadInputReference={uploadInputReference}
           onReferencesChange={(values) => { form.setFieldValue('input_reference_images', values); rememberDraft() }}
+          imageModel={imageModel}
+          imageModelLabel={imageModelLabel}
+          aspectRatioOptions={modelAspectRatioOptions(imageModel)}
+          maxReferenceImages={imageModel?.capabilities.maxReferenceImages ?? null}
         />
       </div>
     </div>

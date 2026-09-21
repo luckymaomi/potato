@@ -166,7 +166,8 @@ export class AiConfigService {
       return this.executionConfig(descriptor, serviceType, available, selectedModel.id);
     }
 
-    let automatic: {
+    /* automatic model selection is intentionally disabled: generation inputs must be explicit */
+    /* let automatic: {
       descriptor: ProviderDescriptor;
       available: ProviderModelSnapshot[];
       model: ProviderModelSnapshot;
@@ -184,7 +185,7 @@ export class AiConfigService {
     }
     if (automatic) {
       return this.executionConfig(automatic.descriptor, serviceType, automatic.available, automatic.model.id);
-    }
+    } */
 
     if (requirements.aspectRatio) throw new ValidationError(`动态模型目录中没有支持画幅比例 ${requirements.aspectRatio} 的模型`);
     if (requirements.requiresAspectRatio) throw new ValidationError(`动态模型目录中没有可接受画幅比例参数的${serviceLabel(serviceType)}模型`);
@@ -200,7 +201,7 @@ export class AiConfigService {
   ): string {
     const model = this.models(provider, serviceType).find((entry) => entry.id === modelId);
     if (!model) throw new ValidationError(`动态模型目录中没有可用的 ${modelId}`);
-    const aspectRatio = readString(requested) ?? model.capabilities.aspectRatios?.[0];
+    const aspectRatio = readString(requested);
     if (!aspectRatio) {
       throw new ValidationError(`没有为模型 ${model.label} 提供画幅比例，模型目录也没有可用默认值`);
     }

@@ -2,6 +2,8 @@ import {
   BuildOutlined,
   CloudUploadOutlined,
   DeleteOutlined,
+  DownloadOutlined,
+  EyeOutlined,
   LeftOutlined,
   PlusOutlined,
   RightOutlined,
@@ -15,6 +17,7 @@ import {
   Form,
   Image,
   Input,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -35,8 +38,8 @@ import {
   aspectRatioLabel,
   aspectRatiosFor,
   modelAspectRatioOptions,
+  modelCapabilitySummary,
   modelDurationOptions,
-  preferredAspectRatio,
 } from '../providers/catalog'
 import type { AssetKind, ProjectAsset, ProviderModel, Storyboard } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
@@ -62,6 +65,8 @@ export function StoryboardWorkspace() {
   const [assemblingId, setAssemblingId] = useState<number>()
   const [recipeReassembledId, setRecipeReassembledId] = useState<number>()
   const [imageModels, setImageModels] = useState<ProviderModel[]>([])
+  const [imageModel, setImageModel] = useState<ProviderModel>()
+  const [videoModel, setVideoModel] = useState<ProviderModel>()
   const [imageModelLabel, setImageModelLabel] = useState('读取中…')
   const [videoModelLabel, setVideoModelLabel] = useState('读取中…')
   const [durationOptions, setDurationOptions] = useState<number[]>([])
@@ -70,6 +75,7 @@ export function StoryboardWorkspace() {
   const [shotAspects, setShotAspects] = useState<Record<number, string>>({})
   const [composeRunning, setComposeRunning] = useState(false)
   const [videoQueue, setVideoQueue] = useState<{ total: number; completed: number; current?: string; stopping?: boolean }>()
+  const [videoPreviewOpen, setVideoPreviewOpen] = useState(false)
   const stopVideoQueueRef = useRef(false)
   const currentVideoQueueKeyRef = useRef<string>()
   const [form] = Form.useForm<StoryboardFormValues>()
@@ -114,22 +120,26 @@ export function StoryboardWorkspace() {
       .then(([models, videoModels, presets]) => {
         if (!active) return
         const preferred = presets.image
-        setImageModelLabel(preferred ? `${preferred.provider} / ${preferred.model}` : '自动选择（AI 配置）')
-        const filtered = preferred
-          ? models.filter((model) => model.provider === preferred.provider && model.id === preferred.model)
-          : models
-        setImageModels(filtered.length ? filtered : models)
+        setImageModelLabel(preferred ? `${preferred.provider} / ${preferred.model}` : '未选择图片模型')
+        const selectedImage = preferred
+          ? models.find((model) => model.provider === preferred.provider && model.id === preferred.model)
+          : undefined
+        setImageModel(selectedImage)
+        setImageModels(selectedImage ? [selectedImage] : [])
         const video = presets.video
-        setVideoModelLabel(video ? `${video.provider} / ${video.model}` : '自动选择（AI 配置）')
+        setVideoModelLabel(video ? `${video.provider} / ${video.model}` : '未选择视频模型')
         const selectedVideo = video
-          ? videoModels.find((model) => model.provider === video.provider && model.id === video.model) ?? videoModels[0]
-          : videoModels[0]
+          ? videoModels.find((model) => model.provider === video.provider && model.id === video.model)
+          : undefined
+        setVideoModel(selectedVideo)
         setDurationOptions(modelDurationOptions(selectedVideo))
         setVideoAspectOptions(modelAspectRatioOptions(selectedVideo))
       })
       .catch((reason) => {
         if (!active) return
         setImageModels([])
+        setImageModel(undefined)
+        setVideoModel(undefined)
         setImageModelLabel('未读取到图片预设')
         setVideoModelLabel('未读取到视频预设')
         setDurationOptions([])
@@ -144,12 +154,13 @@ export function StoryboardWorkspace() {
       form.resetFields()
       return
     }
+    const previousAspect = form.getFieldValue('aspect_ratio') as string | undefined
     form.setFieldsValue({
       ...selected,
       character_asset_ids: filterAssetIds(selected.project_asset_ids, assets, 'character'),
       scene_asset_ids: filterAssetIds(selected.project_asset_ids, assets, 'scene'),
       prop_asset_ids: filterAssetIds(selected.project_asset_ids, assets, 'prop'),
-      aspect_ratio: preferredAspectRatio(aspectOptions, form.getFieldValue('aspect_ratio')),
+      aspect_ratio: previousAspect && aspectOptions.includes(previousAspect) ? previousAspect : undefined,
     })
     // 只在切换镜头时灌表，避免异步状态回灌冲掉未保存编辑
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: selected.id only
@@ -165,11 +176,11 @@ export function StoryboardWorkspace() {
   }, [assets, form, selected])
 
   useEffect(() => {
-    if (!selected || !aspectOptions.length) return
     const current = form.getFieldValue('aspect_ratio') as string | undefined
-    const next = preferredAspectRatio(aspectOptions, current)
-    if (next !== current) form.setFieldValue('aspect_ratio', next)
-  }, [aspectOptions, form, selected])
+    if (current && aspectOptions.length && !aspectOptions.includes(current)) {
+      form.setFieldValue('aspect_ratio', undefined)
+    }
+  }, [aspectOptions, form])
 
   useEffect(() => {
     const done = Object.values(tracker.tracks).some((item) => item.key.startsWith('storyboard:') && (item.status === 'completed' || item.status === 'failed' || item.status === 'cancelled'))
@@ -243,6 +254,7 @@ export function StoryboardWorkspace() {
     if (!selected) return
     try {
       const values = form.getFieldsValue(true)
+      if (!values.aspect_ratio) throw new Error('请显式选择图片画幅')
       const { aspect_ratio, ...fields } = values
       await workspaceApi.updateStoryboard(project.id, selected.id, {
         ...storyboardPayload(fields),
@@ -327,19 +339,36 @@ export function StoryboardWorkspace() {
   const composeReason = items.some((item) => item.video_needs_review)
     ? `待复核视频：${items.filter((item) => item.video_needs_review).map((item) => item.storyboard_number).join('、')}`
     : items.some((item) => !item.video_url) ? '仍有镜头缺少视频' : undefined
+  const imageHandSelectReason = !imageModel
+    ? '请先在「AI 配置」选择图片模型预设'
+    : !aspectOptions.length
+      ? '当前图片模型没有可选手选画幅'
+      : !aspectRatio
+        ? '请显式选择图片画幅'
+        : undefined
+  const videoNeedsDuration = durationOptions.length > 0
+  const videoNeedsAspect = videoAspectOptions.length > 0
+  const videoHandSelectReason = !videoModel
+    ? '请先在「AI 配置」选择视频模型预设'
+    : videoNeedsDuration && selected && shotDurations[selected.id] === undefined
+      ? '请显式选择视频时长'
+      : videoNeedsAspect && selected && shotAspects[selected.id] === undefined
+        ? '请显式选择视频画幅'
+        : undefined
+  const imageGenerateDisabled = Boolean(imageBusy || !selectedReadiness?.image.ready || imageHandSelectReason)
+  const videoGenerateDisabled = Boolean(!selectedReadiness?.video.ready || videoHandSelectReason)
 
   useEffect(() => {
     setShotDurations((current) => {
       const next = { ...current }
-      for (const shot of items) if (durationOptions.length && (next[shot.id] === undefined || !durationOptions.includes(next[shot.id]))) next[shot.id] = durationOptions[0]
+      for (const shot of items) if (next[shot.id] !== undefined && durationOptions.length && !durationOptions.includes(next[shot.id])) delete next[shot.id]
       return next
     })
     setShotAspects((current) => {
       const next = { ...current }
       for (const shot of items) {
         if (videoAspectOptions.length && (next[shot.id] === undefined || !videoAspectOptions.includes(next[shot.id]))) {
-          const preferred = preferredAspectRatio(videoAspectOptions, next[shot.id])
-          if (preferred) next[shot.id] = preferred
+          if (!videoAspectOptions.includes(next[shot.id])) delete next[shot.id]
         }
       }
       return next
@@ -349,8 +378,8 @@ export function StoryboardWorkspace() {
   const generateVideo = async (shotId: number, announce = true): Promise<boolean> => {
     try {
       const generation = await workspaceApi.generateStoryboardVideo(project.id, shotId, {
-        duration: durationOptions.length ? shotDurations[shotId] : undefined,
-        aspect_ratio: videoAspectOptions.length ? shotAspects[shotId] : undefined,
+        duration: shotDurations[shotId],
+        aspect_ratio: shotAspects[shotId],
       })
       if (!generation.task_id) {
         if (announce) notifyAppError({ message, modal }, new Error('已提交但未返回任务号，请打开 AI 配置确认视频模型后重试'))
@@ -367,8 +396,17 @@ export function StoryboardWorkspace() {
 
   const generatePendingVideos = async () => {
     if (videoQueue) return
+    if (!videoModel) { message.warning('请先在「AI 配置」选择视频模型预设'); return }
     const pending = items.filter((item) => item.image_url && !item.video_url)
     if (!pending.length) { message.info('没有待生成的镜头视频'); return }
+    const blocked = pending.filter((item) =>
+      (videoNeedsDuration && shotDurations[item.id] === undefined)
+      || (videoNeedsAspect && shotAspects[item.id] === undefined),
+    )
+    if (blocked.length) {
+      message.warning(`有 ${blocked.length} 个镜头未选手选视频时长/画幅，请先在各镜头显式选择`)
+      return
+    }
     stopVideoQueueRef.current = false
     setVideoQueue({ total: pending.length, completed: 0 })
     try {
@@ -427,8 +465,8 @@ export function StoryboardWorkspace() {
       <div className="workspace-section-heading director-heading">
         <div><Typography.Title level={2}>分镜台</Typography.Title></div>
         <Space wrap className="director-heading-actions">
-          <div className="director-model-label"><span>分镜图模型</span><strong>{imageModelLabel}</strong></div>
-          <div className="director-model-label"><span>视频模型</span><strong>{videoModelLabel}</strong></div>
+          <div className="director-model-label"><span>分镜图模型</span><strong>{imageModelLabel}</strong>{imageModel ? <small>{modelCapabilitySummary(imageModel)}</small> : <small>请到 AI 配置手选图片预设</small>}</div>
+          <div className="director-model-label"><span>视频模型</span><strong>{videoModelLabel}</strong>{videoModel ? <small>{modelCapabilitySummary(videoModel)}</small> : <small>请到 AI 配置手选视频预设</small>}</div>
           <div className="director-progress-summary"><strong>{items.length}</strong><span>镜头</span><i /><strong>{items.filter((item) => item.image_url).length}</strong><span>已出图</span></div>
           {videoQueue ? <Button danger icon={<StopOutlined />} onClick={() => void stopPendingVideos()}>停止逐项生成</Button> : <Button onClick={() => void generatePendingVideos()}>生成未完成视频</Button>}
           <Button type="primary" disabled={composeBlocked} loading={composeRunning} onClick={() => void composeEpisode()}>合成整集</Button>
@@ -475,7 +513,7 @@ export function StoryboardWorkspace() {
                     <div className="director-frame-area">
                       <div className="director-frame-wrap">
                         {selected.image_url
-                          ? <Image preview src={mediaUrl(selected.image_url)} alt={selected.title || '分镜图'} className="director-frame-image" />
+                          ? <Image preview={{ toolbarRender: (originalNode) => <>{originalNode}<Button type="text" icon={<DownloadOutlined />} href={mediaUrl(selected.image_url)} download={`${selected.title || `shot-${selected.storyboard_number}`}-原图`} aria-label="下载原图" title="下载原图" /></> }} src={mediaUrl(selected.image_url)} alt={selected.title || '分镜图'} className="director-frame-image" />
                           : <div className="director-frame-empty">
                             <strong>这一镜还没有分镜图</strong>
                             <span>在右侧栏上传或生成</span>
@@ -488,6 +526,7 @@ export function StoryboardWorkspace() {
                     <div className="director-media-panel-heading">
                       <strong>镜头视频</strong>
                       <span>{videoReady ? '已完成' : videoBusy ? (videoTrack?.message || '正在生成') : '待生成'}</span>
+                      {selected.video_url ? <Button type="text" size="small" icon={<EyeOutlined />} aria-label="打开视频预览" title="打开视频预览" onClick={() => setVideoPreviewOpen(true)} /> : null}
                     </div>
                     <div className="director-frame-area">
                       <div className="director-frame-wrap">
@@ -552,16 +591,18 @@ export function StoryboardWorkspace() {
                     <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="填写图片提示词" />
                   </Form.Item>
                   <RecipeReferences label="图片参考图" values={imageRecipeReferences} />
+                  <ReferenceLimitNotice kind="图片" model={imageModel} count={imageRecipeReferences.length} />
                   <Form.Item name="video_recipe_prompt" label="视频最终提示词">
                     <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder="填写视频提示词" />
                   </Form.Item>
                   <RecipeReferences label="视频参考图" values={videoRecipeReferences} />
+                  <ReferenceLimitNotice kind="视频（含首帧）" model={videoModel} count={videoRecipeReferences.length + 1} />
                   {aspectOptions.length ? (
-                    <Form.Item name="aspect_ratio" label="图片画幅">
+                    <Form.Item name="aspect_ratio" label="图片画幅" rules={[{ required: true, message: '请选择图片画幅' }]}>
                       <Select options={aspectOptions.map((value) => ({ value, label: value }))} placeholder="请选择画幅" />
                     </Form.Item>
                   ) : (
-                    <Typography.Text type="secondary">当前模型无可选图片画幅</Typography.Text>
+                    <Typography.Text type="secondary">{imageModel ? '当前模型无可选图片画幅' : '未选择图片模型，无法选择画幅'}</Typography.Text>
                   )}
                   {imageTrack ? <GenerationElapsedTime startedAt={imageTrack.startedAt} finishedAt={imageTrack.finishedAt} active={imageBusy} progress={imageTrack.progress} message={imageTrack.message} /> : null}
                 </Collapse.Panel>
@@ -577,6 +618,7 @@ export function StoryboardWorkspace() {
                           options={durationOptions.map((value) => ({ value, label: `${value} 秒` }))}
                           onChange={(value) => setShotDurations((current) => ({ ...current, [selected.id]: value }))}
                           disabled={videoBusy}
+                          placeholder="请选择"
                         />
                       </label>
                     ) : null}
@@ -589,18 +631,20 @@ export function StoryboardWorkspace() {
                           options={videoAspectOptions.map((value) => ({ value, label: aspectRatioLabel(value) }))}
                           onChange={(value) => setShotAspects((current) => ({ ...current, [selected.id]: value }))}
                           disabled={videoBusy}
+                          placeholder="请选择"
                         />
                       </label>
                     ) : (
-                      <Typography.Text type="secondary">当前模型无可选视频画幅</Typography.Text>
+                      <Typography.Text type="secondary">{videoModel ? '当前模型无可选视频画幅' : '未选择视频模型，无法选择画幅'}</Typography.Text>
                     )}
                   </div>
                   {videoTrack ? <GenerationElapsedTime startedAt={videoTrack.startedAt} finishedAt={videoTrack.finishedAt} active={videoBusy} progress={videoTrack.progress} message={videoTrack.message} /> : null}
                   {selectedReadiness?.video.warning ? <Typography.Text type="warning">{selectedReadiness.video.warning}</Typography.Text> : null}
                   {!selectedReadiness?.video.ready && selectedReadiness?.video.reason ? <Typography.Text type="danger">{selectedReadiness.video.reason}</Typography.Text> : null}
+                  {videoHandSelectReason ? <Typography.Text type="danger">{videoHandSelectReason}</Typography.Text> : null}
                   {videoBusy
                     ? <Button danger block onClick={() => void tracker.cancel(storyboardVideoKey(selected.id))}>停止生成视频</Button>
-                    : <Button type="primary" block disabled={!selectedReadiness?.video.ready} onClick={() => void generateVideo(selected.id)}>{videoReady ? '重新生成视频' : '生成视频'}</Button>}
+                    : <Button type="primary" block disabled={videoGenerateDisabled} onClick={() => void generateVideo(selected.id)}>{videoReady ? '重新生成视频' : '生成视频'}</Button>}
                   <Upload
                     className="director-action-upload"
                     showUploadList={false}
@@ -617,7 +661,8 @@ export function StoryboardWorkspace() {
                   </Upload>
                   {imageBusy
                     ? <Button danger block onClick={() => void tracker.cancel(storyboardImageKey(selected.id))}>停止生成分镜图</Button>
-                    : <Button type="primary" block loading={imageBusy} disabled={!selectedReadiness?.image.ready} onClick={() => void generateImage()}>{imageReady ? '重做分镜图' : '生成分镜图'}</Button>}
+                    : <Button type="primary" block loading={imageBusy} disabled={imageGenerateDisabled} onClick={() => void generateImage()}>{imageReady ? '重做分镜图' : '生成分镜图'}</Button>}
+                  {imageHandSelectReason ? <Typography.Text type="danger">{imageHandSelectReason}</Typography.Text> : null}
                   {!selectedReadiness?.image.ready && selectedReadiness?.image.reason ? <Typography.Text type="danger">{selectedReadiness.image.reason}</Typography.Text> : null}
                   {selected.image_needs_review ? <Button block onClick={() => void confirmReview('image')}>确认图片通过</Button> : null}
                   {selected.video_needs_review ? <Button block onClick={() => void confirmReview('video')}>确认视频通过</Button> : null}
@@ -636,6 +681,12 @@ export function StoryboardWorkspace() {
           </div>
         </div>
       )}
+      <Modal open={videoPreviewOpen} title="视频预览" footer={null} onCancel={() => setVideoPreviewOpen(false)} destroyOnHidden>
+        {selected?.video_url ? <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <video controls autoPlay src={mediaUrl(selected.video_url)} style={{ width: '100%', maxHeight: '70vh', background: '#111416' }} />
+          <Button type="primary" icon={<DownloadOutlined />} href={mediaUrl(selected.video_url)} download={`${selected.title || `shot-${selected.storyboard_number}`}-原视频.mp4`}>下载原视频</Button>
+        </Space> : null}
+      </Modal>
     </div>
   )
 }
@@ -684,6 +735,13 @@ function RecipeReferences({ label, values }: { label: string; values: string[] }
     <div><strong>{label}</strong><span>{values.length} 张</span></div>
     {values.length ? <div>{values.map((url) => <Image key={url} width={56} height={56} src={mediaUrl(url)} preview={{ mask: '查看' }} />)}</div> : <Typography.Text type="secondary">暂无参考图</Typography.Text>}
   </div>
+}
+
+function ReferenceLimitNotice({ kind, model, count }: { kind: string; model?: ProviderModel; count: number }) {
+  if (!model) return <Typography.Text type="secondary">请到 AI 配置手选{kind}模型后再核对参考图上限</Typography.Text>
+  const limit = model.capabilities.maxReferenceImages
+  if (limit === null) return <Typography.Text type="secondary">当前模型{kind}参考图上限未知，提交时由供应商校验</Typography.Text>
+  return <Typography.Text type={count > limit ? 'danger' : 'secondary'}>当前模型{kind}最多 {limit} 张，已组装 {count} 张</Typography.Text>
 }
 
 function storyboardPayload(values: StoryboardFormValues): Partial<Storyboard> {

@@ -15,6 +15,7 @@ const MODEL_MODES = new Set<ProviderModelMode>([
 const CAPABILITY_SOURCES = new Set<ProviderModelCapabilitySource>([
   'provider',
   'adapter',
+  'adapter-override',
   'unknown',
 ]);
 

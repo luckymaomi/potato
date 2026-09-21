@@ -1,0 +1,4 @@
+interface:
+  display_name: "Provider API 协议合同"
+  short_description: "维护可验证的生图生视频 Provider API 协议与能力目录"
+  default_prompt: "使用 $provider-api-contract 维护或验证媒体 Provider API 协议、模型能力与适配器映射。"

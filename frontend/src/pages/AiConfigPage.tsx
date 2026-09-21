@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { aiConfigsApi } from '../api/aiConfigs'
 import { userErrorMessage } from '../errors/appError'
 import type { AiModelPresets, ProviderCatalogStatus, ProviderModel, ServiceType } from '../types/domain'
-import { modelCapabilityLabels, supportsService } from '../features/providers/catalog'
+import { modelCapabilityLabels, refreshCatalogMessage, supportsService } from '../features/providers/catalog'
 import { emptyModelPresets, modelPresetFromKey, modelPresetKey, modelPresetOptions } from '../features/providers/modelPresets'
 
 const serviceLabels: Record<ServiceType, string> = { image: '图片', video: '视频' }
@@ -52,7 +52,7 @@ export function AiConfigPage() {
         ...refreshed,
       ])
       setProviders(await aiConfigsApi.providers())
-      message.success(`${provider.label} 已更新 ${refreshed.length} 个模型`)
+      message.success(refreshCatalogMessage(provider.label, refreshed))
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -113,7 +113,7 @@ export function AiConfigPage() {
                 loading={loading}
                 value={modelPresetKey(presets[type])}
                 options={presetOptions[type]}
-                placeholder="自动选择"
+                placeholder="请选择模型"
                 onChange={(value) => queueSavePresets({ ...presets, [type]: modelPresetFromKey(value) })}
               />
             </label>

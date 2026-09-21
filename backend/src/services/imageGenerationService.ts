@@ -181,7 +181,7 @@ export class ImageGenerationService {
       aspectRatio: input.aspectRatio,
       requiresAspectRatio: true,
     });
-    const model = input.model || aiConfig.default_model || aiConfig.model[0];
+    const model = input.model || aiConfig.default_model;
     if (!model) throw new ValidationError('图片配置没有可用模型');
     const aspectRatio = this.configs.resolveAspectRatio('image', aiConfig.provider, model, input.aspectRatio);
     const adapter = this.registry.require({ kind: 'image', config: aiConfig, model });

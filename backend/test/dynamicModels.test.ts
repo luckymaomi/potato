@@ -49,6 +49,36 @@ test('Agnes 动态模型目录使用 GET /models 并返回图片与视频模型'
   ]);
 });
 
+test('PearAPI GPT Image 1.5 按文档补全 16 张参考图和三种画幅', async () => {
+  const adapter = createPearApiAdapter(async () => Response.json({ data: [{ id: 'gpt-image-1.5', object: 'model' }] }));
+  const [model] = await adapter.listModels!({ apiKey: 'sk-test', serviceType: 'image' });
+  assert.deepEqual(model?.capabilities, {
+    modes: ['text-to-image', 'image-to-image'], maxReferenceImages: 16,
+    aspectRatios: ['9:16', '16:9', '1:1'], billingMode: 'unknown',
+    supportsDuration: false, supportedDurations: null, source: 'adapter-override',
+  });
+});
+
+test('PearAPI Nano Banana 各模型族按文档补全参考图上限和画幅', async () => {
+  const adapter = createPearApiAdapter(async () => Response.json({ data: [
+    { id: 'nano-banana-pro', object: 'model' },
+    { id: 'nano-banana-pro-4k', object: 'model' },
+    { id: 'nano-banana-2', object: 'model' },
+    { id: 'nano-banana-2-4k', object: 'model' },
+    { id: 'nano-banana-2-lite', object: 'model' },
+    { id: 'nano-banana', object: 'model' },
+  ] }));
+  const models = await adapter.listModels!({ apiKey: 'sk-test', serviceType: 'image' });
+  for (const model of models.filter((entry) => entry.id !== 'nano-banana')) {
+    assert.equal(model.capabilities.maxReferenceImages, 14);
+    assert.equal(model.capabilities.aspectRatios?.length, 14);
+    assert.equal(model.capabilities.source, 'adapter-override');
+  }
+  const base = models.find((entry) => entry.id === 'nano-banana');
+  assert.equal(base?.capabilities.maxReferenceImages, 6);
+  assert.deepEqual(base?.capabilities.aspectRatios, ['9:16', '16:9', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '21:9']);
+});
+
 test('PearAPI 只使用 Bearer /v1/models，并为已核验 GPT Image 2 模型补充能力', async () => {
   const requests: Array<{ url: string; method: string; authorization?: string }> = [];
   const adapter = createPearApiAdapter(async (input, init) => {
@@ -59,7 +89,7 @@ test('PearAPI 只使用 Bearer /v1/models，并为已核验 GPT Image 2 模型�
   assert.deepEqual(await adapter.listModels!({ apiKey: 'sk-test', serviceType: 'image' }), [
     {
       id: 'gpt-image-2', label: 'gpt-image-2', kind: 'image',
-      capabilities: { modes: ['text-to-image', 'image-to-image'], maxReferenceImages: 16, aspectRatios: ['9:16', '16:9', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'], billingMode: 'unknown', supportsDuration: false, supportedDurations: null, source: 'provider' },
+      capabilities: { modes: ['text-to-image', 'image-to-image'], maxReferenceImages: 16, aspectRatios: ['9:16', '16:9', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'], billingMode: 'unknown', supportsDuration: false, supportedDurations: null, source: 'adapter-override' },
     },
   ]);
   assert.deepEqual(requests, [{ url: 'https://api.pearapi.ai/v1/models', method: 'GET', authorization: 'Bearer sk-test' }]);
@@ -116,11 +146,24 @@ test('PearAPI 只为官方 Grok 1.5 及 preview 别名补充视频能力', async
   for (const id of ['grok-imagine-video-1.5', 'grok-imagine-video-1.5-preview']) {
     assert.deepEqual(models.find((model) => model.id === id)?.capabilities, {
       modes: ['text-to-video', 'image-to-video'], maxReferenceImages: 1, aspectRatios: ['16:9', '9:16'],
-      billingMode: 'per-request', supportsDuration: true, supportedDurations: [4, 6, 8, 10, 12, 15], source: 'provider',
+      billingMode: 'per-request', supportsDuration: true, supportedDurations: [4, 6, 8, 10, 12, 15], source: 'adapter-override',
     });
   }
   assert.deepEqual(models.find((model) => model.id === 'grok-imagine-video')?.capabilities, {
     modes: ['text-to-video', 'image-to-video'], maxReferenceImages: null, aspectRatios: null,
     billingMode: 'unknown', supportsDuration: false, supportedDurations: null, source: 'provider',
   });
+});
+
+test('PearAPI GPT Image 2 2K/4K 变体继承文档声明的 16 张参考图和 13 种画幅', async () => {
+  const adapter = createPearApiAdapter(async () => Response.json({ data: [
+    { id: 'gpt-image-2-2k', object: 'model' },
+    { id: 'gpt-image-2-4k', object: 'model' },
+  ] }));
+  const models = await adapter.listModels!({ apiKey: 'sk-test', serviceType: 'image' });
+  for (const model of models) {
+    assert.equal(model.capabilities.maxReferenceImages, 16);
+    assert.equal(model.capabilities.aspectRatios?.length, 13);
+    assert.equal(model.capabilities.source, 'adapter-override');
+  }
 });

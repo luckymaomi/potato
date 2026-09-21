@@ -45,7 +45,13 @@ function normalizePearModel(value: unknown): ProviderModel | undefined {
             ? 'video'
             : endpoints.length ? undefined : inferModelKind(id);
   if (!kind) return undefined;
-  return { id, label: readString(item?.model) || readString(item?.name) || id, kind, capabilities: pearModelCapabilities(id, kind, endpoints, knownModelMetadata(id, item || {})) };
+  const known = isKnownModelOverride(id);
+  return {
+    id,
+    label: readString(item?.model) || readString(item?.name) || id,
+    kind,
+    capabilities: pearModelCapabilities(id, kind, endpoints, knownModelMetadata(id, item || {}), known ? 'adapter-override' : 'provider'),
+  };
 }
 
 function inferModelKind(id: string): 'image' | 'video' | undefined {
@@ -56,25 +62,53 @@ function inferModelKind(id: string): 'image' | 'video' | undefined {
 
 function knownModelMetadata(id: string, item: JsonRecord): PearModelMetadata {
   const metadata = asRecord(item.capabilities) as PearModelMetadata | undefined; const lower = id.toLowerCase();
-  if (lower === 'gpt-image-2') return {
+  if (/^gpt-image-2(?:-(?:2k|4k))?$/iu.test(lower)) return {
     ...metadata,
     supported_modes: ['text2image', 'image2image'],
     reference_image: 16,
     aspect_ratio: ['9:16', '16:9', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'],
   };
+  if (lower === 'gpt-image-1.5') return {
+    ...metadata,
+    supported_modes: ['text2image', 'image2image'],
+    reference_image: 16,
+    aspect_ratio: ['9:16', '16:9', '1:1'],
+  };
+  if (/^nano-banana(?:-pro(?:-4k)?|-2(?:-(?:4k|lite))?)?$/iu.test(lower)) return {
+    ...metadata,
+    supported_modes: ['text2image', 'image2image'],
+    reference_image: /^(?:nano-banana)$/iu.test(lower) ? 6 : 14,
+    aspect_ratio: /^(?:nano-banana)$/iu.test(lower)
+      ? ['9:16', '16:9', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '21:9']
+      : ['9:16', '16:9', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '21:9', '1:4', '4:1', '1:8', '8:1'],
+  };
   if (/^grok-imagine-video-1\.5(?:-preview)?$/iu.test(lower)) return { ...metadata, supported_modes: ['text2video', 'image2video'], reference_image: 1, aspect_ratio: ['16:9', '9:16'], supported_durations: [4, 6, 8, 10, 12, 15], billing_type: metadata?.billing_type || 'per-request' };
   return metadata || {};
 }
 
-function pearModelCapabilities(modelId: string, kind: 'image' | 'video', endpoints: string[], metadata: PearModelMetadata): ProviderModelCapabilities {
+function isKnownModelOverride(id: string): boolean {
+  const lower = id.toLowerCase();
+  return /^gpt-image-2(?:-(?:2k|4k))?$/iu.test(lower)
+    || lower === 'gpt-image-1.5'
+    || /^nano-banana(?:-pro(?:-4k)?|-2(?:-(?:4k|lite))?)?$/iu.test(lower)
+    || /^grok-imagine-video-1\.5(?:-preview)?$/iu.test(lower);
+}
+
+function pearModelCapabilities(
+  modelId: string,
+  kind: 'image' | 'video',
+  endpoints: string[],
+  metadata: PearModelMetadata,
+  source: 'provider' | 'adapter-override' = 'provider',
+): ProviderModelCapabilities {
   if (kind === 'image') {
     const supportedModes = arrayStrings(metadata.supported_modes);
     const modes = [...(endpoints.some((e) => /images\.generations|text2image/iu.test(e)) || supportedModes.some((mode) => /text2image|text-to-image/iu.test(mode)) ? ['text-to-image' as const] : []), ...(endpoints.some((e) => /images\.edits|image2image/iu.test(e)) || supportedModes.some((mode) => /image2image|image-to-image/iu.test(mode)) ? ['image-to-image' as const] : [])];
-    return modelCapabilities(modes, readNonNegativeInteger(metadata.reference_image) ?? (modes.includes('image-to-image') ? null : 0), pearAspectRatios(metadata.aspect_ratio), 'provider');
+    return modelCapabilities(modes, readNonNegativeInteger(metadata.reference_image) ?? (modes.includes('image-to-image') ? null : 0), pearAspectRatios(metadata.aspect_ratio), source);
   }
   const supportedModes = arrayStrings(metadata.supported_modes); const modes = [...(supportedModes.some((m) => /text2video|text-to-video/iu.test(m)) ? ['text-to-video' as const] : []), ...(supportedModes.some((m) => /image2video|imageend2video|reference2video|image-to-video/iu.test(m)) ? ['image-to-video' as const] : [])];
   const durations = readDurations(metadata.supported_durations ?? metadata.durations);
-  return modelCapabilities(modes.length ? modes : ['text-to-video', 'image-to-video'], readNonNegativeInteger(metadata.reference_image), pearAspectRatios(metadata.aspect_ratio), 'provider', billingMode(modelId, metadata), durations);
+  return modelCapabilities(modes.length ? modes : ['text-to-video', 'image-to-video'], readNonNegativeInteger(metadata.reference_image), pearAspectRatios(metadata.aspect_ratio), source, billingMode(modelId, metadata), durations);
 }
 
 async function submitImage(context: ProviderExecutionContext, request: ImageProviderRequest, fetchImpl: ProviderFetch): Promise<ImageProviderResult> {

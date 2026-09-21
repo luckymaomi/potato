@@ -217,7 +217,7 @@ test('单卡任务公开排队、生成、归档和本地文件完成状态', as
     await services.aiConfigs.refresh('agnes');
     const project = services.projects.create({ title: '单卡状态' });
     const asset = services.assets.createProjectAsset(project.id, { kind: 'prop', name: '铜钥匙', output_prompt: '铜钥匙标准资产图' });
-    const row = services.images.create({ dramaId: project.id, projectAssetId: asset.id, prompt: asset.output_prompt, referenceImages: [] });
+    const row = services.images.create({ dramaId: project.id, projectAssetId: asset.id, prompt: asset.output_prompt, model: 'agnes-image', aspectRatio: '1:1', referenceImages: [] });
     const taskId = row.task_id as string;
     assert.equal(services.tasks.get(taskId)?.status, 'pending');
     await new Promise<void>((resolve) => queueMicrotask(resolve));
@@ -344,6 +344,7 @@ test('视频生成分别消费分镜图首帧和视频配方辅助参考图', as
       storyboardId: shot.id,
       prompt: '已确认分镜图',
       model: 'agnes-image',
+      aspectRatio: '9:16',
       referenceImages: [],
     });
     await taskDone(() => services.tasks.get(frame.task_id as string));
@@ -375,9 +376,9 @@ test('图片历史可切换项目资产当前标准图', async () => {
     await services.aiConfigs.refresh('agnes');
     const project = services.projects.create({ title: '标准图版本' });
     const asset = services.assets.createProjectAsset(project.id, { kind: 'prop', name: '王冠' });
-    const first = services.images.create({ dramaId: project.id, projectAssetId: asset.id, prompt: '版本一', model: 'agnes-image', referenceImages: [] });
+    const first = services.images.create({ dramaId: project.id, projectAssetId: asset.id, prompt: '版本一', model: 'agnes-image', aspectRatio: '1:1', referenceImages: [] });
     await taskDone(() => services.tasks.get(first.task_id as string));
-    const second = services.images.create({ dramaId: project.id, projectAssetId: asset.id, prompt: '版本二', model: 'agnes-image', referenceImages: [] });
+    const second = services.images.create({ dramaId: project.id, projectAssetId: asset.id, prompt: '版本二', model: 'agnes-image', aspectRatio: '1:1', referenceImages: [] });
     await taskDone(() => services.tasks.get(second.task_id as string));
     const firstCompleted = services.images.get(first.id);
     services.images.select(first.id);
@@ -442,6 +443,7 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
       projectAssetId: asset.id,
       prompt: asset.output_prompt,
       model: 'agnes-image',
+      aspectRatio: '1:1',
       referenceImages: asset.input_reference_images,
     });
     await taskDone(() => services.tasks.get(assetImage.task_id as string));
@@ -475,6 +477,7 @@ test('项目 ZIP 往返保存资产产出规格、分镜引用、参考图和当
       storyboardId: shot.id,
       prompt: '用户确认的雨夜归来图片配方。',
       model: 'agnes-image',
+      aspectRatio: '9:16',
       referenceImages: recipeReferences,
     });
     await taskDone(() => services.tasks.get(shotImage.task_id as string));

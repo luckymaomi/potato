@@ -1,4 +1,4 @@
-import { BookOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, PictureOutlined, PlusOutlined } from '@ant-design/icons'
+import { BookOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, MoonOutlined, PictureOutlined, PlusOutlined, SunOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Spin } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -6,6 +6,7 @@ import { projectsApi } from '../../api/projects'
 import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
 import type { Episode, Project } from '../../types/domain'
 import type { ProjectWorkspaceContext } from './workspaceContext'
+import { useTheme } from '../../theme/ThemeContext'
 
 const tabs = [
   { path: 'script', label: '总览与剧本', icon: <BookOutlined /> },
@@ -15,17 +16,16 @@ const tabs = [
 
 export function ProjectShell() {
   const { message, modal } = App.useApp()
+  const { mode, toggle } = useTheme()
   const projectId = Number(useParams().id)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [project, setProject] = useState<Project>()
   const [error, setError] = useState('')
   const [creatingEpisode, setCreatingEpisode] = useState(false)
-  const [createOpen, setCreateOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameForm] = Form.useForm<{ title: string }>()
-  const [createForm] = Form.useForm<{ title: string }>()
 
   const refreshProject = useCallback(async () => {
     try {
@@ -119,6 +119,14 @@ export function ProjectShell() {
             </NavLink>
           ))}
         </nav>
+        <Button
+          className="project-theme-toggle"
+          type="text"
+          icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+          aria-label={mode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
+          title={mode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
+          onClick={toggle}
+        />
       </aside>
       <main className="project-workspace-main">
         <header className="project-workspace-heading">

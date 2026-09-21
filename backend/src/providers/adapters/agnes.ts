@@ -258,7 +258,7 @@ function buildVideo25Body(
   const body: Record<string, unknown> = {
     model: request.model || 'agnes-video-2.5-flash',
     prompt: request.prompt,
-    seconds: String(clamp(Math.round(request.duration || 5), 4, 12)),
+    ...(request.duration === undefined ? {} : { seconds: String(Math.round(request.duration)) }),
     size: /agnes-video-2\.5-flash/iu.test(request.model)
       ? '720P'
       : /2K|1080|1440|2160|4K/iu.test(request.resolution || '') ? '2K' : '720P',
@@ -468,10 +468,6 @@ async function resolveImageReferences(
     });
   }
   return unique(resolved);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

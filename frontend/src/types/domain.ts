@@ -156,7 +156,7 @@ export interface ProviderModel {
     billingMode?: VideoBillingMode
     supportsDuration?: boolean
     supportedDurations?: number[] | null
-    source: 'provider' | 'adapter' | 'unknown'
+    source: 'provider' | 'adapter' | 'adapter-override' | 'unknown'
   }
   synchronized_at: string
 }

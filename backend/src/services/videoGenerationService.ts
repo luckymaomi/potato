@@ -114,7 +114,7 @@ export class VideoGenerationService {
       aspectRatio: input.aspectRatio,
       requiresAspectRatio: true,
     });
-    const model = input.model || aiConfig.default_model || aiConfig.model[0];
+    const model = input.model || aiConfig.default_model;
     if (!model) throw new ValidationError('视频配置没有可用模型');
     const modelSnapshot = this.configs.models(aiConfig.provider, 'video').find((entry) => entry.id === model);
     const declaredDurations = modelSnapshot?.capabilities.supportedDurations;
@@ -345,13 +345,14 @@ function resolveVideoDuration(
   supportsDuration: boolean,
 ): number | undefined {
   if (declaredDurations?.length) {
-    if (requested === undefined) return declaredDurations[0];
+    if (requested === undefined) throw new ValidationError('请显式选择视频时长');
     if (!declaredDurations.includes(requested)) {
       throw new ValidationError(`当前模型不支持该时长，可选：${declaredDurations.join('、')} 秒`);
     }
     return requested;
   }
-  if (!supportsDuration) return undefined;
+  if (!supportsDuration) return requested;
+  if (requested === undefined) throw new ValidationError('请显式选择视频时长');
   return requested;
 }
 

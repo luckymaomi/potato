@@ -4,7 +4,7 @@ import type { Logger, SQLiteDatabase } from '../types/core';
 export type ProviderKind = 'image' | 'video';
 export type ProviderTaskStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type ProviderModelMode = 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video';
-export type ProviderModelCapabilitySource = 'provider' | 'adapter' | 'unknown';
+export type ProviderModelCapabilitySource = 'provider' | 'adapter' | 'adapter-override' | 'unknown';
 /** 供应商的计费维度。它与是否接受 duration 是两个独立能力。 */
 export type VideoBillingMode = 'duration' | 'per-request' | 'unknown';
 

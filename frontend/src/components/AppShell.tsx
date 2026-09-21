@@ -1,8 +1,11 @@
-import { ApiOutlined, AppstoreOutlined } from '@ant-design/icons'
+import { ApiOutlined, AppstoreOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons'
+import { Button } from 'antd'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useTheme } from '../theme/ThemeContext'
 
 export function AppShell() {
   const location = useLocation()
+  const { mode, toggle } = useTheme()
   const inProject = location.pathname.startsWith('/film/')
   return (
     <div className={`app-shell${inProject ? ' project-mode' : ''}`}>
@@ -15,6 +18,14 @@ export function AppShell() {
           <NavLink to="/" end><AppstoreOutlined />项目</NavLink>
           <NavLink to="/ai-config"><ApiOutlined />AI 配置</NavLink>
         </nav>
+        <Button
+          className="theme-toggle"
+          type="text"
+          icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+          aria-label={mode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
+          title={mode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
+          onClick={toggle}
+        />
       </header>
       <main className="app-content"><Outlet /></main>
     </div>

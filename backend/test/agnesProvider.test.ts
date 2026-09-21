@@ -92,6 +92,18 @@ test('Agnes Video 2.5 适配器提交 reference 模式并按 video_id 轮询', a
   });
 });
 
+test('Agnes Video 2.5 未指定时长时不在适配器本地伪造 seconds', async () => {
+  let body: Record<string, unknown> | undefined;
+  const adapter = createAgnesAdapter(async (_input, init) => {
+    body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ video_id: 'video_without_duration', status: 'queued' }), { status: 200 });
+  });
+  await adapter.submitVideo!({ config: config('video', 'agnes-video-2.5-flash'), log }, {
+    prompt: 'move', model: 'agnes-video-2.5-flash', aspectRatio: '16:9', referenceImages: [],
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(body, 'seconds'), false);
+});
+
 test('Agnes Video 2.0 适配器使用关键帧参数和标准视频查询路径', async () => {
   let requestCount = 0;
   const adapter = createAgnesAdapter(async (input, init) => {

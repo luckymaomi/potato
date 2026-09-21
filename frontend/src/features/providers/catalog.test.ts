@@ -12,6 +12,7 @@ import {
   nodeServiceType,
   preferredAspectRatio,
   providerSupportsMode,
+  refreshCatalogMessage,
   supportsService,
 } from './catalog'
 
@@ -93,6 +94,15 @@ describe('动态模型目录选择', () => {
     expect(modelSupportsMode(model, 'image-to-image')).toBe(true)
   })
 
+  it('标记适配器覆盖的目录能力来源', () => {
+    const model: ProviderModel = {
+      provider: 'pearapi', id: 'gpt-image-2', label: 'GPT Image 2', kind: 'image',
+      capabilities: { modes: ['text-to-image'], maxReferenceImages: 16, aspectRatios: ['1:1'], source: 'adapter-override' },
+      synchronized_at: '2026-09-18T00:00:00.000Z',
+    }
+    expect(modelCapabilityLabels(model)).toContain('适配器补全')
+  })
+
   it('区分按次视频与按时长视频，不为未知能力伪造时长或画幅', () => {
     const perRequest: ProviderModel = {
       provider: 'pearapi', id: 'grok-imagine-video-1.5', label: 'Grok Imagine Video 1.5', kind: 'video',
@@ -118,5 +128,12 @@ describe('动态模型目录选择', () => {
     expect(modelAspectRatioOptions(perRequest)).toEqual(['16:9', '9:16'])
     expect(modelAspectRatioOptions(duration)).toEqual(['16:9'])
     expect(preferredAspectRatio(modelAspectRatioOptions(perRequest))).toBe('16:9')
+  })
+
+  it('刷新目录文案按图片/视频分项计数', () => {
+    expect(refreshCatalogMessage('PearAPI', [
+      { kind: 'image' }, { kind: 'image' }, { kind: 'video' },
+    ])).toBe('PearAPI 已更新：图片 2 / 视频 1')
+    expect(refreshCatalogMessage('Agnes', [])).toBe('Agnes 已更新：图片 0 / 视频 0')
   })
 })

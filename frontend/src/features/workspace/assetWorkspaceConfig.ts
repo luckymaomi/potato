@@ -8,6 +8,7 @@ export interface AssetFormValues {
   output_type?: AssetOutputType
   output_prompt?: string
   input_reference_images?: string[]
+  aspect_ratio?: string
 }
 
 export interface ProfileField {
