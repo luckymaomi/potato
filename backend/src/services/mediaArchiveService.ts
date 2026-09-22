@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { AppConfig, Logger } from '../types/core';
 
-export type ArchivedMediaKind = 'image' | 'video';
+export type ArchivedMediaKind = 'image' | 'video' | 'audio';
 
 export interface ArchivedMedia {
   publicUrl: string;
@@ -34,7 +34,7 @@ export class MediaArchiveService {
   }): Promise<ArchivedMedia> {
     this.log?.audit?.('media.archive.started', input);
     try {
-      const limit = input.kind === 'image' ? 32 * 1024 * 1024 : 512 * 1024 * 1024;
+      const limit = input.kind === 'image' ? 32 * 1024 * 1024 : input.kind === 'audio' ? 64 * 1024 * 1024 : 512 * 1024 * 1024;
       const bytes = input.sourceUrl.startsWith('data:')
         ? decodeDataUrl(input.sourceUrl)
         : await download(input.sourceUrl, input.kind, limit, input.signal);
@@ -59,7 +59,7 @@ export class MediaArchiveService {
       await handle.close();
     }
     const detected = detectMedia(header.subarray(0, bytesRead), input.kind);
-    if (!detected) throw new MediaArchiveError(`本地归档失败：内容不是有效${input.kind === 'image' ? '图片' : '视频'}`);
+    if (!detected) throw new MediaArchiveError(`本地归档失败：内容不是有效${input.kind === 'image' ? '图片' : input.kind === 'audio' ? '音频' : '视频'}`);
     const stat = await fs.promises.stat(input.sourcePath);
     if (!stat.isFile() || stat.size === 0) throw new MediaArchiveError('本地归档失败：媒体文件为空');
     return this.archiveFile(input.projectId, input.generationId, input.kind, input.sourcePath, detected, stat.size);
@@ -67,7 +67,7 @@ export class MediaArchiveService {
 
   private async archiveBytes(projectId: number, generationId: number, kind: ArchivedMediaKind, bytes: Buffer): Promise<ArchivedMedia> {
     const detected = detectMedia(bytes, kind);
-    if (!detected) throw new MediaArchiveError(`本地归档失败：内容不是有效${kind === 'image' ? '图片' : '视频'}`);
+    if (!detected) throw new MediaArchiveError(`本地归档失败：内容不是有效${kind === 'image' ? '图片' : kind === 'audio' ? '音频' : '视频'}`);
     const relativePath = path.posix.join('projects', String(projectId), `${kind}s`, `${generationId}.${detected.extension}`);
     const destination = path.resolve(this.storageRoot, ...relativePath.split('/'));
     const root = path.resolve(this.storageRoot);
@@ -155,6 +155,12 @@ function detectMedia(bytes: Buffer, kind: ArchivedMediaKind): { extension: strin
     if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return { extension: 'jpg', mediaType: 'image/jpeg' };
     if (bytes.subarray(0, 6).toString('ascii') === 'GIF87a' || bytes.subarray(0, 6).toString('ascii') === 'GIF89a') return { extension: 'gif', mediaType: 'image/gif' };
     if (bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') return { extension: 'webp', mediaType: 'image/webp' };
+    return undefined;
+  }
+  if (kind === 'audio') {
+    if (bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WAVE') return { extension: 'wav', mediaType: 'audio/wav' };
+    if (bytes.subarray(0, 3).toString('ascii') === 'ID3' || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) return { extension: 'mp3', mediaType: 'audio/mpeg' };
+    if (bytes.subarray(0, 4).toString('ascii') === 'OggS') return { extension: 'ogg', mediaType: 'audio/ogg' };
     return undefined;
   }
   if (bytes.length >= 12 && bytes.subarray(4, 8).toString('ascii') === 'ftyp') return { extension: 'mp4', mediaType: 'video/mp4' };

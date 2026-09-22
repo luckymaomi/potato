@@ -7,7 +7,8 @@ import type { AiModelPresets, ProviderCatalogStatus, ProviderModel, ServiceType 
 import { modelCapabilityLabels, refreshCatalogMessage, supportsService } from '../features/providers/catalog'
 import { emptyModelPresets, modelPresetFromKey, modelPresetKey, modelPresetOptions } from '../features/providers/modelPresets'
 
-const serviceLabels: Record<ServiceType, string> = { image: '图片', video: '视频' }
+const serviceLabels = { image: '图片' } as const
+type VisibleServiceType = keyof typeof serviceLabels
 
 export function AiConfigPage() {
   const { message } = AntdApp.useApp()
@@ -65,11 +66,11 @@ export function AiConfigPage() {
     [providers, serviceType],
   )
   const presetOptions = useMemo(() => Object.fromEntries(
-    (Object.keys(serviceLabels) as ServiceType[]).map((type) => [
+    (Object.keys(serviceLabels) as VisibleServiceType[]).map((type) => [
       type,
       modelPresetOptions(type, models, providers, presets[type]),
     ]),
-  ) as Record<ServiceType, ReturnType<typeof modelPresetOptions>>, [models, presets, providers])
+  ) as Record<VisibleServiceType, ReturnType<typeof modelPresetOptions>>, [models, presets, providers])
 
   const queueSavePresets = (next: AiModelPresets) => {
     setPresets(next)
@@ -103,7 +104,7 @@ export function AiConfigPage() {
           </div>
         </div>
         <div className="model-preset-grid">
-          {(Object.keys(serviceLabels) as ServiceType[]).map((type) => (
+          {(Object.keys(serviceLabels) as VisibleServiceType[]).map((type) => (
             <label className="model-preset-field" key={type}>
               <span>{serviceLabels[type]}模型</span>
               <Select
@@ -124,7 +125,7 @@ export function AiConfigPage() {
         <Tabs
           activeKey={serviceType}
           onChange={(key) => setServiceType(key as ServiceType)}
-          items={(Object.keys(serviceLabels) as ServiceType[]).map((key) => ({ key, label: `${serviceLabels[key]}模型` }))}
+          items={(Object.keys(serviceLabels) as VisibleServiceType[]).map((key) => ({ key, label: `${serviceLabels[key]}模型` }))}
         />
         <div className="settings-toolbar">
           <span>{visibleProviders.length} 个供应商</span>

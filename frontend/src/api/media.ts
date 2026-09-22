@@ -5,12 +5,11 @@ export interface MediaGenerationHistory {
   drama_id: number
   project_asset_id?: number | null
   episode_id?: number | null
-  storyboard_id?: number | null
+  panel_id?: number | null
   prompt: string
   provider?: string | null
   model?: string | null
   image_url?: string | null
-  video_url?: string | null
   source_url?: string | null
   local_path?: string | null
   media_type?: string | null
@@ -35,7 +34,6 @@ export const uploadsApi = {
 
 export const mediaHistoryApi = {
   images: (projectId: number) => apiClient.get<never, { items: MediaGenerationHistory[] }>('/images', { params: { drama_id: projectId } }),
-  videos: (projectId: number) => apiClient.get<never, { items: MediaGenerationHistory[] }>('/videos', { params: { drama_id: projectId } }),
   selectImage: (id: number) => apiClient.post<never, MediaGenerationHistory>(`/images/${id}/select`),
-  selectVideo: (id: number) => apiClient.post<never, MediaGenerationHistory>(`/videos/${id}/select`),
+  removeImage: (id: number) => apiClient.delete<never, { removed: boolean }>(`/images/${id}`),
 }

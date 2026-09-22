@@ -1,9 +1,9 @@
 import type { Logger, SQLiteDatabase } from '../src/types/core';
 import type { Drama } from '../src/types/domain';
 import type { ServiceContainer } from '../src/services/container';
-import { RAINY_NIGHT_DEMO } from '../../frontend/src/features/production/rainyNightDemoDefinition';
+import { RAINY_NIGHT_DEMO } from '../../frontend/src/features/production/queenAccessionDemoDefinition';
 
-export function initializeRainyNightDemo(
+export function initializeQueenAccessionDemo(
   db: SQLiteDatabase,
   services: ServiceContainer,
   log?: Logger,
@@ -15,7 +15,7 @@ export function initializeRainyNightDemo(
     if (!demo && existing.length) {
       throw new Error('数据库中已有项目；为避免覆盖，请在空数据库上运行 Demo 初始化脚本。');
     }
-    if (demo && rainyNightDemoComplete(services.projects.require(demo.id))) return services.projects.require(demo.id);
+    if (demo && queenAccessionDemoComplete(services.projects.require(demo.id))) return services.projects.require(demo.id);
     const definition = {
       ...RAINY_NIGHT_DEMO.project,
       metadata: {
@@ -30,12 +30,12 @@ export function initializeRainyNightDemo(
       : services.projects.create(definition);
     const episode = services.projects.saveEpisodes(project.id, [{
       episode_number: 1,
-      title: '第 1 集｜红女王',
-      duration: RAINY_NIGHT_DEMO.storyboards.length * RAINY_NIGHT_DEMO.media.duration,
+      title: '第 1 话｜女王登基',
+      duration: RAINY_NIGHT_DEMO.panels.length * RAINY_NIGHT_DEMO.media.duration,
       script_content: RAINY_NIGHT_DEMO.script,
       ...RAINY_NIGHT_DEMO.episodePlan,
     }])[0];
-    if (!episode) throw new Error('Demo 剧集初始化失败。');
+    if (!episode) throw new Error('Demo 话初始化失败。');
 
     const projectAssets = [
       ...RAINY_NIGHT_DEMO.characters.map((item) => ({
@@ -62,15 +62,11 @@ export function initializeRainyNightDemo(
       return services.assets.updateProjectAsset(bound.id, item);
     });
     const assetIds = new Map(projectAssets.map((item) => [`${item.kind}:${item.name}`, item.id]));
-    services.assets.syncStoryboards(episode.id, RAINY_NIGHT_DEMO.storyboards.map((item) => ({
+    services.assets.syncPanels(episode.id, RAINY_NIGHT_DEMO.panels.map((item) => ({
       ...item,
-      shot_size: item.shot_size ?? shotSize(item.description),
-      camera_angle: item.camera_angle ?? '平视',
-      camera_movement: item.camera_movement ?? '固定镜头，可按动作节奏轻微推进',
       composition: item.composition ?? item.description,
       lighting: item.lighting ?? '冷色室内光',
       mood: item.mood ?? '悬疑与压迫',
-      sound: item.sound ?? '环境声、动作声与现场对白',
       project_asset_ids: [
         ...item.characters.map((name) => assetIds.get(`character:${name}`)),
         ...item.scenes.map((name) => assetIds.get(`scene:${name}`)),
@@ -85,20 +81,12 @@ export function initializeRainyNightDemo(
     projectId: project.id,
     demoContract: RAINY_NIGHT_DEMO.contract,
     projectAssets: project.project_assets?.length ?? 0,
-    storyboards: project.episodes?.[0]?.storyboards?.length ?? 0,
+    panels: project.episodes?.[0]?.panels?.length ?? 0,
   });
   return project;
 }
-
-export function rainyNightDemoComplete(project: Drama): boolean {
+export function queenAccessionDemoComplete(project: Drama): boolean {
   return project.metadata.demo_contract === RAINY_NIGHT_DEMO.contract
     && project.project_assets?.length === RAINY_NIGHT_DEMO.characters.length + RAINY_NIGHT_DEMO.scenes.length + RAINY_NIGHT_DEMO.props.length
-    && project.episodes?.[0]?.storyboards?.length === RAINY_NIGHT_DEMO.storyboards.length;
-}
-
-function shotSize(description: string): string {
-  if (description.includes('特写')) return '特写';
-  if (description.includes('近景')) return '近景';
-  if (description.includes('中景')) return '中景';
-  return '全景';
+    && project.episodes?.[0]?.panels?.length === RAINY_NIGHT_DEMO.panels.length;
 }

@@ -96,10 +96,10 @@ export function ProjectsPage() {
         return
       }
       const project = await projectsApi.create({ ...values, style: 'realistic', metadata: { aspect_ratio: '9:16' } })
-      message.success('短剧项目已创建')
+      message.success('漫画项目已创建')
       setModalOpen(false)
       form.resetFields()
-      navigate(`/film/${project.id}/script`)
+      navigate(`/comic/${project.id}/script`)
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -121,7 +121,7 @@ export function ProjectsPage() {
     setCreatingDemo(true)
     try {
       const id = await openRainyNightDemo()
-      navigate(`/film/${id}/script`)
+      navigate(`/comic/${id}/script`)
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -131,16 +131,16 @@ export function ProjectsPage() {
 
   const openEpisode = (project: Project, episode?: Episode) => {
     const query = episode ? `?episode_id=${episode.id}` : ''
-    navigate(`/film/${project.id}/script${query}`)
+    navigate(`/comic/${project.id}/script${query}`)
   }
 
   const createEpisode = async (project: Project) => {
     setCreatingEpisodeId(project.id)
     try {
       const nextNumber = Math.max(0, ...(project.episodes ?? []).map((item) => item.episode_number)) + 1
-      const result = await projectsApi.saveEpisodes(project.id, [{ episode_number: nextNumber, title: `第${nextNumber}集` }])
+      const result = await projectsApi.saveEpisodes(project.id, [{ episode_number: nextNumber, title: `第${nextNumber}话` }])
       setProjects((current) => current.map((item) => item.id === project.id ? { ...item, episodes: result.episodes } : item))
-      message.success(`已新建第${nextNumber}集`)
+      message.success(`已新建第${nextNumber}话`)
     } catch (error) {
       message.error(userErrorMessage(error))
     } finally {
@@ -167,7 +167,7 @@ export function ProjectsPage() {
         }
       }))
       setEpisodeEditor(null)
-      message.success('已重命名剧集')
+      message.success('已重命名话')
     } catch (error) {
       if (error && typeof error === 'object' && 'errorFields' in error) return
       message.error(userErrorMessage(error))
@@ -183,7 +183,7 @@ export function ProjectsPage() {
         if (item.id !== project.id) return item
         return { ...item, episodes: (item.episodes ?? []).filter((row) => row.id !== episode.id) }
       }))
-      message.success('已删除剧集')
+      message.success('已删除话')
     } catch (error) {
       message.error(userErrorMessage(error))
     }
@@ -213,7 +213,7 @@ export function ProjectsPage() {
           {projects.length ? (
             <div className="project-grid">
               {projects.map((project) => {
-                const episodes = project.episodes?.length ? project.episodes : [{ id: 0, drama_id: project.id, episode_number: 1, title: '第1集' } as Episode]
+                const episodes = project.episodes?.length ? project.episodes : [{ id: 0, drama_id: project.id, episode_number: 1, title: '第1话' } as Episode]
                 return (
                   <section
                     className="project-card"
@@ -235,7 +235,7 @@ export function ProjectsPage() {
                     <div className="project-card-body">
                       <div className="project-title-row">
                         <h2 className="project-title" title={project.title}>{project.title}</h2>
-                        <span className="project-card-count">{episodes.length} 集</span>
+                        <span className="project-card-count">{episodes.length} 话</span>
                       </div>
                       {project.metadata?.demo === true ? <Tag bordered={false}>示例</Tag> : null}
                       <p className="project-card-hook">{project.story_hook || '还没有填写核心钩子'}</p>
@@ -247,29 +247,29 @@ export function ProjectsPage() {
                         {episodes.slice(0, 3).map((episode) => (
                           <div className="project-card-episode" key={`${project.id}-${episode.id || episode.episode_number}`}>
                             <button type="button" className="project-card-episode-open" onClick={() => openEpisode(project, episode.id ? episode : undefined)}>
-                              <strong>{episode.title?.trim() || '未命名剧集'}</strong>
+                              <strong>{episode.title?.trim() || '未命名话'}</strong>
                               <FileTextOutlined />
                             </button>
                             {episode.id ? <span className="project-card-episode-actions">
-                              <Tooltip title="重命名"><Button type="text" size="small" icon={<EditOutlined />} aria-label="重命名剧集" onClick={() => openRenameEpisode(project, episode)} /></Tooltip>
+                              <Tooltip title="重命名"><Button type="text" size="small" icon={<EditOutlined />} aria-label="重命名话" onClick={() => openRenameEpisode(project, episode)} /></Tooltip>
                               <Popconfirm
-                                title="删除这一集？"
-                                description="本集剧本与分镜也会删除。"
+                                title="删除这一话？"
+                                description="本话剧本与分格也会删除。"
                                 okText="删除"
                                 cancelText="取消"
                                 okButtonProps={{ danger: true }}
                                 disabled={(project.episodes?.length ?? 0) <= 1}
                                 onConfirm={() => void removeEpisode(project, episode)}
                               >
-                                <Tooltip title={(project.episodes?.length ?? 0) <= 1 ? '至少保留一集' : '删除'}><Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除剧集" disabled={(project.episodes?.length ?? 0) <= 1} /></Tooltip>
+                                <Tooltip title={(project.episodes?.length ?? 0) <= 1 ? '至少保留一话' : '删除'}><Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除话" disabled={(project.episodes?.length ?? 0) <= 1} /></Tooltip>
                               </Popconfirm>
                             </span> : null}
                           </div>
                         ))}
-                        {episodes.length > 3 ? <span className="project-card-more">还有 {episodes.length - 3} 集</span> : null}
+                        {episodes.length > 3 ? <span className="project-card-more">还有 {episodes.length - 3} 话</span> : null}
                       </div>
                       <div className="project-card-actions">
-                        <Button icon={<PlusOutlined />} loading={creatingEpisodeId === project.id} onClick={() => void createEpisode(project)}>新建集</Button>
+                        <Button icon={<PlusOutlined />} loading={creatingEpisodeId === project.id} onClick={() => void createEpisode(project)}>新建话</Button>
                       </div>
                       <div className="project-card-secondary-actions">
                         <Tooltip title="编辑"><Button type="text" icon={<EditOutlined />} aria-label="编辑项目" onClick={() => openEdit(project)} /></Tooltip>
@@ -321,7 +321,7 @@ export function ProjectsPage() {
       </Modal>
 
       <Modal
-        title="重命名剧集"
+        title="重命名话"
         open={Boolean(episodeEditor)}
         confirmLoading={episodeSaving}
         onOk={() => void saveEpisodeTitle()}
@@ -329,7 +329,7 @@ export function ProjectsPage() {
         okText="保存"
       >
         <Form form={episodeForm} layout="vertical" requiredMark={false}>
-          <Form.Item name="title" label="剧集名称" rules={[{ required: true, message: '请输入剧集名称' }, { whitespace: true, message: '请输入剧集名称' }]}>
+          <Form.Item name="title" label="话名称" rules={[{ required: true, message: '请输入话名称' }, { whitespace: true, message: '请输入话名称' }]}>
             <Input autoFocus maxLength={80} placeholder="例如：雨夜开端" />
           </Form.Item>
         </Form>

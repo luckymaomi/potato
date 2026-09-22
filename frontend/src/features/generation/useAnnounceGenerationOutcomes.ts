@@ -15,7 +15,7 @@ export function useAnnounceGenerationOutcomes(tracks: Record<string, TrackedGene
       const stamp = `${track.key}:${track.status}:${track.finishedAt}`
       if (announced.current.has(stamp)) continue
       announced.current.add(stamp)
-      const subject = track.label || (track.kind === 'video' ? '视频' : '图片')
+      const subject = track.label || '图片'
       if (track.status === 'failed') {
         notifyAppError({ message, modal }, new Error(`${subject}生成失败：${track.message || '供应商未返回具体原因'}`))
       } else if (track.status === 'cancelled') {

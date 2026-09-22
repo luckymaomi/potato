@@ -34,6 +34,7 @@ export function AssetDetailPanel({
   onAssemble,
   onStop,
   onSelectGeneration,
+  onDeleteGeneration,
   onUploadStandard,
   onUploadInputReference,
   onReferencesChange,
@@ -58,6 +59,7 @@ export function AssetDetailPanel({
   onAssemble: () => void
   onStop: () => void
   onSelectGeneration: (id: number) => void
+  onDeleteGeneration: (id: number) => void
   onUploadStandard: (file: File) => Promise<void>
   onUploadInputReference: (file: File) => Promise<void>
   onReferencesChange: (values: string[]) => void
@@ -126,11 +128,19 @@ export function AssetDetailPanel({
         </section>
         <section className="asset-history-panel">
           <div className="asset-panel-heading"><strong>标准图历史</strong><HistoryOutlined /></div>
-          <List size="small" locale={{ emptyText: '还没有生成历史' }} dataSource={history} renderItem={(item) => <List.Item actions={item.status === 'completed' && item.available ? [<Button key="select" size="small" onClick={() => onSelectGeneration(item.id)}>选用这张</Button>] : []}>
+          <List size="small" locale={{ emptyText: '还没有生成历史' }} dataSource={history} renderItem={(item) => {
+            const canManage = item.status === 'completed' && item.available
+            return <List.Item actions={[
+              <Button key="select" size="small" disabled={!canManage} onClick={() => onSelectGeneration(item.id)}>选用</Button>,
+              <Popconfirm key="delete" title="删除这张标准图历史？" description="本地归档文件会一起删掉；若它是当前标准图，当前指针会清空。" okText="删除" cancelText="取消" disabled={!canManage} onConfirm={() => onDeleteGeneration(item.id)}>
+                <Button size="small" type="text" danger disabled={!canManage} icon={<DeleteOutlined />} aria-label="删除这张标准图历史" />
+              </Popconfirm>,
+            ]}>
             <List.Item.Meta avatar={item.image_url ? <Image width={48} height={48} src={mediaUrl(item.image_url)} preview={{ mask: '查看', toolbarRender: (originalNode) => <>{originalNode}<Button type="text" icon={<DownloadOutlined />} href={mediaUrl(item.image_url)} download={`asset-${item.id}-原图`} aria-label="下载原图" title="下载原图" /></> }} /> : undefined} title={<Space size={5}><Tag>{assetGenerationStatus({ status: item.status, message: item.error_msg ?? undefined }, Boolean(item.image_url)).label}</Tag><span>{item.provider === 'local-upload' ? '本地上传' : (item.provider ?? '未提交')}</span></Space>} description={item.status === 'pending' || item.status === 'processing' ? <GenerationElapsedTime startedAt={item.created_at} active progress={undefined} message="进行中" /> : item.status === 'failed' ? item.error_msg : item.prompt || '无提示词'} />
-          </List.Item>} />
+          </List.Item>
+          }} />
         </section>
-        <Popconfirm title="删除这个资产卡？" description="分镜中的引用也会移除。" okText="删除" cancelText="取消" onConfirm={onRemove}><Button danger icon={<DeleteOutlined />} loading={deleting}>删除资产卡</Button></Popconfirm>
+        <Popconfirm title="删除这个资产卡？" description="分格中的引用也会移除。" okText="删除" cancelText="取消" onConfirm={onRemove}><Button danger icon={<DeleteOutlined />} loading={deleting}>删除资产卡</Button></Popconfirm>
       </Form>
     </div>
   </aside>

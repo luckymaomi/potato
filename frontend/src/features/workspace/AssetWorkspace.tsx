@@ -234,6 +234,16 @@ export function AssetWorkspace() {
     }
   }
 
+  const deleteGeneration = async (generationId: number) => {
+    try {
+      await mediaHistoryApi.removeImage(generationId)
+      await load()
+      notifyAppSuccess(message, '标准图历史已删除')
+    } catch (reason) {
+      notifyAppError({ message, modal }, reason)
+    }
+  }
+
   const uploadStandard = async (file: File) => {
     if (!selected) return
     try {
@@ -332,6 +342,7 @@ export function AssetWorkspace() {
           onAssemble={() => void assemblePrompt()}
           onStop={() => selected && void tracker.cancel(assetImageKey(selected.id))}
           onSelectGeneration={(id) => void selectGeneration(id)}
+          onDeleteGeneration={(id) => void deleteGeneration(id)}
           onUploadStandard={uploadStandard}
           onUploadInputReference={uploadInputReference}
           onReferencesChange={(values) => { form.setFieldValue('input_reference_images', values); rememberDraft() }}

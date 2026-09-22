@@ -24,7 +24,7 @@ export interface Drama extends Omit<DramaRow, 'metadata'> {
   project_assets?: ProjectAssetRow[];
   media_lifecycle?: {
     images: Record<string, MediaLifecycleState>;
-    videos: Record<string, MediaLifecycleState>;
+    videos?: Record<string, MediaLifecycleState>;
   };
 }
 
@@ -50,12 +50,10 @@ export interface EpisodeRow {
   turning_point: string;
   ending_hook: string;
   scene_notes: string;
-  video_url: string | null;
-  current_video_generation_id: number | null;
   status: string;
   created_at: string;
   updated_at: string;
-  storyboards?: StoryboardRow[];
+  panels?: PanelRow[];
 }
 
 export type AssetKind = 'character' | 'scene' | 'prop';
@@ -85,33 +83,25 @@ export interface ProjectAssetRow {
   updated_at: string;
 }
 
-export interface StoryboardRow {
+export interface PanelRow {
   id: number;
   episode_id: number;
-  storyboard_number: number;
+  panel_number: number;
   title: string | null;
   description: string | null;
   action: string | null;
-  dialogue: string | null;
+  expression: string | null;
   image_prompt: string | null;
-  video_prompt: string | null;
   image_recipe_prompt: string;
-  video_recipe_prompt: string;
   image_recipe_references: string[];
-  video_recipe_references: string[];
-  shot_size: string | null;
-  camera_angle: string | null;
-  camera_movement: string | null;
+  framing: string | null;
+  viewpoint: string | null;
   composition: string | null;
   lighting: string | null;
   mood: string | null;
-  sound: string | null;
   image_url: string | null;
-  video_url: string | null;
   current_image_generation_id: number | null;
-  current_video_generation_id: number | null;
   image_needs_review?: boolean;
-  video_needs_review?: boolean;
   recipe_needs_reassembly?: boolean;
   project_asset_ids: number[];
   extra_reference_images: string[];

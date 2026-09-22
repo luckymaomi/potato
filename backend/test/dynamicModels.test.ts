@@ -64,6 +64,8 @@ test('PearAPI Nano Banana 各模型族按文档补全参考图上限和画幅', 
     { id: 'nano-banana-pro', object: 'model' },
     { id: 'nano-banana-pro-4k', object: 'model' },
     { id: 'nano-banana-2', object: 'model' },
+    { id: 'nano-banana-2-1k', object: 'model' },
+    { id: 'nano-banana-2-2k', object: 'model' },
     { id: 'nano-banana-2-4k', object: 'model' },
     { id: 'nano-banana-2-lite', object: 'model' },
     { id: 'nano-banana', object: 'model' },
@@ -155,15 +157,44 @@ test('PearAPI 只为官方 Grok 1.5 及 preview 别名补充视频能力', async
   });
 });
 
-test('PearAPI GPT Image 2 2K/4K 变体继承文档声明的 16 张参考图和 13 种画幅', async () => {
+test('PearAPI GPT Image 2 / 2.5 及清晰度档继承同族 16 张参考图和 13 种画幅', async () => {
   const adapter = createPearApiAdapter(async () => Response.json({ data: [
     { id: 'gpt-image-2-2k', object: 'model' },
     { id: 'gpt-image-2-4k', object: 'model' },
+    { id: 'gpt-image-2.5', object: 'model' },
+    { id: 'gpt-image-2.5-2k', object: 'model' },
+    { id: 'gpt-image-2.5-4k', object: 'model' },
   ] }));
   const models = await adapter.listModels!({ apiKey: 'sk-test', serviceType: 'image' });
   for (const model of models) {
     assert.equal(model.capabilities.maxReferenceImages, 16);
     assert.equal(model.capabilities.aspectRatios?.length, 13);
     assert.equal(model.capabilities.source, 'adapter-override');
+  }
+});
+
+test('PearAPI Grok 生图按同族补全 4 张参考图和 13 种画幅（含目录正式变体与旧别名）', async () => {
+  const adapter = createPearApiAdapter(async () => Response.json({ data: [
+    { id: 'grok-imagine-image', object: 'model' },
+    { id: 'grok-imagine-image-2', object: 'model' },
+    { id: 'grok-imagine-image-2-2k', object: 'model' },
+    { id: 'grok-3-image', object: 'model' },
+    { id: 'grok-4-image', object: 'model' },
+  ] }));
+  const models = await adapter.listModels!({ apiKey: 'sk-test', serviceType: 'image' });
+  const ratios = [
+    '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2',
+    '19.5:9', '9:19.5', '20:9', '9:20',
+  ];
+  for (const id of ['grok-imagine-image', 'grok-imagine-image-2', 'grok-imagine-image-2-2k', 'grok-3-image', 'grok-4-image']) {
+    assert.deepEqual(models.find((model) => model.id === id)?.capabilities, {
+      modes: ['text-to-image', 'image-to-image'],
+      maxReferenceImages: 4,
+      aspectRatios: ratios,
+      billingMode: 'unknown',
+      supportsDuration: false,
+      supportedDurations: null,
+      source: 'adapter-override',
+    });
   }
 });

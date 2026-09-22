@@ -16,7 +16,7 @@ export interface ImageGenerationInput {
   provider?: string;
   size?: string;
   aspectRatio?: string;
-  storyboardId?: number | null;
+  panelId?: number | null;
   projectAssetId?: number | null;
   referenceImages: string[];
 }
@@ -25,7 +25,7 @@ export interface ImageGenerationRow {
   id: number;
   drama_id: number;
   project_asset_id: number | null;
-  storyboard_id: number | null;
+  panel_id: number | null;
   provider: string | null;
   prompt: string;
   model: string | null;
@@ -78,12 +78,12 @@ export class ImageGenerationService {
     const now = new Date().toISOString();
     const target = row.project_asset_id
       ? ['project_assets', row.project_asset_id] as const
-      : row.storyboard_id ? ['storyboards', row.storyboard_id] as const : undefined;
+      : row.panel_id ? ['panels', row.panel_id] as const : undefined;
     if (!target) throw new ValidationError('这条通用图片历史没有可切换的业务资产');
-    if (target[0] === 'storyboards') {
-      this.db.prepare('UPDATE storyboards SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
+    if (target[0] === 'panels') {
+      this.db.prepare('UPDATE panels SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
         .run(row.image_url, row.id, now, target[1]);
-      this.assets.markStoryboardImageChanged(target[1], { imageSelected: true });
+      this.assets.markPanelImageChanged(target[1], { imageSelected: true });
     } else {
       this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
         .run(row.image_url, row.local_path, row.id, now, target[1]);
@@ -95,20 +95,20 @@ export class ImageGenerationService {
   async importLocal(input: {
     dramaId: number;
     projectAssetId?: number;
-    storyboardId?: number;
+    panelId?: number;
     sourcePath: string;
     prompt?: string;
   }): Promise<ImageGenerationRow> {
-    if (!input.projectAssetId && !input.storyboardId) {
-      throw new ValidationError('本地上传必须指定项目资产或分镜');
+    if (!input.projectAssetId && !input.panelId) {
+      throw new ValidationError('本地上传必须指定项目资产或分格');
     }
-    if (input.projectAssetId && input.storyboardId) {
-      throw new ValidationError('本地上传不能同时指定项目资产和分镜');
+    if (input.projectAssetId && input.panelId) {
+      throw new ValidationError('本地上传不能同时指定项目资产和分格');
     }
     this.assertTargetAvailable({
       dramaId: input.dramaId,
       projectAssetId: input.projectAssetId,
-      storyboardId: input.storyboardId,
+      panelId: input.panelId,
       prompt: input.prompt ?? '本地上传',
       referenceImages: [],
     });
@@ -116,15 +116,15 @@ export class ImageGenerationService {
     const prompt = (input.prompt ?? '本地上传').trim() || '本地上传';
     const insert = this.db.prepare(`
       INSERT INTO image_generations (
-        drama_id, project_asset_id, storyboard_id, provider, prompt, reference_images, status, created_at, updated_at
+        drama_id, project_asset_id, panel_id, provider, prompt, reference_images, status, created_at, updated_at
       ) VALUES (?, ?, ?, 'local-upload', ?, '[]', 'pending', ?, ?)
-    `).run(input.dramaId, input.projectAssetId ?? null, input.storyboardId ?? null, prompt, now, now);
+    `).run(input.dramaId, input.projectAssetId ?? null, input.panelId ?? null, prompt, now, now);
     const id = Number(insert.lastInsertRowid);
     this.log.audit?.('image.generation.upload.started', {
       generationId: id,
       projectId: input.dramaId,
       projectAssetId: input.projectAssetId,
-      storyboardId: input.storyboardId,
+      panelId: input.panelId,
     });
     try {
       const archived = await this.mediaArchive.importFile({
@@ -136,7 +136,7 @@ export class ImageGenerationService {
       this.complete(id, 'local-upload', archived, {
         dramaId: input.dramaId,
         projectAssetId: input.projectAssetId,
-        storyboardId: input.storyboardId,
+        panelId: input.panelId,
         prompt,
         referenceImages: [],
       });
@@ -144,7 +144,7 @@ export class ImageGenerationService {
         generationId: id,
         projectId: input.dramaId,
         projectAssetId: input.projectAssetId,
-        storyboardId: input.storyboardId,
+        panelId: input.panelId,
         archived,
       });
       return this.get(id) as ImageGenerationRow;
@@ -154,21 +154,70 @@ export class ImageGenerationService {
         generationId: id,
         projectId: input.dramaId,
         projectAssetId: input.projectAssetId,
-        storyboardId: input.storyboardId,
+        panelId: input.panelId,
         error,
       });
       throw error;
     }
   }
 
-  clearStoryboardImage(storyboardId: number): void {
+  clearPanelImage(panelId: number): void {
     const now = new Date().toISOString();
     const changed = this.db.prepare(
-      'UPDATE storyboards SET image_url = NULL, current_image_generation_id = NULL, updated_at = ? WHERE id = ?',
-    ).run(now, storyboardId).changes;
-    if (!changed) throw new NotFoundError('分镜不存在');
-    this.assets.markStoryboardImageChanged(storyboardId, { imageSelected: false });
-    this.log.audit?.('image.generation.cleared', { storyboardId });
+      'UPDATE panels SET image_url = NULL, current_image_generation_id = NULL, updated_at = ? WHERE id = ?',
+    ).run(now, panelId).changes;
+    if (!changed) throw new NotFoundError('分格不存在');
+    this.assets.markPanelImageChanged(panelId, { imageSelected: false });
+    this.log.audit?.('image.generation.cleared', { panelId });
+  }
+
+  async remove(id: number): Promise<{ removed: boolean }> {
+    const row = this.get(id);
+    if (!row) throw new NotFoundError('图片生成记录不存在');
+    if (row.status === 'pending' || row.status === 'processing') {
+      throw new ValidationError('进行中的生成不能删除，请等完成或归档后再删');
+    }
+    if (row.status === 'completed' && (!row.local_path || !row.available)) {
+      throw new ValidationError('未归档完成的历史不能删除');
+    }
+    const now = new Date().toISOString();
+    const clearCurrent = this.db.transaction(() => {
+      if (row.project_asset_id) {
+        const asset = this.db.prepare(
+          'SELECT current_image_generation_id FROM project_assets WHERE id = ?',
+        ).get(row.project_asset_id) as { current_image_generation_id: number | null } | undefined;
+        if (asset?.current_image_generation_id === row.id) {
+          this.db.prepare(
+            'UPDATE project_assets SET image_url = NULL, local_path = NULL, current_image_generation_id = NULL, updated_at = ? WHERE id = ?',
+          ).run(now, row.project_asset_id);
+        }
+      }
+      if (row.panel_id) {
+        const panel = this.db.prepare(
+          'SELECT current_image_generation_id FROM panels WHERE id = ?',
+        ).get(row.panel_id) as { current_image_generation_id: number | null } | undefined;
+        if (panel?.current_image_generation_id === row.id) {
+          this.db.prepare(
+            'UPDATE panels SET image_url = NULL, current_image_generation_id = NULL, updated_at = ? WHERE id = ?',
+          ).run(now, row.panel_id);
+        }
+      }
+      this.db.prepare('DELETE FROM image_generations WHERE id = ?').run(row.id);
+    });
+    clearCurrent();
+    if (row.project_asset_id) this.assets.markAssetImageChanged(row.project_asset_id);
+    if (row.panel_id) this.assets.markPanelImageChanged(row.panel_id, { imageSelected: false });
+    if (row.local_path) {
+      await this.mediaArchive.remove(row.local_path).catch(() => undefined);
+    }
+    this.log.audit?.('image.generation.removed', {
+      generationId: row.id,
+      projectId: row.drama_id,
+      projectAssetId: row.project_asset_id,
+      panelId: row.panel_id,
+      status: row.status,
+    });
+    return { removed: true };
   }
 
   create(input: ImageGenerationInput): ImageGenerationRow {
@@ -188,13 +237,13 @@ export class ImageGenerationService {
     const now = new Date().toISOString();
     const insert = this.db.prepare(`
       INSERT INTO image_generations (
-        drama_id, project_asset_id, storyboard_id, provider, prompt, model,
+        drama_id, project_asset_id, panel_id, provider, prompt, model,
         size, aspect_ratio, reference_images, status, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
     `).run(
       input.dramaId,
       input.projectAssetId ?? null,
-      input.storyboardId ?? null,
+      input.panelId ?? null,
       aiConfig.provider,
       input.prompt,
       model,
@@ -208,7 +257,7 @@ export class ImageGenerationService {
     this.log.audit?.('image.generation.created', {
       generationId: id,
       projectId: input.dramaId,
-      target: { projectAssetId: input.projectAssetId, storyboardId: input.storyboardId },
+      target: { projectAssetId: input.projectAssetId, panelId: input.panelId },
       provider: aiConfig.provider,
       model,
       mode,
@@ -252,7 +301,7 @@ export class ImageGenerationService {
           this.log.audit?.('image.generation.completed', {
             generationId: id,
             projectId: input.dramaId,
-            target: { projectAssetId: input.projectAssetId, storyboardId: input.storyboardId },
+            target: { projectAssetId: input.projectAssetId, panelId: input.panelId },
             archived,
           });
         } catch (error) {
@@ -290,24 +339,21 @@ export class ImageGenerationService {
           file_size = ?, failure_stage = NULL, error_msg = NULL, updated_at = ?, completed_at = ? WHERE id = ?
       `).run(archived.publicUrl, sourceUrl, archived.relativePath, archived.mediaType, archived.fileSize, now, now, id);
       if (input.projectAssetId) this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, archived.relativePath, id, now, input.projectAssetId);
-      if (input.storyboardId) this.db.prepare('UPDATE storyboards SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, id, now, input.storyboardId);
+      if (input.panelId) this.db.prepare('UPDATE panels SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, id, now, input.panelId);
     });
     commit();
     if (input.projectAssetId) this.assets.markAssetImageChanged(input.projectAssetId);
-    if (input.storyboardId) this.assets.markStoryboardImageChanged(input.storyboardId, { imageSelected: true });
+    if (input.panelId) this.assets.markPanelImageChanged(input.panelId, { imageSelected: true });
   }
 
   private assertTargetAvailable(input: ImageGenerationInput): void {
     const target = input.projectAssetId
       ? ['project_asset_id', input.projectAssetId, '项目资产'] as const
-      : input.storyboardId ? ['storyboard_id', input.storyboardId, '分镜'] as const : undefined;
+      : input.panelId ? ['panel_id', input.panelId, '分格'] as const : undefined;
     if (!target) return;
     const active = this.db.prepare(`SELECT id FROM image_generations WHERE ${target[0]} = ? AND status IN ('pending', 'processing') LIMIT 1`)
       .get(target[1]) as { id: number } | undefined;
-    const activeVideo = target[0] === 'storyboard_id'
-      ? this.db.prepare("SELECT id FROM video_generations WHERE storyboard_id = ? AND status IN ('pending', 'processing') LIMIT 1").get(target[1])
-      : undefined;
-    if (active || activeVideo) throw new ConflictError(`${target[2]}已有进行中的生成任务，请等待完成或先取消`);
+    if (active) throw new ConflictError(`${target[2]}已有进行中的生成任务，请等待完成或先取消`);
   }
 
   private mark(id: number, status: string): void {

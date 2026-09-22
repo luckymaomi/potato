@@ -1,18 +1,22 @@
-import type { JsonObject, Logger } from '../types/core';
-import { asRecord, parseJson, readNumber, readString } from '../types/core';
+import type { JsonObject, Logger } from "../types/core";
+import { asRecord, parseJson, readNumber, readString } from "../types/core";
 import type {
   Drama,
   DramaRow,
   EpisodeRow,
-  StoryboardRow,
+  PanelRow,
   MediaLifecycleState,
   ProjectAssetRow,
-} from '../types/domain';
-import type { SQLiteDatabase } from '../types/core';
-import { NotFoundError, ValidationError } from '../errors';
-import { MediaArchiveService } from './mediaArchiveService';
+} from "../types/domain";
+import type { SQLiteDatabase } from "../types/core";
+import { NotFoundError, ValidationError } from "../errors";
+import { MediaArchiveService } from "./mediaArchiveService";
 
-export interface DramaListInput { page: number; pageSize: number; keyword?: string }
+export interface DramaListInput {
+  page: number;
+  pageSize: number;
+  keyword?: string;
+}
 
 export interface StoryOverview {
   story_hook: string;
@@ -38,13 +42,25 @@ export class ProjectService {
   ) {}
 
   list(input: DramaListInput): { items: Drama[]; total: number } {
-    const pattern = `%${input.keyword ?? ''}%`;
-    const where = input.keyword ? 'WHERE title LIKE ? OR description LIKE ? OR story_hook LIKE ? OR storyline LIKE ?' : '';
+    const pattern = `%${input.keyword ?? ""}%`;
+    const where = input.keyword
+      ? "WHERE title LIKE ? OR description LIKE ? OR story_hook LIKE ? OR storyline LIKE ?"
+      : "";
     const params = input.keyword ? [pattern, pattern, pattern, pattern] : [];
-    const totalRow = this.db.prepare(`SELECT COUNT(*) AS total FROM dramas ${where}`).get(...params) as { total: number };
-    const rows = this.db.prepare(`
+    const totalRow = this.db
+      .prepare(`SELECT COUNT(*) AS total FROM dramas ${where}`)
+      .get(...params) as { total: number };
+    const rows = this.db
+      .prepare(
+        `
       SELECT * FROM dramas ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?
-    `).all(...params, input.pageSize, (input.page - 1) * input.pageSize) as DramaRow[];
+    `,
+      )
+      .all(
+        ...params,
+        input.pageSize,
+        (input.page - 1) * input.pageSize,
+      ) as DramaRow[];
     const episodeStatement = this.db.prepare(`
       SELECT id, drama_id, episode_number, title, status, updated_at
       FROM episodes WHERE drama_id = ? ORDER BY episode_number
@@ -60,33 +76,55 @@ export class ProjectService {
   }
 
   get(id: number): Drama | undefined {
-    const row = this.db.prepare('SELECT * FROM dramas WHERE id = ?').get(id) as DramaRow | undefined;
+    const row = this.db.prepare("SELECT * FROM dramas WHERE id = ?").get(id) as
+      | DramaRow
+      | undefined;
     if (!row) return undefined;
     const drama = normalizeDrama(row);
-    const episodes = this.db.prepare('SELECT * FROM episodes WHERE drama_id = ? ORDER BY episode_number').all(id) as EpisodeRow[];
-    const storyboardStatement = this.db.prepare('SELECT * FROM storyboards WHERE episode_id = ? ORDER BY storyboard_number');
+    const episodes = this.db
+      .prepare(
+        "SELECT * FROM episodes WHERE drama_id = ? ORDER BY episode_number",
+      )
+      .all(id) as EpisodeRow[];
+    const panelStatement = this.db.prepare(
+      "SELECT * FROM panels WHERE episode_id = ? ORDER BY panel_number",
+    );
     drama.episodes = episodes.map((episode) => ({
       ...episode,
-      storyboards: (storyboardStatement.all(episode.id) as StoryboardRow[]).map((storyboard) => ({
-        ...storyboard,
-        project_asset_ids: relationIds(this.db, 'storyboard_project_assets', 'project_asset_id', storyboard.id),
-        extra_reference_images: parseJson<string[]>(String(storyboard.extra_reference_images), []),
-        image_recipe_references: parseJson<string[]>(String(storyboard.image_recipe_references), []),
-        video_recipe_references: parseJson<string[]>(String(storyboard.video_recipe_references), []),
-        image_needs_review: Boolean(storyboard.image_needs_review),
-        video_needs_review: Boolean(storyboard.video_needs_review),
-        recipe_needs_reassembly: Boolean(storyboard.recipe_needs_reassembly),
+      panels: (panelStatement.all(episode.id) as RawPanel[]).map((panel) => ({
+        ...panel,
+        project_asset_ids: relationIds(
+          this.db,
+          "panel_project_assets",
+          "project_asset_id",
+          panel.id,
+        ),
+        extra_reference_images: parseJson<string[]>(
+          String(panel.extra_reference_images),
+          [],
+        ),
+        image_recipe_references: parseJson<string[]>(
+          String(panel.image_recipe_references),
+          [],
+        ),
+        image_needs_review: Boolean(panel.image_needs_review),
+        recipe_needs_reassembly: Boolean(panel.recipe_needs_reassembly),
       })),
     }));
-    drama.project_assets = (this.db.prepare('SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id').all(id) as ProjectAssetRow[])
-      .map((asset) => ({
-        ...asset,
-        text_profile: parseJson(String(asset.text_profile), {}),
-        input_reference_images: parseJson<string[]>(String(asset.input_reference_images), []),
-      }));
+    drama.project_assets = (
+      this.db
+        .prepare("SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id")
+        .all(id) as ProjectAssetRow[]
+    ).map((asset) => ({
+      ...asset,
+      text_profile: parseJson(String(asset.text_profile), {}),
+      input_reference_images: parseJson<string[]>(
+        String(asset.input_reference_images),
+        [],
+      ),
+    }));
     drama.media_lifecycle = {
-      images: this.mediaLifecycle('image_generations', 'image_url', id),
-      videos: this.mediaLifecycle('video_generations', 'video_url', id),
+      images: this.mediaLifecycle("image_generations", "image_url", id),
     };
     return drama;
   }
@@ -94,73 +132,115 @@ export class ProjectService {
   create(input: unknown): Drama {
     const body = asRecord(input) ?? {};
     const title = readString(body.title);
-    if (!title) throw new ValidationError('项目名称不能为空');
+    if (!title) throw new ValidationError("项目名称不能为空");
     const now = new Date().toISOString();
     const metadata = jsonObject(body.metadata);
     const createProject = this.db.transaction(() => {
-      const result = this.db.prepare(`
+      const result = this.db
+        .prepare(
+          `
         INSERT INTO dramas (title, description, story_hook, worldview, storyline, tone, reference_setting, genre, style, status, thumbnail, metadata, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        title,
-        readString(body.description) ?? null,
-        readString(body.story_hook) ?? '',
-        readString(body.worldview) ?? '',
-        readString(body.storyline) ?? '',
-        readString(body.tone) ?? '',
-        readString(body.reference_setting) ?? '',
-        readString(body.genre) ?? null,
-        readString(body.style) ?? 'realistic',
-        readString(body.status) ?? 'draft',
-        readString(body.thumbnail) ?? null,
-        JSON.stringify(metadata),
-        now,
-        now,
-      );
+      `,
+        )
+        .run(
+          title,
+          readString(body.description) ?? null,
+          readString(body.story_hook) ?? "",
+          readString(body.worldview) ?? "",
+          readString(body.storyline) ?? "",
+          readString(body.tone) ?? "",
+          readString(body.reference_setting) ?? "",
+          readString(body.genre) ?? null,
+          readString(body.style) ?? "realistic",
+          readString(body.status) ?? "draft",
+          readString(body.thumbnail) ?? null,
+          JSON.stringify(metadata),
+          now,
+          now,
+        );
       const projectId = Number(result.lastInsertRowid);
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO episodes (drama_id, episode_number, title, duration, script_content, episode_goal, conflict, turning_point, ending_hook, scene_notes, status, created_at, updated_at)
         VALUES (?, 1, '第 1 集', 0, '', '', '', '', '', '', 'draft', ?, ?)
-      `).run(projectId, now, now);
+      `,
+        )
+        .run(projectId, now, now);
       return projectId;
     });
     const project = this.require(createProject());
-    this.log?.audit?.('project.created', { projectId: project.id, title: project.title, metadata: project.metadata });
+    this.log?.audit?.("project.created", {
+      projectId: project.id,
+      title: project.title,
+      metadata: project.metadata,
+    });
     return project;
   }
 
   update(id: number, input: unknown): Drama {
     const current = this.require(id);
     const body = asRecord(input) ?? {};
-    const metadata = body.metadata === undefined ? current.metadata : jsonObject(body.metadata);
-    this.db.prepare(`
+    const metadata =
+      body.metadata === undefined
+        ? current.metadata
+        : jsonObject(body.metadata);
+    this.db
+      .prepare(
+        `
       UPDATE dramas SET title = ?, description = ?, story_hook = ?, worldview = ?, storyline = ?, tone = ?, reference_setting = ?, genre = ?, style = ?, status = ?, thumbnail = ?, metadata = ?, updated_at = ?
       WHERE id = ?
-    `).run(
-      readString(body.title) ?? current.title,
-      body.description === undefined ? current.description : readString(body.description) ?? null,
-      body.story_hook === undefined ? current.story_hook : readString(body.story_hook) ?? '',
-      body.worldview === undefined ? current.worldview : readString(body.worldview) ?? '',
-      body.storyline === undefined ? current.storyline : readString(body.storyline) ?? '',
-      body.tone === undefined ? current.tone : readString(body.tone) ?? '',
-      body.reference_setting === undefined ? current.reference_setting : readString(body.reference_setting) ?? '',
-      body.genre === undefined ? current.genre : readString(body.genre) ?? null,
-      readString(body.style) ?? current.style,
-      readString(body.status) ?? current.status,
-      body.thumbnail === undefined ? current.thumbnail : readString(body.thumbnail) ?? null,
-      JSON.stringify(metadata),
-      new Date().toISOString(),
-      id,
-    );
+    `,
+      )
+      .run(
+        readString(body.title) ?? current.title,
+        body.description === undefined
+          ? current.description
+          : (readString(body.description) ?? null),
+        body.story_hook === undefined
+          ? current.story_hook
+          : (readString(body.story_hook) ?? ""),
+        body.worldview === undefined
+          ? current.worldview
+          : (readString(body.worldview) ?? ""),
+        body.storyline === undefined
+          ? current.storyline
+          : (readString(body.storyline) ?? ""),
+        body.tone === undefined ? current.tone : (readString(body.tone) ?? ""),
+        body.reference_setting === undefined
+          ? current.reference_setting
+          : (readString(body.reference_setting) ?? ""),
+        body.genre === undefined
+          ? current.genre
+          : (readString(body.genre) ?? null),
+        readString(body.style) ?? current.style,
+        readString(body.status) ?? current.status,
+        body.thumbnail === undefined
+          ? current.thumbnail
+          : (readString(body.thumbnail) ?? null),
+        JSON.stringify(metadata),
+        new Date().toISOString(),
+        id,
+      );
     const updated = this.require(id);
-    this.log?.audit?.('project.updated', { projectId: id, input: body, title: updated.title });
+    this.log?.audit?.("project.updated", {
+      projectId: id,
+      input: body,
+      title: updated.title,
+    });
     return updated;
   }
 
   remove(id: number): boolean {
     const current = this.get(id);
-    const removed = this.db.prepare('DELETE FROM dramas WHERE id = ?').run(id).changes > 0;
-    if (removed) this.log?.audit?.('project.deleted', { projectId: id, title: current?.title });
+    const removed =
+      this.db.prepare("DELETE FROM dramas WHERE id = ?").run(id).changes > 0;
+    if (removed)
+      this.log?.audit?.("project.deleted", {
+        projectId: id,
+        title: current?.title,
+      });
     return removed;
   }
 
@@ -172,24 +252,51 @@ export class ProjectService {
       for (const raw of rows) {
         const item = asRecord(raw) ?? {};
         const number = readNumber(item.episode_number);
-        if (!number || number < 1) throw new ValidationError('集数必须是大于 0 的数字');
-        const existing = this.db.prepare('SELECT * FROM episodes WHERE drama_id = ? AND episode_number = ?')
+        if (!number || number < 1)
+          throw new ValidationError("集数必须是大于 0 的数字");
+        const existing = this.db
+          .prepare(
+            "SELECT * FROM episodes WHERE drama_id = ? AND episode_number = ?",
+          )
           .get(dramaId, number) as EpisodeRow | undefined;
-        const title = readString(item.title) ?? existing?.title ?? `第 ${number} 集`;
-        const duration = item.duration === undefined ? (existing?.duration ?? 0) : (readNumber(item.duration) ?? 0);
-        const script = item.script_content === undefined
-          ? (existing?.script_content ?? '')
-          : (readString(item.script_content) ?? '');
-        const description = item.description === undefined
-          ? (existing?.description ?? null)
-          : (readString(item.description) ?? null);
-        const episodeGoal = item.episode_goal === undefined ? (existing?.episode_goal ?? '') : (readString(item.episode_goal) ?? '');
-        const conflict = item.conflict === undefined ? (existing?.conflict ?? '') : (readString(item.conflict) ?? '');
-        const turningPoint = item.turning_point === undefined ? (existing?.turning_point ?? '') : (readString(item.turning_point) ?? '');
-        const endingHook = item.ending_hook === undefined ? (existing?.ending_hook ?? '') : (readString(item.ending_hook) ?? '');
-        const sceneNotes = item.scene_notes === undefined ? (existing?.scene_notes ?? '') : (readString(item.scene_notes) ?? '');
-        const status = readString(item.status) ?? existing?.status ?? 'draft';
-        this.db.prepare(`
+        const title =
+          readString(item.title) ?? existing?.title ?? `第 ${number} 集`;
+        const duration =
+          item.duration === undefined
+            ? (existing?.duration ?? 0)
+            : (readNumber(item.duration) ?? 0);
+        const script =
+          item.script_content === undefined
+            ? (existing?.script_content ?? "")
+            : (readString(item.script_content) ?? "");
+        const description =
+          item.description === undefined
+            ? (existing?.description ?? null)
+            : (readString(item.description) ?? null);
+        const episodeGoal =
+          item.episode_goal === undefined
+            ? (existing?.episode_goal ?? "")
+            : (readString(item.episode_goal) ?? "");
+        const conflict =
+          item.conflict === undefined
+            ? (existing?.conflict ?? "")
+            : (readString(item.conflict) ?? "");
+        const turningPoint =
+          item.turning_point === undefined
+            ? (existing?.turning_point ?? "")
+            : (readString(item.turning_point) ?? "");
+        const endingHook =
+          item.ending_hook === undefined
+            ? (existing?.ending_hook ?? "")
+            : (readString(item.ending_hook) ?? "");
+        const sceneNotes =
+          item.scene_notes === undefined
+            ? (existing?.scene_notes ?? "")
+            : (readString(item.scene_notes) ?? "");
+        const status = readString(item.status) ?? existing?.status ?? "draft";
+        this.db
+          .prepare(
+            `
           INSERT INTO episodes (drama_id, episode_number, title, duration, script_content, description, episode_goal, conflict, turning_point, ending_hook, scene_notes, status, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(drama_id, episode_number) DO UPDATE SET
@@ -204,97 +311,175 @@ export class ProjectService {
             scene_notes = excluded.scene_notes,
             status = excluded.status,
             updated_at = excluded.updated_at
-        `).run(dramaId, number, title, duration, script, description, episodeGoal, conflict, turningPoint, endingHook, sceneNotes, status, now, now);
+        `,
+          )
+          .run(
+            dramaId,
+            number,
+            title,
+            duration,
+            script,
+            description,
+            episodeGoal,
+            conflict,
+            turningPoint,
+            endingHook,
+            sceneNotes,
+            status,
+            now,
+            now,
+          );
       }
     });
     save();
     this.touch(dramaId);
-    const episodes = this.db.prepare('SELECT * FROM episodes WHERE drama_id = ? ORDER BY episode_number').all(dramaId) as EpisodeRow[];
-    this.log?.audit?.('project.episodes.saved', { projectId: dramaId, episodes });
+    const episodes = this.db
+      .prepare(
+        "SELECT * FROM episodes WHERE drama_id = ? ORDER BY episode_number",
+      )
+      .all(dramaId) as EpisodeRow[];
+    this.log?.audit?.("project.episodes.saved", {
+      projectId: dramaId,
+      episodes,
+    });
     return episodes;
   }
 
-  updateEpisode(dramaId: number, episodeId: number, input: unknown): EpisodeRow {
+  updateEpisode(
+    dramaId: number,
+    episodeId: number,
+    input: unknown,
+  ): EpisodeRow {
     this.require(dramaId);
     const current = this.requireEpisode(dramaId, episodeId);
     const body = asRecord(input) ?? {};
     const title = readString(body.title);
-    if (title !== undefined && !title.trim()) throw new ValidationError('剧集名称不能为空');
-    const nextNumber = body.episode_number === undefined ? current.episode_number : readNumber(body.episode_number);
-    if (!nextNumber || nextNumber < 1) throw new ValidationError('集数必须是大于 0 的数字');
+    if (title !== undefined && !title.trim())
+      throw new ValidationError("剧集名称不能为空");
+    const nextNumber =
+      body.episode_number === undefined
+        ? current.episode_number
+        : readNumber(body.episode_number);
+    if (!nextNumber || nextNumber < 1)
+      throw new ValidationError("集数必须是大于 0 的数字");
     if (nextNumber !== current.episode_number) {
-      const clash = this.db.prepare('SELECT id FROM episodes WHERE drama_id = ? AND episode_number = ? AND id != ?')
+      const clash = this.db
+        .prepare(
+          "SELECT id FROM episodes WHERE drama_id = ? AND episode_number = ? AND id != ?",
+        )
         .get(dramaId, nextNumber, episodeId) as { id: number } | undefined;
       if (clash) throw new ValidationError(`第 ${nextNumber} 集已存在`);
     }
     const now = new Date().toISOString();
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       UPDATE episodes SET episode_number = ?, title = ?, description = ?, episode_goal = ?, conflict = ?, turning_point = ?, ending_hook = ?, scene_notes = ?, status = ?, updated_at = ?
       WHERE id = ? AND drama_id = ?
-    `).run(
-      nextNumber,
-      title ?? current.title,
-      body.description === undefined ? current.description : (readString(body.description) ?? null),
-      current.episode_goal,
-      current.conflict,
-      current.turning_point,
-      current.ending_hook,
-      current.scene_notes,
-      readString(body.status) ?? current.status,
-      now,
-      episodeId,
-      dramaId,
-    );
+    `,
+      )
+      .run(
+        nextNumber,
+        title ?? current.title,
+        body.description === undefined
+          ? current.description
+          : (readString(body.description) ?? null),
+        current.episode_goal,
+        current.conflict,
+        current.turning_point,
+        current.ending_hook,
+        current.scene_notes,
+        readString(body.status) ?? current.status,
+        now,
+        episodeId,
+        dramaId,
+      );
     this.touch(dramaId);
     const updated = this.requireEpisode(dramaId, episodeId);
-    this.log?.audit?.('project.episode.updated', { projectId: dramaId, episodeId, title: updated.title, episodeNumber: updated.episode_number });
+    this.log?.audit?.("project.episode.updated", {
+      projectId: dramaId,
+      episodeId,
+      title: updated.title,
+      episodeNumber: updated.episode_number,
+    });
     return updated;
   }
 
   removeEpisode(dramaId: number, episodeId: number): boolean {
     this.require(dramaId);
     this.requireEpisode(dramaId, episodeId);
-    const total = (this.db.prepare('SELECT COUNT(*) AS total FROM episodes WHERE drama_id = ?').get(dramaId) as { total: number }).total;
-    if (total <= 1) throw new ValidationError('项目至少保留一集，不能删除最后一集');
-    const removed = this.db.prepare('DELETE FROM episodes WHERE id = ? AND drama_id = ?').run(episodeId, dramaId).changes > 0;
+    const total = (
+      this.db
+        .prepare("SELECT COUNT(*) AS total FROM episodes WHERE drama_id = ?")
+        .get(dramaId) as { total: number }
+    ).total;
+    if (total <= 1)
+      throw new ValidationError("项目至少保留一集，不能删除最后一集");
+    const removed =
+      this.db
+        .prepare("DELETE FROM episodes WHERE id = ? AND drama_id = ?")
+        .run(episodeId, dramaId).changes > 0;
     if (removed) {
       this.touch(dramaId);
-      this.log?.audit?.('project.episode.deleted', { projectId: dramaId, episodeId });
+      this.log?.audit?.("project.episode.deleted", {
+        projectId: dramaId,
+        episodeId,
+      });
     }
     return removed;
   }
 
   require(id: number): Drama {
     const project = this.get(id);
-    if (!project) throw new NotFoundError('项目不存在');
+    if (!project) throw new NotFoundError("项目不存在");
     return project;
   }
 
   private requireEpisode(dramaId: number, episodeId: number): EpisodeRow {
-    const episode = this.db.prepare('SELECT * FROM episodes WHERE id = ? AND drama_id = ?').get(episodeId, dramaId) as EpisodeRow | undefined;
-    if (!episode) throw new NotFoundError('剧集不存在');
+    const episode = this.db
+      .prepare("SELECT * FROM episodes WHERE id = ? AND drama_id = ?")
+      .get(episodeId, dramaId) as EpisodeRow | undefined;
+    if (!episode) throw new NotFoundError("剧集不存在");
     return episode;
   }
 
   private touch(id: number): void {
-    this.db.prepare('UPDATE dramas SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+    this.db
+      .prepare("UPDATE dramas SET updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), id);
   }
 
-  private mediaLifecycle(table: 'image_generations' | 'video_generations', urlColumn: 'image_url' | 'video_url', dramaId: number): Record<string, MediaLifecycleState> {
-    const rows = this.db.prepare(`
+  private mediaLifecycle(
+    table: "image_generations",
+    urlColumn: "image_url",
+    dramaId: number,
+  ): Record<string, MediaLifecycleState> {
+    const rows = this.db
+      .prepare(
+        `
       SELECT id, status, ${urlColumn} AS url, local_path, failure_stage
       FROM ${table} WHERE drama_id = ? ORDER BY id
-    `).all(dramaId) as Array<Omit<MediaLifecycleState, 'generation_id' | 'available'> & { id: number }>;
-    return Object.fromEntries(rows.map((row) => [String(row.id), {
-      generation_id: row.id,
-      status: row.status,
-      url: row.url,
-      local_path: row.local_path,
-      failure_stage: row.failure_stage,
-      available: row.status === 'completed'
-        && Boolean(row.url?.startsWith('/static/'))
-        && this.mediaArchive.isAvailable(row.local_path),
-    }]));
+    `,
+      )
+      .all(dramaId) as Array<
+      Omit<MediaLifecycleState, "generation_id" | "available"> & { id: number }
+    >;
+    return Object.fromEntries(
+      rows.map((row) => [
+        String(row.id),
+        {
+          generation_id: row.id,
+          status: row.status,
+          url: row.url,
+          local_path: row.local_path,
+          failure_stage: row.failure_stage,
+          available:
+            row.status === "completed" &&
+            Boolean(row.url?.startsWith("/static/")) &&
+            this.mediaArchive.isAvailable(row.local_path),
+        },
+      ]),
+    );
   }
 }
 
@@ -304,10 +489,37 @@ function normalizeDrama(row: DramaRow): Drama {
 
 function jsonObject(value: unknown): JsonObject {
   const object = asRecord(value);
-  return object ? JSON.parse(JSON.stringify(object)) as JsonObject : {};
+  return object ? (JSON.parse(JSON.stringify(object)) as JsonObject) : {};
 }
 
-function relationIds(db: SQLiteDatabase, table: string, column: string, storyboardId: number): number[] {
-  return (db.prepare(`SELECT ${column} AS id FROM ${table} WHERE storyboard_id = ? ORDER BY ${column}`)
-    .all(storyboardId) as Array<{ id: number }>).map((item) => item.id);
+interface RawPanel
+  extends Omit<
+    PanelRow,
+    | "project_asset_ids"
+    | "extra_reference_images"
+    | "image_recipe_references"
+    | "image_needs_review"
+    | "recipe_needs_reassembly"
+  > {
+  extra_reference_images: string;
+  image_recipe_references: string;
+  image_needs_review: number;
+  recipe_needs_reassembly: number;
+}
+
+function relationIds(
+  db: SQLiteDatabase,
+  table: string,
+  column: string,
+  panelId: number,
+): number[] {
+  const ownerColumn =
+    table === "panel_project_assets" ? "panel_id" : "panel_id";
+  return (
+    db
+      .prepare(
+        `SELECT ${column} AS id FROM ${table} WHERE ${ownerColumn} = ? ORDER BY ${column}`,
+      )
+      .all(panelId) as Array<{ id: number }>
+  ).map((item) => item.id);
 }

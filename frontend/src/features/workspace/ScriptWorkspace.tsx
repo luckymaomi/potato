@@ -33,10 +33,10 @@ const overviewFields: Array<{ name: keyof StoryOverview; label: string; placehol
 ]
 
 const planFields: Array<{ name: keyof EpisodeStoryPlan; label: string; placeholder: string }> = [
-  { name: 'episode_goal', label: '本集目标', placeholder: '这一集结束时，故事要推进到哪里。' },
-  { name: 'conflict', label: '主要冲突', placeholder: '本集最重要的对抗或阻碍。' },
+  { name: 'episode_goal', label: '本话目标', placeholder: '这一话结束时，故事要推进到哪里。' },
+  { name: 'conflict', label: '主要冲突', placeholder: '本话最重要的对抗或阻碍。' },
   { name: 'turning_point', label: '转折', placeholder: '哪一个事件改变了局面。' },
-  { name: 'ending_hook', label: '结尾钩子', placeholder: '结尾留下的悬念、问题或下一集动力。' },
+  { name: 'ending_hook', label: '结尾钩子', placeholder: '结尾留下的悬念、问题或下一话动力。' },
   { name: 'scene_notes', label: '场次与节拍', placeholder: '按场次写地点、动作、对白和情绪节拍。' },
 ]
 
@@ -113,14 +113,14 @@ export function ScriptWorkspace() {
             <Form.Item key={field.name} name={field.name} label={field.label}><Input.TextArea aria-label={field.label} autoSize={{ minRows: 2, maxRows: 5 }} placeholder={field.placeholder} /></Form.Item>
           ))}</div>
         </Card>
-        <Card title="本集结构" className="script-section-card">
+        <Card title="本话结构" className="script-section-card">
           <div className="script-field-grid">{planFields.map((field) => (
             <Form.Item key={field.name} name={field.name} label={field.label}><Input.TextArea aria-label={field.label} autoSize={{ minRows: 2, maxRows: 5 }} placeholder={field.placeholder} /></Form.Item>
           ))}</div>
         </Card>
         <Card title={episode.title} extra={<span className="script-editor-count">{values?.script_content?.length ?? 0} 字</span>} className="script-section-card script-content-card">
           <div className="script-scene-toolbar">
-            <span>按场次填写，再组装成本集剧本。</span>
+            <span>按场次填写，再组装成本话剧本。</span>
             <Space wrap>
               <Button icon={<PlusOutlined />} onClick={addScene}>新增场次</Button>
               <Button type="primary" icon={<BuildOutlined />} loading={assembling} onClick={() => void assembleScript()}>组装剧本</Button>
@@ -137,7 +137,7 @@ export function ScriptWorkspace() {
               </div>
             ))}
           </div>
-          <Form.Item name="script_content" label="本集剧本" className="script-content-field"><Input.TextArea aria-label="本集剧本" placeholder="按场次写下动作、对白和情绪。" /></Form.Item>
+          <Form.Item name="script_content" label="本话剧本" className="script-content-field"><Input.TextArea aria-label="本话剧本" placeholder="按场次写下动作、对白和情绪。" /></Form.Item>
         </Card>
       </Form>
     </div>

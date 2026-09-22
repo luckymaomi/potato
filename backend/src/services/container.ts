@@ -1,25 +1,25 @@
 import type { ProviderRegistry } from '../providers';
 import type { AppConfig, Logger, SQLiteDatabase } from '../types/core';
 import { AiConfigService } from './aiConfigService';
-import { CompositionService } from './compositionService';
 import { AssetRepository } from './assetRepository';
 import { ImageGenerationService } from './imageGenerationService';
 import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveService } from './mediaArchiveService';
-import { EpisodeDeliveryService } from './episodeDeliveryService';
 import { ProjectService } from './projectService';
 import { TaskService } from './taskService';
-import { VideoGenerationService } from './videoGenerationService';
+import { CaptionService } from './captionService';
+import { PageLayoutService } from './pageLayoutService';
+import { FreedubService } from './freedubService';
 
 export interface ServiceContainer {
   aiConfigs: AiConfigService;
-  composition: CompositionService;
   assets: AssetRepository;
   images: ImageGenerationService;
-  delivery: EpisodeDeliveryService;
   projects: ProjectService;
   tasks: TaskService;
-  videos: VideoGenerationService;
+  captions: CaptionService;
+  pages: PageLayoutService;
+  freedub: FreedubService;
 }
 
 export function createServices(
@@ -35,17 +35,17 @@ export function createServices(
   const assets = new AssetRepository(db, log);
   const mediaReferences = new MediaReferenceService(config, db);
   const images = new ImageGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log, assets);
-  const videos = new VideoGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log, assets);
-  const composition = new CompositionService(db, config, tasks, log);
-  const delivery = new EpisodeDeliveryService(db, config);
+  const captions = new CaptionService(db);
+  const pages = new PageLayoutService(db, config);
+  const freedub = new FreedubService(db, config);
   return {
     aiConfigs,
-    composition,
     assets,
     images,
-    delivery,
     projects,
     tasks,
-    videos,
+    captions,
+    pages,
+    freedub,
   };
 }

@@ -71,7 +71,7 @@ async function taskDone(get: () => { status: string; error: string | null } | un
   throw new Error('task did not finish');
 }
 
-test('项目服务持久化多集、项目资产和各集分镜', () => {
+test('项目服务持久化多话、项目资产和各话分格', () => {
   const { db, services } = setup();
   try {
     const project = services.projects.create({ title: '夜城', metadata: { aspect_ratio: '9:16' } });
@@ -85,12 +85,12 @@ test('项目服务持久化多集、项目资产和各集分镜', () => {
       text_profile: { occupation: '女王', default_outfit: '深红礼服' },
     });
     const episodes = services.projects.require(project.id).episodes ?? [];
-    services.assets.createStoryboard({ episode_id: episodes[0]?.id, title: '归来', project_asset_ids: [queen.id] });
-    services.assets.createStoryboard({ episode_id: episodes[1]?.id, title: '审判', project_asset_ids: [queen.id] });
+    services.assets.createPanel({ episode_id: episodes[0]?.id, title: '归来', project_asset_ids: [queen.id] });
+    services.assets.createPanel({ episode_id: episodes[1]?.id, title: '审判', project_asset_ids: [queen.id] });
 
     const saved = services.projects.require(project.id);
     assert.deepEqual(saved.episodes?.map((episode) => [episode.episode_number, episode.script_content]), [[1, '雨夜归城'], [2, '王厅审判']]);
-    assert.deepEqual(saved.episodes?.map((episode) => episode.storyboards?.[0]?.project_asset_ids), [[queen.id], [queen.id]]);
+    assert.deepEqual(saved.episodes?.map((episode) => episode.panels?.[0]?.project_asset_ids), [[queen.id], [queen.id]]);
     assert.deepEqual(saved.project_assets?.[0]?.text_profile, { occupation: '女王', default_outfit: '深红礼服' });
   } finally { db.close(); }
 });
@@ -234,7 +234,7 @@ test('单卡任务公开排队、生成、归档和本地文件完成状态', as
   } finally { releaseProvider(); db.close(); }
 });
 
-test('分镜显式组装两份配方，图片生成消费用户保存的图片配方', async () => {
+test('分格显式组装图片配方，图片生成消费用户保存的图片配方', async () => {
   let receivedPrompt = '';
   let receivedReferences: string[] = [];
   const { db, services, config } = setup({
@@ -251,42 +251,35 @@ test('分镜显式组装两份配方，图片生成消费用户保存的图片�
   await once(server, 'listening');
   try {
     await services.aiConfigs.refresh('agnes');
-    const project = services.projects.create({ title: '分镜图消费' });
+    const project = services.projects.create({ title: '漫画底板消费' });
     const episode = project.episodes?.[0];
     assert.ok(episode);
     const asset = services.assets.createProjectAsset(project.id, {
       kind: 'prop', name: '王冠', text_profile: { material: '暗金' },
     });
     db.prepare('UPDATE project_assets SET image_url = ? WHERE id = ?').run(TEST_PNG, asset.id);
-    const shot = services.assets.createStoryboard({
+    const shot = services.assets.createPanel({
       episode_id: episode.id,
       image_prompt: '王冠静物近景',
-      video_prompt: '镜头缓慢环绕王冠',
       project_asset_ids: [asset.id],
       extra_reference_images: ['https://cdn.test/light.png'],
     });
     const address = server.address();
     assert.ok(address && typeof address === 'object');
-    const shotUrl = `http://127.0.0.1:${address.port}/dramas/${project.id}/storyboards/${shot.id}`;
-    const assembled = await fetch(`${shotUrl}/assemble-recipes`, {
+    const shotUrl = `http://127.0.0.1:${address.port}/dramas/${project.id}/panels/${shot.id}`;
+    const assembled = await fetch(`${shotUrl}/assemble-recipe`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...shot, image_prompt: '王冠静物近景', video_prompt: '镜头缓慢环绕王冠' }),
+      body: JSON.stringify({ ...shot, image_prompt: '王冠静物近景' }),
     });
     assert.equal(assembled.status, 200);
-    const recipes = (await assembled.json() as { data: {
-      imageRecipe: { imagePrompt: string; imageReferences: string[] };
-      videoRecipe: { videoPrompt: string; videoReferences: string[] };
-    } }).data;
-    assert.equal(recipes.imageRecipe.imagePrompt, '王冠静物近景\n道具卡「王冠」：材质：暗金');
-    assert.equal(recipes.videoRecipe.videoPrompt, '镜头缓慢环绕王冠\n道具卡「王冠」：材质：暗金');
-    assert.deepEqual(recipes.imageRecipe.imageReferences, [TEST_PNG, 'https://cdn.test/light.png']);
+    const recipes = (await assembled.json() as { data: { image_recipe_prompt: string; image_recipe_references: string[] } }).data;
+    assert.equal(recipes.image_recipe_prompt, '王冠静物近景\n道具卡「王冠」：材质：暗金\n干净画面；无字幕、无气泡、无水印');
+    assert.deepEqual(recipes.image_recipe_references, [TEST_PNG, 'https://cdn.test/light.png']);
 
     const finalPrompt = '用户确认并改写的王冠静物图片配方';
-    await services.assets.updateStoryboard(shot.id, {
+    await services.assets.updatePanel(shot.id, {
       image_recipe_prompt: finalPrompt,
-      video_recipe_prompt: recipes.videoRecipe.videoPrompt,
-      image_recipe_references: recipes.imageRecipe.imageReferences,
-      video_recipe_references: recipes.videoRecipe.videoReferences,
+      image_recipe_references: recipes.image_recipe_references,
     });
     const response = await fetch(`${shotUrl}/generate-image`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -298,72 +291,94 @@ test('分镜显式组装两份配方，图片生成消费用户保存的图片�
 
     assert.equal(receivedPrompt, finalPrompt);
     assert.deepEqual(receivedReferences, [TEST_PNG, 'https://cdn.test/light.png']);
-    assert.equal(services.assets.getStoryboard(shot.id)?.current_image_generation_id, row.id);
+    assert.equal(services.assets.getPanel(shot.id)?.current_image_generation_id, row.id);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     db.close();
   }
 });
 
-test('视频生成分别消费分镜图首帧和视频配方辅助参考图', async () => {
-  let firstFrame = '';
-  let receivedReferences: string[] = [];
-  let receivedPrompt = '';
-  const { db, services, config } = setup({
-    submitVideo: async (_context, request) => {
-      firstFrame = request.firstFrame ?? '';
-      receivedReferences = request.referenceImages;
-      receivedPrompt = request.prompt;
-      return { status: 'completed', videoUrl: TEST_MP4 };
-    },
-  });
+test('分格台与页组装路由都返回当前话工作区', async () => {
+  const { db, services, config } = setup();
   const app = express();
   app.use(express.json());
   app.use(workspaceRoutes(services, config));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
-    await services.aiConfigs.refresh('agnes');
-    const project = services.projects.create({ title: '视频消费' });
+    const project = services.projects.create({ title: '路由可达' });
     const episode = project.episodes?.[0];
     assert.ok(episode);
-    const asset = services.assets.createProjectAsset(project.id, { kind: 'scene', name: '王厅', text_profile: {} });
-    db.prepare('UPDATE project_assets SET image_url = ? WHERE id = ?').run('https://cdn.test/hall.png', asset.id);
-    const shot = services.assets.createStoryboard({
-      episode_id: episode.id,
-      video_prompt: '人物缓慢走向王座',
-      camera_movement: '稳定推进',
-      sound: '脚步回声',
-      project_asset_ids: [asset.id],
-      extra_reference_images: ['https://cdn.test/pose.png'],
-      video_recipe_prompt: '用户确认的视频配方：人物稳定走向王座，脚步声清晰。',
-      video_recipe_references: ['https://cdn.test/hall.png', 'https://cdn.test/pose.png'],
-    });
-    const frame = services.images.create({
-      dramaId: project.id,
-      storyboardId: shot.id,
-      prompt: '已确认分镜图',
-      model: 'agnes-image',
-      aspectRatio: '9:16',
-      referenceImages: [],
-    });
-    await taskDone(() => services.tasks.get(frame.task_id as string));
-    const currentFrame = services.assets.getStoryboard(shot.id)?.image_url;
-    assert.ok(currentFrame);
+    services.assets.createPanel({ episode_id: episode.id, title: '第一格' });
     const address = server.address();
     assert.ok(address && typeof address === 'object');
-    const response = await fetch(`http://127.0.0.1:${address.port}/dramas/${project.id}/storyboards/${shot.id}/generate-video`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'agnes-video', duration: 6, aspect_ratio: '9:16' }),
-    });
-    assert.equal(response.status, 200);
-    const row = (await response.json() as { data: { id: number; task_id: string } }).data;
-    await taskDone(() => services.tasks.get(row.task_id));
+    const base = `http://127.0.0.1:${address.port}/dramas/${project.id}`;
+    const panels = await fetch(`${base}/panels?episode_id=${episode.id}`);
+    const compose = await fetch(`${base}/compose?episode_id=${episode.id}`);
+    const readiness = await fetch(`${base}/panels/${services.assets.listPanels(episode.id)[0].id}/readiness`);
+    assert.equal(panels.status, 200);
+    assert.equal(compose.status, 200);
+    assert.equal(readiness.status, 200);
+    assert.equal((await panels.json() as { data: { items: unknown[] } }).data.items.length, 1);
+    assert.equal((await compose.json() as { data: { panels: unknown[] } }).data.panels.length, 1);
+    const readinessData = (await readiness.json() as {
+      data: {
+        recipe: { ready: boolean; reason?: string };
+        image: { ready: boolean; reason?: string };
+      };
+    }).data;
+    assert.equal(readinessData.recipe.ready, false);
+    assert.match(readinessData.recipe.reason ?? "", /閰嶆柟|配方/u);
+    assert.equal(readinessData.image.ready, false);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    db.close();
+  }
+});
 
-    assert.equal(firstFrame, currentFrame);
-    assert.deepEqual(receivedReferences, ['https://cdn.test/hall.png', 'https://cdn.test/pose.png']);
-    assert.equal(receivedPrompt, '用户确认的视频配方：人物稳定走向王座，脚步声清晰。');
-    assert.equal(services.assets.getStoryboard(shot.id)?.current_video_generation_id, row.id);
+test('TTS 独立配置路由可达且不回显密钥，空密钥更新保留已存凭据', async () => {
+  const { db, services, config } = setup();
+  const app = express();
+  app.use(express.json());
+  app.use(workspaceRoutes(services, config));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const base = `http://127.0.0.1:${address.port}`;
+    const providers = await fetch(`${base}/tts/providers`);
+    assert.equal(providers.status, 200);
+    assert.deepEqual((await providers.json() as { data: Array<{ id: string }> }).data.map((item) => item.id), ['freedub']);
+    const initialConfig = await fetch(`${base}/tts/config`);
+    assert.deepEqual((await initialConfig.json() as { data: Record<string, unknown> }).data, {
+      provider: 'freedub',
+      base_url: 'https://api.pearapi.ai/api/freedub',
+      role: 'zh-CN-XiaoyiNeural',
+      style: 'cheerful',
+      configured: false,
+    });
+    const saved = await fetch(`${base}/tts/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'freedub', base_url: 'https://tts.test', api_key: 'secret' }),
+    });
+    assert.equal(saved.status, 200);
+    assert.doesNotMatch(await saved.text(), /secret/u);
+    const updated = await fetch(`${base}/tts/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'freedub', base_url: 'https://tts.next', api_key: '' }),
+    });
+    assert.equal(updated.status, 200);
+    assert.deepEqual((await updated.json() as { data: { base_url: string; configured: boolean } }).data, {
+      base_url: 'https://tts.next',
+      provider: 'freedub',
+      role: null,
+      style: null,
+      configured: true,
+    });
+    assert.equal((db.prepare('SELECT api_key FROM tts_configs WHERE id = 1').get() as { api_key: string }).api_key, 'secret');
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     db.close();
@@ -389,6 +404,51 @@ test('图片历史可切换项目资产当前标准图', async () => {
   } finally { db.close(); }
 });
 
+test('已完成并归档的标准图历史可以删除，进行中的不能删', async () => {
+  let releaseProvider = () => {};
+  const gate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+  const { db, services, storageRoot } = setup({
+    submitImage: async () => { await gate; return { status: 'completed', imageUrl: TEST_PNG }; },
+  });
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const project = services.projects.create({ title: '删除标准图历史' });
+    const asset = services.assets.createProjectAsset(project.id, { kind: 'character', name: '红女王' });
+    const pending = services.images.create({
+      dramaId: project.id,
+      projectAssetId: asset.id,
+      prompt: '进行中',
+      model: 'agnes-image',
+      aspectRatio: '1:1',
+      referenceImages: [],
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    assert.equal(services.images.get(pending.id)?.status, 'processing');
+    await assert.rejects(
+      () => services.images.remove(pending.id),
+      (error: unknown) => error instanceof Error && error.message.includes('进行中'),
+    );
+    releaseProvider();
+    await taskDone(() => services.tasks.get(pending.task_id as string));
+    const completed = services.images.get(pending.id);
+    assert.equal(completed?.status, 'completed');
+    assert.equal(completed?.available, true);
+    assert.equal(services.assets.getProjectAsset(asset.id)?.current_image_generation_id, completed?.id);
+    const localPath = completed?.local_path as string;
+    assert.equal(fs.existsSync(path.join(storageRoot, localPath)), true);
+
+    const result = await services.images.remove(pending.id);
+    assert.equal(result.removed, true);
+    assert.equal(services.images.get(pending.id), undefined);
+    assert.equal(services.assets.getProjectAsset(asset.id)?.current_image_generation_id, null);
+    assert.equal(services.assets.getProjectAsset(asset.id)?.image_url, null);
+    assert.equal(fs.existsSync(path.join(storageRoot, localPath)), false);
+  } finally {
+    releaseProvider();
+    db.close();
+  }
+});
+
 test('本地上传成为资产标准图并保留 generation 历史', async () => {
   const { db, services, storageRoot } = setup();
   try {
@@ -411,14 +471,14 @@ test('本地上传成为资产标准图并保留 generation 历史', async () =>
   } finally { db.close(); }
 });
 
-test('全新 schema 支持项目资产卡和分镜额外参考图', () => {
+test('全新 schema 支持项目资产卡和分格额外参考图', () => {
   const db = new Database(':memory:');
   try {
     initializeDatabase(db);
     const dramaColumns = db.prepare('PRAGMA table_info(dramas)').all() as Array<{ name: string }>;
     const episodeColumns = db.prepare('PRAGMA table_info(episodes)').all() as Array<{ name: string }>;
     const assetColumns = db.prepare('PRAGMA table_info(project_assets)').all() as Array<{ name: string }>;
-    const storyboardColumns = db.prepare('PRAGMA table_info(storyboards)').all() as Array<{ name: string }>;
+    const panelColumns = db.prepare('PRAGMA table_info(panels)').all() as Array<{ name: string }>;
     const imageColumns = db.prepare('PRAGMA table_info(image_generations)').all() as Array<{ name: string }>;
     assert.equal(dramaColumns.some((column) => column.name === 'story_hook'), true);
     assert.equal(dramaColumns.some((column) => column.name === 'worldview'), true);
@@ -434,14 +494,11 @@ test('全新 schema 支持项目资产卡和分镜额外参考图', () => {
     assert.equal(assetColumns.some((column) => column.name === 'output_type'), true);
     assert.equal(assetColumns.some((column) => column.name === 'output_prompt'), true);
     assert.equal(assetColumns.some((column) => column.name === 'input_reference_images'), true);
-    assert.equal(storyboardColumns.some((column) => column.name === 'extra_reference_images'), true);
-    assert.equal(storyboardColumns.some((column) => column.name === 'image_recipe_prompt'), true);
-    assert.equal(storyboardColumns.some((column) => column.name === 'video_recipe_prompt'), true);
-    assert.equal(storyboardColumns.some((column) => column.name === 'image_recipe_references'), true);
-    assert.equal(storyboardColumns.some((column) => column.name === 'video_recipe_references'), true);
-    assert.equal(storyboardColumns.some((column) => column.name === 'image_needs_review'), true);
-    assert.equal(storyboardColumns.some((column) => column.name === 'video_needs_review'), true);
-    assert.equal(storyboardColumns.some((column) => column.name === 'recipe_needs_reassembly'), true);
+    assert.equal(panelColumns.some((column) => column.name === 'extra_reference_images'), true);
+    assert.equal(panelColumns.some((column) => column.name === 'image_recipe_prompt'), true);
+    assert.equal(panelColumns.some((column) => column.name === 'image_recipe_references'), true);
+    assert.equal(panelColumns.some((column) => column.name === 'image_needs_review'), true);
+    assert.equal(panelColumns.some((column) => column.name === 'recipe_needs_reassembly'), true);
     assert.equal(imageColumns.some((column) => column.name === 'project_asset_id'), true);
   } finally { db.close(); }
 });

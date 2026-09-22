@@ -4,11 +4,13 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { UiErrorBoundary } from './components/UiErrorBoundary'
 import { AiConfigPage } from './pages/AiConfigPage'
+import { TtsConfigPage } from './pages/TtsConfigPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { AssetWorkspace } from './features/workspace/AssetWorkspace'
 import { ProjectShell } from './features/workspace/ProjectShell'
 import { ScriptWorkspace } from './features/workspace/ScriptWorkspace'
-import { StoryboardWorkspace } from './features/workspace/StoryboardWorkspace'
+import { PanelWorkspace } from './features/workspace/StoryboardWorkspace'
+import { ComposeWorkspace } from './features/workspace/ComposeWorkspace'
 import { ThemeProvider, useTheme } from './theme/ThemeContext'
 
 function ThemedApp() {
@@ -49,11 +51,13 @@ function ThemedApp() {
               <Route element={<AppShell />}>
                 <Route path="/" element={<ProjectsPage />} />
                 <Route path="/ai-config" element={<AiConfigPage />} />
-                <Route path="/film/:id" element={<ProjectShell />}>
+                <Route path="/tts-config" element={<TtsConfigPage />} />
+                <Route path="/comic/:id" element={<ProjectShell />}>
                   <Route index element={<Navigate to="script" replace />} />
                   <Route path="script" element={<ScriptWorkspace />} />
                   <Route path="assets" element={<AssetWorkspace />} />
-                  <Route path="storyboard" element={<StoryboardWorkspace />} />
+                  <Route path="panels" element={<PanelWorkspace />} />
+                  <Route path="compose" element={<ComposeWorkspace />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

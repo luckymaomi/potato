@@ -8,7 +8,7 @@ export interface TrackedGeneration {
   key: GenerationTrackKey
   taskId: string
   generationId?: number
-  kind: 'image' | 'video'
+  kind: 'image'
   label?: string
   startedAt: string
   finishedAt?: string
@@ -23,12 +23,8 @@ export function assetImageKey(assetId: number): GenerationTrackKey {
   return `asset:${assetId}:image`
 }
 
-export function storyboardImageKey(storyboardId: number): GenerationTrackKey {
-  return `storyboard:${storyboardId}:image`
-}
-
-export function storyboardVideoKey(storyboardId: number): GenerationTrackKey {
-  return `storyboard:${storyboardId}:video`
+export function panelImageKey(panelId: number): GenerationTrackKey {
+  return `panel:${panelId}:image`
 }
 
 export function useGenerationTracker(projectId: number) {
@@ -85,7 +81,7 @@ export function useGenerationTracker(projectId: number) {
     key: GenerationTrackKey
     taskId: string
     generationId?: number
-    kind: 'image' | 'video'
+    kind: 'image'
     label?: string
     startedAt?: string
     status?: GenerationTaskStatus
@@ -127,14 +123,8 @@ export function useGenerationTracker(projectId: number) {
   }, [])
 
   const resumeFromHistory = useCallback(async () => {
-    const [images, videos] = await Promise.all([
-      mediaHistoryApi.images(projectId),
-      mediaHistoryApi.videos(projectId),
-    ])
-    const recovered = [
-      ...images.items.flatMap((item) => historyTrack(item, 'image') ? [historyTrack(item, 'image')!] : []),
-      ...videos.items.flatMap((item) => historyTrack(item, 'video') ? [historyTrack(item, 'video')!] : []),
-    ]
+    const images = await mediaHistoryApi.images(projectId)
+    const recovered = images.items.flatMap((item) => historyTrack(item) ? [historyTrack(item)!] : [])
     for (const track of recovered) {
       upsert(track)
       if (activeStatuses.has(track.status) && track.taskId) pollTask(track)
@@ -153,17 +143,15 @@ export function useGenerationTracker(projectId: number) {
   return { tracks, watch, cancel, waitForTerminal, get: (key: GenerationTrackKey) => tracks[key] }
 }
 
-function historyTrack(item: MediaGenerationHistory, kind: 'image' | 'video'): TrackedGeneration | undefined {
+function historyTrack(item: MediaGenerationHistory): TrackedGeneration | undefined {
   if (!item.task_id || !activeStatuses.has(item.status)) return undefined
-  const key = kind === 'image'
-    ? (item.project_asset_id ? assetImageKey(item.project_asset_id) : item.storyboard_id ? storyboardImageKey(item.storyboard_id) : undefined)
-    : (item.storyboard_id ? storyboardVideoKey(item.storyboard_id) : undefined)
+  const key = item.project_asset_id ? assetImageKey(item.project_asset_id) : item.panel_id ? panelImageKey(item.panel_id) : undefined
   if (!key) return undefined
   return {
     key,
     taskId: item.task_id,
     generationId: item.id,
-    kind,
+    kind: 'image',
     startedAt: item.created_at,
     finishedAt: item.completed_at ?? undefined,
     status: item.status as GenerationTaskStatus,

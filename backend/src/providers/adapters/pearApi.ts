@@ -62,7 +62,8 @@ function inferModelKind(id: string): 'image' | 'video' | undefined {
 
 function knownModelMetadata(id: string, item: JsonRecord): PearModelMetadata {
   const metadata = asRecord(item.capabilities) as PearModelMetadata | undefined; const lower = id.toLowerCase();
-  if (/^gpt-image-2(?:-(?:2k|4k))?$/iu.test(lower)) return {
+  // /v1/models 返回的正式 id（含 2.5、2-2k 等清晰度档）按同族能力补洞；静态专栏可能滞后。
+  if (isGptImage2FamilyId(lower)) return {
     ...metadata,
     supported_modes: ['text2image', 'image2image'],
     reference_image: 16,
@@ -74,13 +75,22 @@ function knownModelMetadata(id: string, item: JsonRecord): PearModelMetadata {
     reference_image: 16,
     aspect_ratio: ['9:16', '16:9', '1:1'],
   };
-  if (/^nano-banana(?:-pro(?:-4k)?|-2(?:-(?:4k|lite))?)?$/iu.test(lower)) return {
+  if (isNanoBananaFamilyId(lower)) return {
     ...metadata,
     supported_modes: ['text2image', 'image2image'],
-    reference_image: /^(?:nano-banana)$/iu.test(lower) ? 6 : 14,
-    aspect_ratio: /^(?:nano-banana)$/iu.test(lower)
+    reference_image: lower === 'nano-banana' ? 6 : 14,
+    aspect_ratio: lower === 'nano-banana'
       ? ['9:16', '16:9', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '21:9']
       : ['9:16', '16:9', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '21:9', '1:4', '4:1', '1:8', '8:1'],
+  };
+  if (isGrokImagineImageId(lower)) return {
+    ...metadata,
+    supported_modes: ['text2image', 'image2image'],
+    reference_image: 4,
+    aspect_ratio: [
+      '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2',
+      '19.5:9', '9:19.5', '20:9', '9:20',
+    ],
   };
   if (/^grok-imagine-video-1\.5(?:-preview)?$/iu.test(lower)) return { ...metadata, supported_modes: ['text2video', 'image2video'], reference_image: 1, aspect_ratio: ['16:9', '9:16'], supported_durations: [4, 6, 8, 10, 12, 15], billing_type: metadata?.billing_type || 'per-request' };
   return metadata || {};
@@ -88,10 +98,28 @@ function knownModelMetadata(id: string, item: JsonRecord): PearModelMetadata {
 
 function isKnownModelOverride(id: string): boolean {
   const lower = id.toLowerCase();
-  return /^gpt-image-2(?:-(?:2k|4k))?$/iu.test(lower)
+  return isGptImage2FamilyId(lower)
     || lower === 'gpt-image-1.5'
-    || /^nano-banana(?:-pro(?:-4k)?|-2(?:-(?:4k|lite))?)?$/iu.test(lower)
+    || isNanoBananaFamilyId(lower)
+    || isGrokImagineImageId(lower)
     || /^grok-imagine-video-1\.5(?:-preview)?$/iu.test(lower);
+}
+
+/** gpt-image-2 / gpt-image-2.5 及目录清晰度档 -1k/-2k/-4k */
+function isGptImage2FamilyId(lower: string): boolean {
+  return /^gpt-image-2(?:\.\d+)?(?:-(?:1k|2k|4k))?$/iu.test(lower);
+}
+
+/** nano-banana 基础 / pro / 2 及目录清晰度档 -1k/-2k/-4k、lite */
+function isNanoBananaFamilyId(lower: string): boolean {
+  return /^nano-banana(?:-pro(?:-(?:1k|2k|4k))?|-2(?:-(?:1k|2k|4k|lite))?)?$/iu.test(lower);
+}
+
+/** grok-imagine-image 及目录正式变体 -2、-2-2k；兼容旧别名 grok-3/4-image */
+function isGrokImagineImageId(lower: string): boolean {
+  return /^grok-imagine-image(?:-\d+(?:\.\d+)?)?(?:-(?:1k|2k|4k))?$/iu.test(lower)
+    || lower === 'grok-3-image'
+    || lower === 'grok-4-image';
 }
 
 function pearModelCapabilities(

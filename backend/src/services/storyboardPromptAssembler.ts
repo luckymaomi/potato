@@ -1,44 +1,79 @@
-import type { AssetKind, ProjectAssetRow, StoryboardRow } from '../types/domain';
+import type { AssetKind, ProjectAssetRow, PanelRow } from "../types/domain";
 
-export interface StoryboardRecipes {
-  imageRecipe: {
-    imagePrompt: string;
-    imageReferences: string[];
-  };
-  videoRecipe: {
-    videoPrompt: string;
-    videoReferences: string[];
+export interface PanelRecipe {
+  panelRecipe: {
+    prompt: string;
+    references: string[];
   };
 }
 
 export interface StoryboardRecipeInput {
-  shot: StoryboardRow;
+  shot: PanelRow;
   assets: ProjectAssetRow[];
 }
 
-const PROFILE_FIELDS: Record<AssetKind, ReadonlyArray<readonly [string, string]>> = {
+const PROFILE_FIELDS: Record<
+  AssetKind,
+  ReadonlyArray<readonly [string, string]>
+> = {
   character: [
-    ['age', '年龄'], ['gender', '性别'], ['occupation', '职业'], ['faction', '阵营'],
-    ['face_shape', '脸型'], ['facial_features', '五官'], ['hairstyle', '发型'], ['body_type', '体型'], ['skin_tone', '肤色'],
-    ['default_outfit', '默认穿搭'], ['personality', '性格'],
-    ['common_expressions', '常见表情'], ['aura', '气场'], ['voice_tone_id', '音色 ID'], ['speech_rate', '语速'],
-    ['accent', '口音'], ['signature_phrase', '标志性语气'],
+    ["age", "年龄"],
+    ["gender", "性别"],
+    ["occupation", "职业"],
+    ["faction", "阵营"],
+    ["face_shape", "脸型"],
+    ["facial_features", "五官"],
+    ["hairstyle", "发型"],
+    ["body_type", "体型"],
+    ["skin_tone", "肤色"],
+    ["default_outfit", "默认穿搭"],
+    ["personality", "性格"],
+    ["common_expressions", "常见表情"],
+    ["aura", "气场"],
+    ["voice_tone_id", "音色 ID"],
+    ["speech_rate", "语速"],
+    ["accent", "口音"],
+    ["signature_phrase", "标志性语气"],
   ],
   scene: [
-    ['location_type', '地点类型'], ['layout', '布局'], ['architectural_style', '建筑风格'], ['scale', '尺寸比例'],
-    ['time_of_day', '时间段'], ['light_source', '光源'], ['color_temperature', '色温'], ['contrast', '明暗对比'],
-    ['key_furniture', '关键家具'], ['props', '道具'], ['decorations', '装饰'], ['vegetation', '植被'],
-    ['palette', '色调'], ['emotion', '情绪'], ['weather', '天气'],
+    ["location_type", "地点类型"],
+    ["layout", "布局"],
+    ["architectural_style", "建筑风格"],
+    ["scale", "尺寸比例"],
+    ["time_of_day", "时间段"],
+    ["light_source", "光源"],
+    ["color_temperature", "色温"],
+    ["contrast", "明暗对比"],
+    ["key_furniture", "关键家具"],
+    ["props", "道具"],
+    ["decorations", "装饰"],
+    ["vegetation", "植被"],
+    ["palette", "色调"],
+    ["emotion", "情绪"],
+    ["weather", "天气"],
   ],
   prop: [
-    ['category', '类别'], ['size', '尺寸'], ['material', '材质'], ['color', '颜色'], ['shape', '形状'],
-    ['condition', '新旧程度'], ['special_marks', '特殊标记'], ['unique_design', '独特设计'],
-    ['default_state', '默认状态'], ['interaction_states', '互动状态'], ['bindings', '绑定关系'],
+    ["category", "类别"],
+    ["size", "尺寸"],
+    ["material", "材质"],
+    ["color", "颜色"],
+    ["shape", "形状"],
+    ["condition", "新旧程度"],
+    ["special_marks", "特殊标记"],
+    ["unique_design", "独特设计"],
+    ["default_state", "默认状态"],
+    ["interaction_states", "互动状态"],
+    ["bindings", "绑定关系"],
   ],
 };
 
-export function assembleStoryboardRecipes({ shot, assets }: StoryboardRecipeInput): StoryboardRecipes {
-  const selectedAssets = assets.filter((asset) => shot.project_asset_ids.includes(asset.id));
+export function assemblePanelRecipe({
+  shot,
+  assets,
+}: StoryboardRecipeInput): PanelRecipe {
+  const selectedAssets = assets.filter((asset) =>
+    shot.project_asset_ids.includes(asset.id),
+  );
   const assetBlocks = selectedAssets.map(compileAssetTextBlock);
   const references = unique([
     ...selectedAssets.map((asset) => asset.image_url),
@@ -47,53 +82,48 @@ export function assembleStoryboardRecipes({ shot, assets }: StoryboardRecipeInpu
   const imagePrompt = joinBlocks([
     clean(shot.image_prompt) || clean(shot.description) || clean(shot.title),
     ...assetBlocks,
-    field('景别', shot.shot_size),
-    field('机位', shot.camera_angle),
-    field('构图', shot.composition),
-    field('动作', shot.action),
-    field('光线', shot.lighting),
-    field('氛围', shot.mood),
+    field("取景", shot.framing),
+    field("构图", shot.composition),
+    field("视角", shot.viewpoint),
+    field("动作定格", shot.action),
+    field("表情", shot.expression),
+    field("光线", shot.lighting),
+    field("氛围", shot.mood),
+    "干净画面；无字幕、无气泡、无水印",
   ]);
-  const videoPrompt = joinBlocks([
-    clean(shot.video_prompt) || clean(shot.description) || clean(shot.title),
-    ...assetBlocks,
-    field('景别', shot.shot_size),
-    field('机位', shot.camera_angle),
-    field('运镜', shot.camera_movement),
-    field('构图', shot.composition),
-    field('动作', shot.action),
-    field('光线', shot.lighting),
-    field('氛围', shot.mood),
-    field('声音', shot.sound),
-    field('对白', shot.dialogue),
-  ]);
-  return {
-    imageRecipe: { imagePrompt, imageReferences: [...references] },
-    videoRecipe: { videoPrompt, videoReferences: [...references] },
-  };
+  return { panelRecipe: { prompt: imagePrompt, references: [...references] } };
 }
 
-export function compileAssetTextBlock(asset: Pick<ProjectAssetRow, 'kind' | 'name' | 'text_profile'>): string {
+/** @deprecated Use assemblePanelRecipe. */
+export function assembleStoryboardRecipes(
+  input: StoryboardRecipeInput,
+): PanelRecipe {
+  return assemblePanelRecipe(input);
+}
+
+export function compileAssetTextBlock(
+  asset: Pick<ProjectAssetRow, "kind" | "name" | "text_profile">,
+): string {
   const fields = PROFILE_FIELDS[asset.kind].flatMap(([key, label]) => {
     const raw = asset.text_profile[key];
     const value = clean(raw);
     return value ? [`${label}：${value}`] : [];
   });
   const prefix = `${assetLabel(asset.kind)}卡「${asset.name}」`;
-  return fields.length ? `${prefix}：${fields.join('；')}` : prefix;
+  return fields.length ? `${prefix}：${fields.join("；")}` : prefix;
 }
 
 function field(label: string, value: string | null | undefined): string {
   const text = clean(value);
-  return text ? `${label}：${text}` : '';
+  return text ? `${label}：${text}` : "";
 }
 
 function joinBlocks(values: Array<string | null | undefined>): string {
-  return values.map(clean).filter(Boolean).join('\n');
+  return values.map(clean).filter(Boolean).join("\n");
 }
 
 function clean(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function unique(values: Array<string | null | undefined>): string[] {
@@ -101,5 +131,5 @@ function unique(values: Array<string | null | undefined>): string[] {
 }
 
 function assetLabel(kind: AssetKind): string {
-  return { character: '角色', scene: '场景', prop: '道具' }[kind];
+  return { character: "角色", scene: "场景", prop: "道具" }[kind];
 }

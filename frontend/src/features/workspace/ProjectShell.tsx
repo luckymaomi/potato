@@ -1,4 +1,4 @@
-import { ArrowLeftOutlined, BookOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, MoonOutlined, PictureOutlined, PlusOutlined, SunOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, BookOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, LayoutOutlined, MoonOutlined, PictureOutlined, SunOutlined } from '@ant-design/icons'
 import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Spin } from 'antd'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -12,7 +12,8 @@ import { useTheme } from '../../theme/ThemeContext'
 const tabs = [
   { path: 'script', label: '总览与剧本', icon: <BookOutlined /> },
   { path: 'assets', label: '资产图', icon: <FolderOpenOutlined /> },
-  { path: 'storyboard', label: '分镜台', icon: <PictureOutlined /> },
+  { path: 'panels', label: '分格台', icon: <PictureOutlined /> },
+  { path: 'compose', label: '页组装', icon: <LayoutOutlined /> },
 ]
 
 export function ProjectShell() {
@@ -23,7 +24,6 @@ export function ProjectShell() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [project, setProject] = useState<Project>()
   const [error, setError] = useState('')
-  const [creatingEpisode, setCreatingEpisode] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [headerTools, setHeaderTools] = useState<ReactNode>(null)
@@ -48,23 +48,6 @@ export function ProjectShell() {
   ), [episode, project, refreshProject])
   const canDeleteEpisode = (project?.episodes?.length ?? 0) > 1
 
-  const createEpisode = async () => {
-    if (!project) return
-    setCreatingEpisode(true)
-    try {
-      const nextNumber = Math.max(0, ...(project.episodes ?? []).map((item) => item.episode_number)) + 1
-      const result = await projectsApi.saveEpisodes(project.id, [{ episode_number: nextNumber, title: `第${nextNumber}集` }])
-      const created = result.episodes.find((item) => item.episode_number === nextNumber)
-      await refreshProject()
-      if (created) setSearchParams({ episode_id: String(created.id) })
-      notifyAppSuccess(message, `已新建第${nextNumber}集`)
-    } catch (reason) {
-      notifyAppError({ message, modal }, reason)
-    } finally {
-      setCreatingEpisode(false)
-    }
-  }
-
   const openRename = (target: Episode) => {
     renameForm.setFieldsValue({ title: target.title })
     setRenameOpen(true)
@@ -78,7 +61,7 @@ export function ProjectShell() {
       await projectsApi.updateEpisode(project.id, episode.id, { title: values.title.trim() })
       await refreshProject()
       setRenameOpen(false)
-      notifyAppSuccess(message, '已重命名剧集')
+      notifyAppSuccess(message, '已重命名话')
     } catch (reason) {
       if (reason && typeof reason === 'object' && 'errorFields' in reason) return
       notifyAppError({ message, modal }, reason)
@@ -95,7 +78,7 @@ export function ProjectShell() {
       setProject(refreshed)
       const next = refreshed.episodes?.[0]
       if (next) setSearchParams({ episode_id: String(next.id) })
-      notifyAppSuccess(message, '已删除剧集')
+      notifyAppSuccess(message, '已删除话')
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
     }
@@ -133,12 +116,12 @@ export function ProjectShell() {
         <header className="project-workspace-heading">
           <div className="episode-picker-row">
             <label className="episode-picker">
-              <span>当前剧集</span>
+              <span>当前话</span>
               <Select
                 value={episode.id}
                 options={(project.episodes ?? []).map((item) => ({
                   value: item.id,
-                  label: item.title?.trim() || '未命名剧集',
+                  label: item.title?.trim() || '未命名话',
                 }))}
                 onChange={(value) => setSearchParams({ episode_id: String(value) })}
               />
@@ -146,8 +129,8 @@ export function ProjectShell() {
             <Space size={4} wrap>
               <Button icon={<EditOutlined />} onClick={() => openRename(episode)}>重命名</Button>
               <Popconfirm
-                title="删除这一集？"
-                description="本集剧本与分镜也会删除，且不可恢复。"
+                title="删除这一话？"
+                description="本话剧本与分格也会删除，且不可恢复。"
                 okText="删除"
                 cancelText="取消"
                 okButtonProps={{ danger: true }}
@@ -156,7 +139,6 @@ export function ProjectShell() {
               >
                 <Button danger icon={<DeleteOutlined />} disabled={!canDeleteEpisode}>删除</Button>
               </Popconfirm>
-              <Button icon={<PlusOutlined />} loading={creatingEpisode} onClick={() => void createEpisode()}>新建集</Button>
             </Space>
           </div>
           <div className="workspace-header-tools">
@@ -168,7 +150,7 @@ export function ProjectShell() {
       </main>
 
       <Modal
-        title="重命名剧集"
+        title="重命名话"
         open={renameOpen}
         confirmLoading={renaming}
         onOk={() => void saveRename()}
@@ -176,7 +158,7 @@ export function ProjectShell() {
         okText="保存"
       >
         <Form form={renameForm} layout="vertical" requiredMark={false}>
-          <Form.Item name="title" label="剧集名称" rules={[{ required: true, message: '请输入剧集名称' }, { whitespace: true, message: '请输入剧集名称' }]}>
+          <Form.Item name="title" label="话名称" rules={[{ required: true, message: '请输入话名称' }, { whitespace: true, message: '请输入话名称' }]}>
             <Input autoFocus maxLength={80} placeholder="例如：雨夜开端" />
           </Form.Item>
         </Form>
