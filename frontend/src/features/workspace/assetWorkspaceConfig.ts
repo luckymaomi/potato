@@ -1,4 +1,4 @@
-import type { AssetKind, AssetOutputType, AssetTextProfile, ReferenceLockKind } from '../../types/domain'
+import type { AssetKind, AssetOutputType, AssetTextProfile, ImageTextBanKind, ReferenceLockKind } from '../../types/domain'
 
 export type AssetFilter = 'all' | AssetKind
 
@@ -7,6 +7,7 @@ export interface AssetFormValues {
   text_profile?: AssetTextProfile
   output_type?: AssetOutputType
   reference_lock?: ReferenceLockKind | null
+  ban_image_text?: ImageTextBanKind | null
   output_prompt?: string
   input_reference_images?: string[]
   aspect_ratio?: string
@@ -29,7 +30,6 @@ export const profileGroups: Record<AssetKind, ProfileGroup[]> = {
     { title: '身份', fields: [field('age', '年龄'), field('gender', '性别'), field('occupation', '职业'), field('faction', '阵营')] },
     { title: '外形', fields: [field('face_shape', '脸型'), field('facial_features', '五官'), field('hairstyle', '发型'), field('body_type', '体型'), field('skin_tone', '肤色')] },
     { title: '服装与神态', fields: [field('default_outfit', '默认穿搭'), field('personality', '性格'), field('common_expressions', '常见表情'), field('aura', '气场')] },
-    { title: '声音', fields: [field('voice_tone_id', '音色 ID'), field('speech_rate', '语速'), field('accent', '口音'), field('signature_phrase', '标志性语气')] },
   ],
   scene: [
     { title: '空间', fields: [field('location_type', '地点类型'), field('layout', '布局'), field('architectural_style', '建筑风格'), field('scale', '尺寸比例')] },
@@ -68,6 +68,11 @@ export const referenceLockOptions: Record<AssetKind, Array<{ value: ReferenceLoc
   scene: [{ value: 'scene', label: '锁景' }],
   prop: [{ value: 'prop', label: '锁物' }],
 }
+
+/** 三类资产共用：不选则组装不含禁字段；选中后点组装才写入。 */
+export const banImageTextOptions: Array<{ value: ImageTextBanKind; label: string }> = [
+  { value: 'ban', label: '禁止出字' },
+]
 
 export function profileSummary(profile: AssetTextProfile): string {
   return Object.values(profile).join(' · ')

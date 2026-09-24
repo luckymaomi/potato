@@ -5,6 +5,7 @@ import {
   DownloadOutlined,
   HistoryOutlined,
   RobotOutlined,
+  SaveOutlined,
   StopOutlined,
 } from '@ant-design/icons'
 import { Button, Form, Image, Input, List, Popconfirm, Select, Space, Tag, Typography, Upload, type FormInstance } from 'antd'
@@ -14,8 +15,9 @@ import type { ProviderModel } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { assetGenerationStatus, type AssetGenerationState } from './assetGenerationStatus'
-import { assetLabels, outputTypeOptions, profileGroups, referenceLockOptions, type AssetFormValues } from './assetWorkspaceConfig'
+import { assetLabels, banImageTextOptions, outputTypeOptions, profileGroups, referenceLockOptions, type AssetFormValues } from './assetWorkspaceConfig'
 import { modelCapabilitySummary, aspectRatioLabel } from '../providers/catalog'
+import { autoSaveLabel, type AutoSaveStatus } from './useDebouncedAutoSave'
 
 export function AssetDetailPanel({
   selected,
@@ -28,7 +30,7 @@ export function AssetDetailPanel({
   track,
   state,
   onDraftChange,
-  onSave,
+  autoSaveStatus,
   onRemove,
   onGenerate,
   onAssemble,
@@ -53,7 +55,7 @@ export function AssetDetailPanel({
   track?: { startedAt: string; finishedAt?: string; status: string; progress?: number; message?: string }
   state?: AssetGenerationState
   onDraftChange: () => void
-  onSave: () => void
+  autoSaveStatus: AutoSaveStatus
   onRemove: () => void
   onGenerate: () => void
   onAssemble: () => void
@@ -79,7 +81,13 @@ export function AssetDetailPanel({
         ? '请选择图片画幅'
         : undefined
   return <aside className="asset-detail-panel">
-    <div className="asset-detail-header"><div><span>{assetLabels[selected.kind]}</span><strong>{selected.name}</strong></div><Button type="primary" onClick={onSave}>保存</Button></div>
+    <div className="asset-detail-header">
+      <div><span>{assetLabels[selected.kind]}</span><strong>{selected.name}</strong></div>
+      <span className={`auto-save-hint is-${autoSaveStatus}`} aria-live="polite">
+        <SaveOutlined style={{ marginRight: 4 }} />
+        {autoSaveLabel(autoSaveStatus)}
+      </span>
+    </div>
     <div className="asset-detail-scroll">
       <Form form={form} layout="vertical" className="asset-detail-form" onValuesChange={onDraftChange}>
         <div className="asset-standard-stage">
@@ -95,16 +103,25 @@ export function AssetDetailPanel({
             }}><Button size="small" icon={<CloudUploadOutlined />}>上传标准图</Button></Upload>
           </div>
         </div>
-        <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: '请输入资产卡名称' }]}><Input /></Form.Item>
+        <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: '请输入资产卡名称' }]}>
+          <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="资产卡名称" />
+        </Form.Item>
         {profileGroups[selected.kind].map((group) => <section className="asset-profile-group" key={group.title}>
           <div className="asset-panel-heading"><strong>{group.title}</strong></div>
-          <div className="asset-profile-grid">{group.fields.map((profileField) => <Form.Item key={profileField.key} name={['text_profile', profileField.key]} label={profileField.label}><Input /></Form.Item>)}</div>
+          <div className="asset-profile-grid">{group.fields.map((profileField) => (
+            <Form.Item key={profileField.key} name={['text_profile', profileField.key]} label={profileField.label}>
+              <Input.TextArea autoSize={{ minRows: 2, maxRows: 8 }} />
+            </Form.Item>
+          ))}</div>
         </section>)}
         <section className="asset-output-prompt-panel">
           <div className="asset-panel-heading"><strong>生成提示词</strong></div>
           <div className="asset-output-controls">
             <Form.Item name="reference_lock" label="图片参考锁定">
               <Select allowClear placeholder="不选则不组装锁定段" options={referenceLockOptions[selected.kind]} />
+            </Form.Item>
+            <Form.Item name="ban_image_text" label="画面禁字">
+              <Select allowClear placeholder="不选则不组装禁字段" options={banImageTextOptions} />
             </Form.Item>
             <Form.Item name="output_type" label="预设模板" rules={[{ required: true, message: '请选择预设模板' }]}><Select options={outputTypeOptions[selected.kind]} /></Form.Item>
             <Button icon={<BuildOutlined />} loading={assembling} onClick={onAssemble}>组装提示词</Button>
@@ -125,7 +142,7 @@ export function AssetDetailPanel({
           <div className="asset-reference-grid">{references.length ? references.map((url) => <div className="asset-reference-item" key={url}><Image width={64} height={64} src={mediaUrl(url)} preview={{ mask: '查看' }} /><Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="移除参考图" onClick={() => onReferencesChange(references.filter((item) => item !== url))} /></div>) : <span className="asset-reference-empty">暂无输入参考图</span>}</div>
           <Space direction="vertical" style={{ width: '100%' }}>
             {generateBlockedReason ? <Typography.Text type="danger">{generateBlockedReason}</Typography.Text> : null}
-            <Button type="primary" block loading={generating} disabled={Boolean(generateBlockedReason) || generating} onClick={onGenerate}>{generating ? assetGenerationStatus(state).label : '保存并生成标准图'}</Button>
+            <Button type="primary" block loading={generating} disabled={Boolean(generateBlockedReason) || generating} onClick={onGenerate}>{generating ? assetGenerationStatus(state).label : '生成标准图'}</Button>
             {active ? <Button block danger icon={<StopOutlined />} onClick={onStop}>停止生成</Button> : null}
           </Space>
         </section>

@@ -150,6 +150,10 @@ button, input, textarea { font: inherit; }
 .asset-detail-header > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .asset-detail-header span { color: var(--muted); font-size: 12px; }
 .asset-detail-header strong { overflow: hidden; color: var(--ink); font-size: 16px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.auto-save-hint { flex: 0 0 auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.auto-save-hint.is-pending, .auto-save-hint.is-saving { color: var(--ink); }
+.auto-save-hint.is-saved { color: color-mix(in srgb, #2f7a4b 78%, var(--muted)); }
+.auto-save-hint.is-error { color: #a33b3b; }
 .asset-detail-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 12px; }
 .asset-detail-form { display: flex; flex-direction: column; gap: 10px; }
 .asset-detail-form .ant-form-item { margin-bottom: 6px; }
@@ -219,7 +223,7 @@ button, input, textarea { font: inherit; }
 .panel-preview-meta span { color: #9eb0b9; font-size: 10px; }
 .panel-preview-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .panel-inspector-form { padding-right: 3px; }
-.panel-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+.panel-field-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 .panel-field-grid .ant-form-item { margin-bottom: 10px; }
 .panel-asset-picks { display: flex; flex-direction: column; gap: 12px; }
 .panel-asset-group { display: flex; flex-direction: column; gap: 6px; }

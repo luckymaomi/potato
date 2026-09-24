@@ -30,7 +30,7 @@ export function initializeQueenAccessionDemo(
       : services.projects.create(definition);
     const episode = services.projects.saveEpisodes(project.id, [{
       episode_number: 1,
-      title: '第 1 话｜女王登基',
+      title: '第 1 话｜女王出浴',
       duration: RAINY_NIGHT_DEMO.panels.length * RAINY_NIGHT_DEMO.media.duration,
       script_content: RAINY_NIGHT_DEMO.script,
       ...RAINY_NIGHT_DEMO.episodePlan,
@@ -41,20 +41,23 @@ export function initializeQueenAccessionDemo(
       ...RAINY_NIGHT_DEMO.characters.map((item) => ({
         kind: 'character' as const,
         name: item.name,
-        text_profile: { occupation: item.description, facial_features: item.appearance, default_outfit: item.assetPrompt },
+        text_profile: { ...item.text_profile },
         output_type: 'character-layout-a' as const,
+        output_prompt: item.output_prompt,
       })),
       ...RAINY_NIGHT_DEMO.scenes.map((item) => ({
         kind: 'scene' as const,
         name: item.location,
-        text_profile: { location_type: item.location, layout: item.prompt },
+        text_profile: { ...item.text_profile },
         output_type: 'scene-panorama' as const,
+        output_prompt: item.output_prompt,
       })),
       ...RAINY_NIGHT_DEMO.props.map((item) => ({
         kind: 'prop' as const,
         name: item.name,
-        text_profile: { category: item.description, unique_design: item.prompt },
+        text_profile: { ...item.text_profile },
         output_type: 'prop-multi-angle' as const,
+        output_prompt: item.output_prompt,
       })),
     ].map((item) => {
       const bound = services.assets.listProjectAssets(project.id, item.kind).find((candidate) => candidate.name === item.name)

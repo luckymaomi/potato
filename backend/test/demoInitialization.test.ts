@@ -42,22 +42,35 @@ test('半成品 Demo 会原位补齐为结构化漫画工作区且重复初始�
     const repaired = initializeQueenAccessionDemo(db, services, logger);
     assert.equal(repaired.id, half.id);
     assert.equal(queenAccessionDemoComplete(repaired), true);
-    assert.equal(repaired.title, '《女王登基》制作示例');
-    assert.equal(repaired.story_hook, '女王在晴朗早晨走入王城，并在宫殿中正式登基。');
-    assert.equal(repaired.worldview.includes('王国'), true);
+    assert.equal(repaired.title, '《女王出浴》制作示例');
+    assert.equal(repaired.story_hook.includes('浴后'), true);
+    assert.equal(repaired.worldview.includes('浴室'), true);
+    assert.equal(repaired.reference_setting.includes('真人'), true);
     assert.equal(services.projects.list({ page: 1, pageSize: 20 }).total, 1);
     assert.equal(repaired.metadata.demo_provider, undefined);
-    assert.equal(repaired.project_assets?.length, 5);
-    assert.equal(repaired.episodes?.[0]?.panels?.length, 2);
-    assert.equal(repaired.episodes?.[0]?.panels?.every((shot) => shot.project_asset_ids.length > 0), true);
-    assert.equal(repaired.project_assets?.every((asset) => Object.keys(asset.text_profile).length > 0), true);
+    assert.equal(repaired.project_assets?.length, 3);
+    assert.equal(repaired.episodes?.[0]?.panels?.length, 1);
+    assert.equal(repaired.episodes?.[0]?.panels?.every((shot) => shot.project_asset_ids.length === 3), true);
+    assert.deepEqual(
+      repaired.project_assets?.map((asset) => `${asset.kind}:${asset.name}`).sort(),
+      ['character:女王', 'prop:浴巾', 'scene:浴室'],
+    );
+    const characterKeys = ['age', 'gender', 'occupation', 'faction', 'face_shape', 'facial_features', 'hairstyle', 'body_type', 'skin_tone', 'default_outfit', 'personality', 'common_expressions', 'aura'];
+    const sceneKeys = ['location_type', 'layout', 'architectural_style', 'scale', 'time_of_day', 'light_source', 'color_temperature', 'contrast', 'key_furniture', 'props', 'decorations', 'vegetation', 'palette', 'emotion', 'weather'];
+    const propKeys = ['category', 'size', 'material', 'color', 'shape', 'condition', 'special_marks', 'unique_design', 'default_state', 'interaction_states', 'bindings'];
+    for (const asset of repaired.project_assets ?? []) {
+      const expected = asset.kind === 'character' ? characterKeys : asset.kind === 'scene' ? sceneKeys : propKeys;
+      assert.deepEqual(Object.keys(asset.text_profile).sort(), [...expected].sort());
+      assert.equal(expected.every((key) => Boolean(asset.text_profile[key]?.trim())), true);
+      assert.equal(Boolean(asset.output_prompt?.trim()), true);
+    }
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'character')?.output_type, 'character-layout-a');
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'scene')?.output_type, 'scene-panorama');
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'prop')?.output_type, 'prop-multi-angle');
     assert.equal(repaired.episodes?.[0]?.panels?.every((shot) => Boolean(shot.framing && shot.viewpoint && shot.composition && shot.expression && shot.image_prompt)), true);
-    assert.equal(repaired.episodes?.[0]?.duration, 12);
-    assert.equal(repaired.episodes?.[0]?.episode_goal, '女王从城门进入王城，并在宫殿中完成登基仪式。');
-    assert.equal(repaired.episodes?.[0]?.ending_hook.includes('正式成为'), true);
+    assert.equal(repaired.episodes?.[0]?.duration, 6);
+    assert.equal(repaired.episodes?.[0]?.title, '第 1 话｜女王出浴');
+    assert.equal(repaired.episodes?.[0]?.episode_goal.includes('出浴'), true);
 
     const repeated = initializeQueenAccessionDemo(db, services, logger);
     assert.equal(repeated.id, half.id);

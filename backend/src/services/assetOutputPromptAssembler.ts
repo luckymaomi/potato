@@ -5,8 +5,12 @@ import { ValidationError } from '../errors';
 /** 图片参考锁定：未选不组装；选中则按类型写入锁脸/锁景/锁物。 */
 export type ReferenceLockKind = 'face' | 'scene' | 'prop';
 
+/** 画面禁字：未选不组装；选中则写入禁止出字约束。 */
+export type ImageTextBanKind = 'ban';
+
 export type AssetOutputPromptSource = Pick<ProjectAssetRow, 'kind' | 'name' | 'text_profile' | 'output_type'> & {
   reference_lock?: ReferenceLockKind | null;
+  ban_image_text?: ImageTextBanKind | null;
 };
 
 const OUTPUT_INSTRUCTIONS: Record<AssetOutputType, string> = {
@@ -30,6 +34,9 @@ const REFERENCE_LOCK_TEXT: Record<ReferenceLockKind, string> = {
     '图片参考锁定（锁物）：以我上传的参考图为唯一道具锚点，img2img 图生图。严格保持参考图中道具的外形轮廓、比例、材质、颜色与特殊标记一致。',
 };
 
+const BAN_IMAGE_TEXT =
+  '画面约束（禁止出字）：图像中不得出现任何文字、字母、数字、字幕、水印、招牌字、标签、气泡或其它可读字符；保持纯视觉画面。';
+
 const LOCK_FOR_ASSET_KIND: Record<AssetKind, ReferenceLockKind> = {
   character: 'face',
   scene: 'scene',
@@ -50,10 +57,18 @@ export function normalizeReferenceLock(kind: AssetKind, value: unknown): Referen
   throw new ValidationError('图片参考锁定选项无效');
 }
 
+export function normalizeBanImageText(value: unknown): ImageTextBanKind | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (value === 'ban' || value === 'on' || value === true) return 'ban';
+  throw new ValidationError('画面禁字选项无效');
+}
+
 export function assembleAssetOutputPrompt(asset: AssetOutputPromptSource): string {
   const lock = normalizeReferenceLock(asset.kind, asset.reference_lock);
+  const banText = normalizeBanImageText(asset.ban_image_text);
   return [
     lock ? REFERENCE_LOCK_TEXT[lock] : '',
+    banText ? BAN_IMAGE_TEXT : '',
     compileAssetTextBlock(asset),
     OUTPUT_INSTRUCTIONS[asset.output_type],
   ].filter((part) => part.trim().length > 0).join('\n');

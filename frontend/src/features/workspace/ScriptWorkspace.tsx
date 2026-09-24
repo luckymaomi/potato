@@ -1,9 +1,10 @@
 import { SaveOutlined } from '@ant-design/icons'
-import { App, Button, Card, Form, Input, Space, Typography } from 'antd'
-import { useEffect, useState } from 'react'
+import { App, Card, Form, Input, Typography } from 'antd'
+import { useCallback, useEffect, useRef } from 'react'
 import { workspaceApi } from '../../api/workspace'
-import { notifyAppError, notifyAppSuccess } from '../../errors/appError'
+import { notifyAppError } from '../../errors/appError'
 import { useProjectWorkspace } from './workspaceContext'
+import { autoSaveLabel, useDebouncedAutoSave } from './useDebouncedAutoSave'
 
 interface ScriptFormValues {
   tone: string
@@ -15,23 +16,17 @@ export function ScriptWorkspace() {
   const { message, modal } = App.useApp()
   const { project, episode, refreshProject } = useProjectWorkspace()
   const [form] = Form.useForm<ScriptFormValues>()
-  const [saving, setSaving] = useState(false)
   const values = Form.useWatch([], form) as Partial<ScriptFormValues> | undefined
+  const hydrating = useRef(true)
+  const contextRef = useRef({ projectId: project.id, episodeId: episode.id })
+  const flushRef = useRef<() => Promise<void>>(async () => undefined)
 
-  useEffect(() => {
-    form.setFieldsValue({
-      tone: project.tone ?? '',
-      reference_setting: project.reference_setting ?? '',
-      script_content: episode.script_content ?? '',
-    })
-  }, [episode.id, episode.script_content, form, project.tone, project.reference_setting])
-
-  const save = async () => {
-    setSaving(true)
+  const persist = useCallback(async () => {
     try {
       const current = await form.validateFields()
-      await workspaceApi.saveScript(project.id, {
-        episode_id: episode.id,
+      const { projectId, episodeId } = contextRef.current
+      await workspaceApi.saveScript(projectId, {
+        episode_id: episodeId,
         overview: {
           story_hook: '',
           worldview: '',
@@ -48,30 +43,79 @@ export function ScriptWorkspace() {
         },
         script_content: current.script_content ?? '',
       })
-      await refreshProject()
-      notifyAppSuccess(message, '故事与剧本已保存')
+      if (
+        contextRef.current.projectId === projectId
+        && contextRef.current.episodeId === episodeId
+      ) {
+        await refreshProject()
+      }
     } catch (reason) {
-      if (reason && typeof reason === 'object' && 'errorFields' in reason) return
+      if (reason && typeof reason === 'object' && 'errorFields' in reason) throw reason
       notifyAppError({ message, modal }, reason)
-    } finally {
-      setSaving(false)
+      throw reason
     }
-  }
+  }, [form, message, modal, refreshProject])
+
+  const { status, schedule, flush, reset } = useDebouncedAutoSave(persist)
+  flushRef.current = flush
+
+  useEffect(() => {
+    let alive = true
+    void flushRef.current()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!alive) return
+        contextRef.current = { projectId: project.id, episodeId: episode.id }
+        hydrating.current = true
+        reset()
+        form.setFieldsValue({
+          tone: project.tone ?? '',
+          reference_setting: project.reference_setting ?? '',
+          script_content: episode.script_content ?? '',
+        })
+        hydrating.current = false
+      })
+    return () => {
+      alive = false
+    }
+    // 只在切换项目/话时回填；自动保存后的 refresh 不得冲掉正在编辑的草稿。
+  }, [episode.id, form, project.id, reset])
+
+  useEffect(() => () => {
+    void flushRef.current().catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
+      event.preventDefault()
+      void flush().catch(() => undefined)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [flush])
 
   return (
     <div className="workspace-column script-workspace">
       <div className="workspace-section-heading">
         <Typography.Title level={2}>总览与剧本</Typography.Title>
-        <Space wrap>
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void save()}>
-            保存
-          </Button>
-        </Space>
+        <span className={`auto-save-hint is-${status}`} aria-live="polite">
+          <SaveOutlined style={{ marginRight: 6 }} />
+          {autoSaveLabel(status)}
+        </span>
       </div>
-      <Form form={form} layout="vertical" className="script-workspace-form">
+      <Form
+        form={form}
+        layout="vertical"
+        className="script-workspace-form"
+        onValuesChange={() => {
+          if (hydrating.current) return
+          schedule()
+        }}
+      >
         <Card title="画风锁" className="script-section-card">
           <Typography.Paragraph type="secondary">
-            项目级基调与参考设定。分格台组装图片配方时会注入，不按格重写。
+            项目级基调与参考设定。分格台组装图片配方时会注入，不按格重写。编辑后约 2 秒自动保存。
           </Typography.Paragraph>
           <div className="script-field-grid">
             <Form.Item name="tone" label="基调">

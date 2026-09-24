@@ -25,10 +25,6 @@ const PROFILE_FIELDS: Record<AssetKind, readonly string[]> = {
     "personality",
     "common_expressions",
     "aura",
-    "voice_tone_id",
-    "speech_rate",
-    "accent",
-    "signature_phrase",
   ],
   scene: [
     "location_type",

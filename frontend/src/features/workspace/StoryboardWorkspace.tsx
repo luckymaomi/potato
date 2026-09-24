@@ -34,7 +34,7 @@ import {
   Typography,
   Upload,
 } from "antd";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { aiConfigsApi } from "../../api/aiConfigs";
 import { mediaHistoryApi, type MediaGenerationHistory } from "../../api/media";
 import { uploadsApi } from "../../api/media";
@@ -54,12 +54,17 @@ import type {
 } from "../../types/domain";
 import { mediaUrl } from "../../utils/mediaUrl";
 import { useProjectWorkspace } from "./workspaceContext";
+import {
+  autoSaveLabel,
+  useDebouncedAutoSave,
+  type AutoSaveStatus,
+} from "./useDebouncedAutoSave";
 
 interface PanelFormValues extends Partial<Panel> {
   character_asset_ids?: number[];
   scene_asset_ids?: number[];
   prop_asset_ids?: number[];
-  aspect_ratio?: string;
+  aspect_ratio?: string | null;
   include_previous_panel?: boolean;
 }
 
@@ -85,8 +90,9 @@ export function PanelWorkspace() {
   const [checkedTrackIds, setCheckedTrackIds] = useState<number[]>([]);
   const [imageModel, setImageModel] = useState<ProviderModel>();
   const [imageModelLabel, setImageModelLabel] = useState("读取中…");
-  const [saving, setSaving] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  const hydratingPanel = useRef(false);
+  const skipPanelHydrate = useRef(false);
   const [assembling, setAssembling] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [referenceUploading, setReferenceUploading] = useState(false);
@@ -221,6 +227,11 @@ export function PanelWorkspace() {
       form.resetFields();
       return;
     }
+    if (skipPanelHydrate.current) {
+      skipPanelHydrate.current = false;
+      return;
+    }
+    hydratingPanel.current = true;
     form.setFieldsValue({
       ...selected,
       action:
@@ -243,24 +254,73 @@ export function PanelWorkspace() {
         assets,
         "prop",
       ),
-      aspect_ratio: undefined,
+      aspect_ratio: null,
       include_previous_panel: true,
     });
+    hydratingPanel.current = false;
     void loadHistory(selected.id);
   }, [assets, form, loadHistory, selected]);
 
+  const save = useCallback(async () => {
+    if (!selected) return;
+    try {
+      const updated = await workspaceApi.updatePanel(
+        project.id,
+        selected.id,
+        panelPayload(form.getFieldsValue(true)),
+      );
+      skipPanelHydrate.current = true;
+      setItems((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      const ready = await workspaceApi.panelReadiness(project.id, updated.id);
+      setReadiness((current) => ({ ...current, [updated.id]: ready }));
+    } catch (reason) {
+      notifyAppError({ message, modal }, reason);
+      throw reason;
+    }
+  }, [form, message, modal, project.id, selected]);
+
+  const {
+    status: autoSaveStatus,
+    schedule,
+    flush,
+    reset,
+    saving,
+  } = useDebouncedAutoSave(save, { enabled: Boolean(selected) });
+
+  useEffect(() => {
+    reset();
+  }, [reset, selected?.id]);
+
+  const selectPanel = useCallback(
+    (id: number | undefined) => {
+      if (id === selectedId) return;
+      void flush()
+        .catch(() => undefined)
+        .finally(() => setSelectedId(id));
+    },
+    [flush, selectedId],
+  );
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void flush().catch(() => undefined);
+        return;
+      }
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      )
+        return;
       if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
         event.preventDefault();
         moveSelection(-1);
       } else if (event.key === "ArrowDown" || event.key === "ArrowRight") {
         event.preventDefault();
         moveSelection(1);
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void save();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -272,28 +332,11 @@ export function PanelWorkspace() {
     return () => setHeaderTools(null);
   }, [imageModel, imageModelLabel, setHeaderTools]);
 
-  const save = async () => {
-    if (!selected) return;
-    setSaving(true);
-    try {
-      await workspaceApi.updatePanel(
-        project.id,
-        selected.id,
-        panelPayload(form.getFieldsValue(true)),
-      );
-      await loadPanels();
-      notifyAppSuccess(message, "分格规格已保存");
-    } catch (reason) {
-      notifyAppError({ message, modal }, reason);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const assembleRecipe = async () => {
     if (!selected || assembling) return;
     setAssembling(true);
     try {
+      await flush().catch(() => undefined);
       const values = form.getFieldsValue(true) as PanelFormValues;
       await workspaceApi.assemblePanelRecipe(project.id, selected.id, {
         ...panelPayload(values),
@@ -360,6 +403,7 @@ export function PanelWorkspace() {
 
   const createPanel = async () => {
     try {
+      await flush().catch(() => undefined);
       const created = await workspaceApi.createPanel(project.id, {
         episode_id: episode.id,
       });
@@ -425,10 +469,10 @@ export function PanelWorkspace() {
     try {
       const uploaded = await uploadsApi.image(file, project.id);
       const current = form.getFieldValue("extra_reference_images") ?? [];
-      form.setFieldValue("extra_reference_images", [
-        ...new Set([...current, uploaded.url]),
-      ]);
-      notifyAppSuccess(message, "参考图已加入当前分格配方");
+      const next = [...new Set([...current, uploaded.url])];
+      form.setFieldsValue({ extra_reference_images: next });
+      schedule();
+      notifyAppSuccess(message, "额外参考图已加入，下次组装会并入配方");
     } catch (reason) {
       notifyAppError({ message, modal }, reason);
     } finally {
@@ -518,11 +562,12 @@ export function PanelWorkspace() {
         ? current.filter((item: number) => item !== id)
         : [...current, id],
     );
+    if (!hydratingPanel.current) schedule();
   };
 
   const moveSelection = (offset: number) => {
     const next = items[selectedIndex + offset];
-    if (next) setSelectedId(next.id);
+    if (next) selectPanel(next.id);
   };
 
   const gateReason = !imageModel
@@ -531,7 +576,9 @@ export function PanelWorkspace() {
       ? "当前模型未声明画幅，生成已禁用"
       : !aspectRatio
         ? "请手动选择当前模型声明的画幅"
-        : selectedReadiness?.recipe.reason;
+        : selectedReadiness?.recipe.ready
+          ? undefined
+          : selectedReadiness?.recipe.reason || "请先组装并保存图片配方";
 
   return (
     <div className="panel-workbench">
@@ -556,7 +603,7 @@ export function PanelWorkspace() {
           onClearChecks={clearTrackChecks}
           onConfirmChecked={() => void confirmCheckedReviews()}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          onSelect={selectPanel}
           onCreate={() => void createPanel()}
         />
         <PanelPreview
@@ -576,6 +623,7 @@ export function PanelWorkspace() {
           selectedAssetIds={selectedAssetIds}
           activeCollapse={activeCollapse}
           setActiveCollapse={setActiveCollapse}
+          autoSaveStatus={autoSaveStatus}
           saving={saving}
           assembling={assembling}
           uploading={uploading}
@@ -588,8 +636,12 @@ export function PanelWorkspace() {
           imageBusy={imageBusy}
           readiness={selectedReadiness}
           history={selected ? (history[selected.id] ?? []) : []}
+          onValuesChange={(changed) => {
+            if (!hydratingPanel.current && !("aspect_ratio" in changed && Object.keys(changed).length === 1)) {
+              schedule();
+            }
+          }}
           onToggleAsset={toggleAsset}
-          onSave={() => void save()}
           onAssemble={() => void assembleRecipe()}
           onGenerate={() => void generateImage()}
           onUpload={uploadPanel}
@@ -917,8 +969,9 @@ function PanelInspector(props: {
   imageBusy: boolean;
   readiness?: PanelReadiness;
   history: MediaGenerationHistory[];
+  autoSaveStatus: AutoSaveStatus;
+  onValuesChange: () => void;
   onToggleAsset: (kind: AssetKind, id: number) => void;
-  onSave: () => void;
   onAssemble: () => void;
   onGenerate: () => void;
   onUpload: (file: File) => Promise<boolean>;
@@ -936,16 +989,22 @@ function PanelInspector(props: {
       title="分格检查器"
       extra={
         props.selected ? (
-          <Popconfirm
-            title="删除这一格？"
-            description="会重新整理阅读序，历史媒体仍保留。"
-            onConfirm={props.onDelete}
-            okButtonProps={{ danger: true }}
-          >
-            <Button danger type="text" icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
+          <Space size={8}>
+            <span className={`auto-save-hint is-${props.autoSaveStatus}`} aria-live="polite">
+              <SaveOutlined style={{ marginRight: 4 }} />
+              {autoSaveLabel(props.autoSaveStatus)}
+            </span>
+            <Popconfirm
+              title="删除这一格？"
+              description="会重新整理阅读序，历史媒体仍保留。"
+              onConfirm={props.onDelete}
+              okButtonProps={{ danger: true }}
+            >
+              <Button danger type="text" icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
         ) : null
       }
     >
@@ -954,6 +1013,7 @@ function PanelInspector(props: {
           form={props.form}
           layout="vertical"
           className="panel-inspector-form"
+          onValuesChange={props.onValuesChange}
         >
           <Collapse
             activeKey={props.activeCollapse}
@@ -997,13 +1057,6 @@ function PanelInspector(props: {
           <PanelReadinessSummary readiness={props.readiness} />
           <div className="panel-inspector-actions">
             <Button
-              icon={<SaveOutlined />}
-              loading={props.saving}
-              onClick={props.onSave}
-            >
-              保存规格
-            </Button>
-            <Button
               icon={<BuildOutlined />}
               loading={props.assembling}
               onClick={props.onAssemble}
@@ -1044,7 +1097,7 @@ function PanelReadinessSummary(props: { readiness?: PanelReadiness }) {
         <span>{image?.ready ? "可生成" : image?.reason || "尚未满足条件"}</span>
       </div>
       <Typography.Text type="secondary">
-        保存规格后再组装配方；门闸失败原因会保留在这里，不会静默禁用。
+        规格会自动保存；组装配方后才可清除「配方待重装」。门闸失败原因会保留在这里，不会静默禁用。
       </Typography.Text>
     </div>
   );
@@ -1054,7 +1107,10 @@ function PanelSpecFields() {
   return (
     <>
       <Form.Item name="title" label="标题">
-        <Input placeholder="例如：分格1｜晴晨入城" />
+        <Input.TextArea
+          autoSize={{ minRows: 2, maxRows: 4 }}
+          placeholder="例如：分格1｜晴晨入城"
+        />
       </Form.Item>
       <Form.Item
         name="action"
@@ -1062,7 +1118,7 @@ function PanelSpecFields() {
         extra="一句视觉动作。组装时作为本格主干；不再另写节拍说明或图像提示词。"
       >
         <Input.TextArea
-          rows={3}
+          autoSize={{ minRows: 2, maxRows: 8 }}
           placeholder="例：女王从城门外走来，卫兵与民众在大道两侧迎接"
         />
       </Form.Item>
@@ -1081,11 +1137,7 @@ function PanelSpecFields() {
           ] as const
         ).map((name) => (
           <Form.Item key={name} name={name} label={fieldLabel(name)}>
-            {name === "expression" || name === "mood" ? (
-              <Input.TextArea rows={2} />
-            ) : (
-              <Input />
-            )}
+            <Input.TextArea autoSize={{ minRows: 2, maxRows: 8 }} />
           </Form.Item>
         ))}
       </div>
@@ -1175,16 +1227,20 @@ function RecipeEditor(props: {
       <Form.Item name="image_recipe_references" hidden>
         <Select mode="tags" open={false} />
       </Form.Item>
+      <Form.Item name="extra_reference_images" hidden>
+        <Select mode="tags" open={false} />
+      </Form.Item>
       <RecipeReferences
         label="配方参考图"
         hint="组装写入的资产标准图与当时带入的额外参考图"
         values={recipeReferences}
-        onRemove={(url) =>
-          props.form.setFieldValue(
-            "image_recipe_references",
-            recipeReferences.filter((item: string) => item !== url),
-          )
-        }
+        onRemove={(url) => {
+          props.form.setFieldsValue({
+            image_recipe_references: recipeReferences.filter(
+              (item: string) => item !== url,
+            ),
+          });
+        }}
       />
       <ReferenceLimitNotice model={props.model} count={recipeReferences.length} />
       <div className="panel-reference-toolbar">
@@ -1227,12 +1283,11 @@ function RecipeEditor(props: {
                 icon={<DeleteOutlined />}
                 aria-label="移除额外参考图"
                 onClick={() =>
-                  props.form.setFieldValue(
-                    "extra_reference_images",
-                    extraReferences.filter(
+                  props.form.setFieldsValue({
+                    extra_reference_images: extraReferences.filter(
                       (item: string) => item !== reference,
                     ),
-                  )
+                  })
                 }
               />
             </div>
@@ -1267,14 +1322,18 @@ function GenerationControls(props: {
 }) {
   return (
     <div className="panel-generation-gate">
-      <Typography.Text strong>手选当前图片模型画幅</Typography.Text>
-      <Select
-        value={props.aspectRatio}
-        onChange={(value) => props.form?.setFieldValue?.("aspect_ratio", value)}
-        placeholder="选择模型目录声明的画幅"
-        options={props.aspectOptions.map((value) => ({ value, label: value }))}
-        disabled={!props.aspectOptions.length}
-      />
+      <Form.Item
+        name="aspect_ratio"
+        label="手选当前图片模型画幅"
+        style={{ marginBottom: 8 }}
+      >
+        <Select
+          allowClear
+          placeholder="选择模型目录声明的画幅"
+          options={props.aspectOptions.map((value) => ({ value, label: value }))}
+          disabled={!props.aspectOptions.length}
+        />
+      </Form.Item>
       <Typography.Text type={props.gateReason ? "warning" : "secondary"}>
         {props.gateReason || "规格和配方就绪"}
       </Typography.Text>

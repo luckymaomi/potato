@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""初始化本地《红女王》Demo，不调用真实供应商。"""
+"""初始化本地《女王出浴》Demo，不调用真实供应商。"""
 from __future__ import annotations
 
 import os

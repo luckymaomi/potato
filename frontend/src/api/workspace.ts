@@ -3,6 +3,7 @@ import type {
   AssetOutputType,
   AssetTextProfile,
   Episode,
+  ImageTextBanKind,
   Panel,
   ProjectAsset,
   ReferenceLockKind,
@@ -89,6 +90,7 @@ export const workspaceApi = {
       text_profile?: AssetTextProfile;
       output_type?: AssetOutputType;
       reference_lock?: ReferenceLockKind | null;
+      ban_image_text?: ImageTextBanKind | null;
     },
   ) =>
     apiClient.post<
@@ -96,6 +98,7 @@ export const workspaceApi = {
       {
         output_type: AssetOutputType;
         reference_lock: ReferenceLockKind | null;
+        ban_image_text: ImageTextBanKind | null;
         output_prompt: string;
       }
     >(`/dramas/${projectId}/assets/assemble-output-prompt`, input),

@@ -19,6 +19,7 @@ import { assetLabels, parseKindFilter, profileSummary, type AssetFilter, type As
 import { AssetDetailPanel, AssetStatusBadge } from './AssetDetailPanel'
 import type { AssetGenerationState } from './assetGenerationStatus'
 import { modelAspectRatioOptions } from '../providers/catalog'
+import { useDebouncedAutoSave } from './useDebouncedAutoSave'
 
 export function AssetWorkspace() {
   const { message, modal } = App.useApp()
@@ -101,6 +102,7 @@ export function AssetWorkspace() {
       text_profile: selected.text_profile,
       output_type: selected.output_type,
       reference_lock: null,
+      ban_image_text: null,
       output_prompt: selected.output_prompt,
       input_reference_images: selected.input_reference_images,
        aspect_ratio: undefined,
@@ -112,8 +114,46 @@ export function AssetWorkspace() {
     // 画幅必须由用户显式选择，不根据目录首项自动填充。
   }, [form, imageModel, selected])
 
+  const save = useCallback(async (announce = false) => {
+    if (!selected) return
+    const values = structuredClone(form.getFieldsValue(true))
+    try {
+      await form.validateFields(['name', 'output_type'])
+      const updated = await workspaceApi.updateAsset(project.id, selected.id, values)
+      setAllAssets((items) => items.map((item) => item.id === updated.id ? updated : item))
+      drafts.current.set(updated.id, structuredClone(form.getFieldsValue(true)))
+      if (announce) notifyAppSuccess(message, '资产卡已保存')
+    } catch (reason) {
+      if (!(reason && typeof reason === 'object' && 'errorFields' in reason)) {
+        notifyAppError({ message, modal }, reason)
+      }
+      throw reason
+    }
+  }, [form, message, modal, project.id, selected])
+
+  const { status: autoSaveStatus, schedule, flush, reset } = useDebouncedAutoSave(
+    () => save(false),
+    { enabled: Boolean(selected) },
+  )
+
+  useEffect(() => {
+    reset()
+  }, [reset, selected?.id])
+
   const rememberDraft = () => {
     if (formAssetId.current) drafts.current.set(formAssetId.current, structuredClone(form.getFieldsValue(true)))
+  }
+
+  const onDraftChange = () => {
+    rememberDraft()
+    schedule()
+  }
+
+  const selectAsset = (id: number) => {
+    if (id === selectedId) return
+    void flush()
+      .catch(() => undefined)
+      .finally(() => setSelectedId(id))
   }
 
   const changeKind = (value: AssetFilter) => {
@@ -123,26 +163,13 @@ export function AssetWorkspace() {
 
   const create = async (kind: AssetKind) => {
     try {
+      await flush().catch(() => undefined)
       const created = await workspaceApi.createAsset(project.id, { kind, name: `未命名${assetLabels[kind]}` })
       await load()
       setSelectedId(created.id)
       notifyAppSuccess(message, `已新建${assetLabels[kind]}`)
     } catch (reason) {
       notifyAppError({ message, modal }, reason)
-    }
-  }
-
-  const save = async (announce = true) => {
-    if (!selected) return
-    const values = structuredClone(form.getFieldsValue(true))
-    try {
-      await form.validateFields()
-      const updated = await workspaceApi.updateAsset(project.id, selected.id, values)
-      setAllAssets((items) => items.map((item) => item.id === updated.id ? updated : item))
-      if (announce) notifyAppSuccess(message, '资产卡已保存')
-    } catch (reason) {
-      if (announce && !(reason && typeof reason === 'object' && 'errorFields' in reason)) notifyAppError({ message, modal }, reason)
-      throw reason
     }
   }
 
@@ -159,19 +186,23 @@ export function AssetWorkspace() {
         text_profile: values.text_profile,
         output_type: values.output_type,
         reference_lock: values.reference_lock ?? null,
+        ban_image_text: values.ban_image_text ?? null,
       })
       const draft = drafts.current.get(assetId) ?? values
       draft.output_type = result.output_type
       draft.reference_lock = result.reference_lock
+      draft.ban_image_text = result.ban_image_text
       draft.output_prompt = result.output_prompt
       drafts.current.set(assetId, draft)
       if (formAssetId.current === assetId) {
         form.setFieldsValue({
           output_type: result.output_type,
           reference_lock: result.reference_lock,
+          ban_image_text: result.ban_image_text,
           output_prompt: result.output_prompt,
         })
       }
+      schedule()
       notifyAppSuccess(message, '提示词已组装')
     } catch (reason) {
       if (!(reason && typeof reason === 'object' && 'errorFields' in reason)) notifyAppError({ message, modal }, reason)
@@ -317,7 +348,7 @@ export function AssetWorkspace() {
           <div className="asset-gallery-scroll">
             <Spin spinning={loading}>
               {filteredAssets.length ? <div className="asset-gallery-grid">{filteredAssets.map((item) => (
-                <button type="button" className={`asset-tile${item.id === selectedId ? ' is-selected' : ''}`} key={item.id} onClick={() => setSelectedId(item.id)}>
+                <button type="button" className={`asset-tile${item.id === selectedId ? ' is-selected' : ''}`} key={item.id} onClick={() => selectAsset(item.id)}>
                   <div className="asset-tile-image">
                     {item.image_url ? <img src={mediaUrl(item.image_url)} alt={item.name} /> : <div className="asset-tile-empty"><SafetyCertificateOutlined /><span>待生成标准图</span></div>}
                     <AssetStatusBadge state={generationState(item.id)} hasImage={Boolean(item.image_url)} />
@@ -342,8 +373,8 @@ export function AssetWorkspace() {
           assembling={assemblingId === selected?.id}
           track={selectedTrack}
           state={selectedState}
-          onDraftChange={rememberDraft}
-          onSave={() => void save().catch(() => undefined)}
+          onDraftChange={onDraftChange}
+          autoSaveStatus={autoSaveStatus}
           onRemove={() => void remove()}
           onGenerate={() => void generate()}
           onAssemble={() => void assemblePrompt()}
@@ -352,7 +383,7 @@ export function AssetWorkspace() {
           onDeleteGeneration={(id) => void deleteGeneration(id)}
           onUploadStandard={uploadStandard}
           onUploadInputReference={uploadInputReference}
-          onReferencesChange={(values) => { form.setFieldValue('input_reference_images', values); rememberDraft() }}
+          onReferencesChange={(values) => { form.setFieldValue('input_reference_images', values); onDraftChange() }}
           imageModel={imageModel}
           imageModelLabel={imageModelLabel}
           aspectRatioOptions={modelAspectRatioOptions(imageModel)}

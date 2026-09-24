@@ -6,7 +6,7 @@ import multer from "multer";
 import { NotFoundError, ValidationError } from "../errors";
 import { created, success } from "../response";
 import type { ServiceContainer } from "../services/container";
-import { assembleAssetOutputPrompt, normalizeReferenceLock } from "../services/assetOutputPromptAssembler";
+import { assembleAssetOutputPrompt, normalizeBanImageText, normalizeReferenceLock } from "../services/assetOutputPromptAssembler";
 import { assemblePanelRecipe } from "../services/storyboardPromptAssembler";
 import {
   normalizeOutputType,
@@ -127,16 +127,19 @@ function registerAssetRoutes(
     const kind = requiredKind(body.kind);
     const outputType = normalizeOutputType(kind, body.output_type);
     const referenceLock = normalizeReferenceLock(kind, body.reference_lock);
+    const banImageText = normalizeBanImageText(body.ban_image_text);
     const outputPrompt = assembleAssetOutputPrompt({
       kind,
       name: text(body.name) || "未命名资产",
       text_profile: normalizeTextProfile(kind, body.text_profile),
       output_type: outputType,
       reference_lock: referenceLock,
+      ban_image_text: banImageText,
     });
     success(res, {
       output_type: outputType,
       reference_lock: referenceLock,
+      ban_image_text: banImageText,
       output_prompt: outputPrompt,
     });
   });

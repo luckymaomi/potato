@@ -56,6 +56,7 @@ export interface Panel {
 
 export type AssetKind = "character" | "scene" | "prop";
 export type ReferenceLockKind = "face" | "scene" | "prop";
+export type ImageTextBanKind = "ban";
 
 export type AssetTextProfile = Record<string, string>;
 export type AssetOutputType =

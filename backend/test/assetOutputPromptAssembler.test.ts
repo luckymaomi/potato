@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assembleAssetOutputPrompt, normalizeReferenceLock } from '../src/services/assetOutputPromptAssembler';
+import {
+  assembleAssetOutputPrompt,
+  normalizeBanImageText,
+  normalizeReferenceLock,
+} from '../src/services/assetOutputPromptAssembler';
 import type { AssetOutputType, ProjectAssetRow } from '../src/types/domain';
 
 function asset(
   outputType: AssetOutputType,
   referenceLock: 'face' | 'scene' | 'prop' | null = null,
-): ProjectAssetRow & { reference_lock: 'face' | 'scene' | 'prop' | null } {
+  banImageText: 'ban' | null = null,
+): ProjectAssetRow & {
+  reference_lock: 'face' | 'scene' | 'prop' | null;
+  ban_image_text: 'ban' | null;
+} {
   const kind = outputType.startsWith('character-')
     ? 'character'
     : outputType.startsWith('scene-') ? 'scene' : 'prop';
@@ -18,7 +26,7 @@ function asset(
     text_profile: kind === 'character'
       ? { hairstyle: '黑色盘发', default_outfit: '深红加冕礼服' }
       : kind === 'scene'
-        ? { layout: '中轴王座厅', time_of_day: '深夜', light_source: '烛光' }
+        ? { layout: '中轴王座厅', time_of_day: '深夜', light_source: '烛火' }
         : { material: '暗金与红宝石', default_state: '左侧冠齿破损' },
     output_type: outputType,
     output_prompt: '测试提示词',
@@ -29,6 +37,7 @@ function asset(
     created_at: '',
     updated_at: '',
     reference_lock: referenceLock,
+    ban_image_text: banImageText,
   };
 }
 
@@ -56,4 +65,21 @@ test('场景选锁景、道具选锁物', () => {
     assembleAssetOutputPrompt(asset('prop-multi-angle', 'prop')),
     /^图片参考锁定（锁物）：以我上传的参考图为唯一道具锚点，img2img 图生图。/u,
   );
+});
+
+test('未选画面禁字时不组装禁字段', () => {
+  assert.equal(normalizeBanImageText(null), null);
+  assert.equal(normalizeBanImageText(undefined), null);
+  const prompt = assembleAssetOutputPrompt(asset('character-layout-a', null, null));
+  assert.equal(/禁止出字|可读字符/u.test(prompt), false);
+});
+
+test('选中禁止出字后写入锁定段之后、卡面文本之前', () => {
+  const prompt = assembleAssetOutputPrompt(asset('character-layout-a', 'face', 'ban'));
+  assert.match(
+    prompt,
+    /^图片参考锁定（锁脸）：[\s\S]*?\n画面约束（禁止出字）：图像中不得出现任何文字/u,
+  );
+  assert.match(prompt, /水印、招牌字、标签、气泡或其它可读字符/u);
+  assert.match(prompt, /产出布局 A/u);
 });

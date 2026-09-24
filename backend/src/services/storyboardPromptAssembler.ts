@@ -37,10 +37,6 @@ const PROFILE_FIELDS: Record<
     ["personality", "性格"],
     ["common_expressions", "常见表情"],
     ["aura", "气场"],
-    ["voice_tone_id", "音色 ID"],
-    ["speech_rate", "语速"],
-    ["accent", "口音"],
-    ["signature_phrase", "标志性语气"],
   ],
   scene: [
     ["location_type", "地点类型"],
