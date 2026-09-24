@@ -60,6 +60,7 @@ interface PanelFormValues extends Partial<Panel> {
   scene_asset_ids?: number[];
   prop_asset_ids?: number[];
   aspect_ratio?: string;
+  include_previous_panel?: boolean;
 }
 
 const assetLabels: Record<AssetKind, string> = {
@@ -222,6 +223,11 @@ export function PanelWorkspace() {
     }
     form.setFieldsValue({
       ...selected,
+      action:
+        selected.action ||
+        selected.description ||
+        selected.image_prompt ||
+        "",
       character_asset_ids: filterAssetIds(
         selected.project_asset_ids,
         assets,
@@ -238,6 +244,7 @@ export function PanelWorkspace() {
         "prop",
       ),
       aspect_ratio: undefined,
+      include_previous_panel: true,
     });
     void loadHistory(selected.id);
   }, [assets, form, loadHistory, selected]);
@@ -287,13 +294,13 @@ export function PanelWorkspace() {
     if (!selected || assembling) return;
     setAssembling(true);
     try {
-      await workspaceApi.assemblePanelRecipe(
-        project.id,
-        selected.id,
-        panelPayload(form.getFieldsValue(true)),
-      );
+      const values = form.getFieldsValue(true) as PanelFormValues;
+      await workspaceApi.assemblePanelRecipe(project.id, selected.id, {
+        ...panelPayload(values),
+        include_previous_panel: Boolean(values.include_previous_panel),
+      });
       await loadPanels();
-      notifyAppSuccess(message, "图片配方已按资产 ID 组装并保存");
+      notifyAppSuccess(message, "图片配方已组装并保存");
     } catch (reason) {
       notifyAppError({ message, modal }, reason);
     } finally {
@@ -1047,35 +1054,50 @@ function PanelSpecFields() {
   return (
     <>
       <Form.Item name="title" label="标题">
-        <Input placeholder="这一格落在哪个节拍" />
+        <Input placeholder="例如：分格1｜晴晨入城" />
       </Form.Item>
-      <Form.Item name="description" label="节拍说明">
-        <Input.TextArea rows={3} placeholder="说明这一格在故事节拍中的落点" />
+      <Form.Item
+        name="action"
+        label="本格动作 / 节拍"
+        extra="一句视觉动作。组装时作为本格主干；不再另写节拍说明或图像提示词。"
+      >
+        <Input.TextArea
+          rows={3}
+          placeholder="例：女王从城门外走来，卫兵与民众在大道两侧迎接"
+        />
       </Form.Item>
-      <Form.Item name="action" label="动作定格">
-        <Input.TextArea rows={2} placeholder="写定格姿态，不写连续运镜" />
-      </Form.Item>
-      <Form.Item name="expression" label="表情">
-        <Input.TextArea rows={2} placeholder="写脸部表情与情绪状态" />
-      </Form.Item>
-      <Form.Item name="image_prompt" label="图像提示词">
-        <Input.TextArea rows={3} placeholder="写这一格的生图主干，留空则回退节拍说明或标题" />
-      </Form.Item>
+      <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+        画面细化（本格镜头语法）
+      </Typography.Text>
       <div className="panel-field-grid">
         {(
           [
             "framing",
             "viewpoint",
             "composition",
+            "expression",
             "lighting",
             "mood",
           ] as const
         ).map((name) => (
           <Form.Item key={name} name={name} label={fieldLabel(name)}>
-            <Input />
+            {name === "expression" || name === "mood" ? (
+              <Input.TextArea rows={2} />
+            ) : (
+              <Input />
+            )}
           </Form.Item>
         ))}
       </div>
+      <Form.Item
+        name="include_previous_panel"
+        valuePropName="checked"
+        style={{ marginTop: 8 }}
+      >
+        <Checkbox>
+          组装时带入上一格底板作连续性参考（第一格或换场可关掉）
+        </Checkbox>
+      </Form.Item>
     </>
   );
 }
@@ -1144,7 +1166,8 @@ function RecipeEditor(props: {
   return (
     <div className="panel-recipe-editor">
       <Typography.Paragraph type="secondary">
-        配方快照 = 最终提示词 + 参考图（勾选资产的标准图 + 下方额外参考图）。点组装写入；之后可改提示词或删参考图，不会暗中覆盖。
+        配方 = 画风锁 + 本格动作 + 资产文本 + 画面细化；参考图 =
+        勾选资产标准图 + 额外参考图 +（可选）上一格底板。点组装写入，不会暗中覆盖。
       </Typography.Paragraph>
       <Form.Item name="image_recipe_prompt" label="最终图片提示词">
         <Input.TextArea rows={7} />
@@ -1476,6 +1499,7 @@ function panelPayload(values: PanelFormValues): Partial<Panel> {
     scene_asset_ids,
     prop_asset_ids,
     aspect_ratio: _aspect,
+    include_previous_panel: _previous,
     ...rest
   } = values;
   return {
@@ -1505,6 +1529,7 @@ function fieldLabel(name: string): string {
         framing: "取景",
         viewpoint: "视角",
         composition: "构图",
+        expression: "表情",
         lighting: "光线",
         mood: "氛围",
       } as Record<string, string>

@@ -8,13 +8,43 @@ const panel = (overrides: Partial<PanelRow> = {}): PanelRow => ({
 });
 const assets: ProjectAssetRow[] = [{ id: 7, drama_id: 1, kind: 'character', name: '林岚', text_profile: { occupation: '调查记者' }, output_type: 'character-layout-a', output_prompt: '定妆', input_reference_images: [], image_url: 'https://cdn.test/linlan.png', local_path: null, current_image_generation_id: null, created_at: '', updated_at: '' }];
 
-test('分格配方按资产 ID 组装图片提示词与参考图', () => {
-  const result = assemblePanelRecipe({ shot: panel(), assets });
-  assert.equal(result.panelRecipe.prompt, '电影感悬疑画面\n角色卡「林岚」：职业：调查记者\n取景：半身人物\n构图：人物居中\n视角：略低视角\n动作定格：拆开信封\n表情：警觉\n光线：冷蓝月光\n氛围：压抑\n干净画面；无字幕、无气泡、无水印');
-  assert.deepEqual(result.panelRecipe.references, ['https://cdn.test/linlan.png', 'https://cdn.test/pose.png']);
+test('分格配方按画风锁、本格动作与资产 ID 组装', () => {
+  const result = assemblePanelRecipe({
+    shot: panel(),
+    assets,
+    styleLock: { tone: '冷峻', reference_setting: '电影感' },
+    previousPanelImage: 'https://cdn.test/prev.png',
+  });
+  assert.equal(
+    result.panelRecipe.prompt,
+    '基调：冷峻\n参考设定：电影感\n拆开信封\n角色卡「林岚」：职业：调查记者\n取景：半身人物\n构图：人物居中\n视角：略低视角\n表情：警觉\n光线：冷蓝月光\n氛围：压抑\n干净画面；无字幕、无气泡、无水印',
+  );
+  assert.deepEqual(result.panelRecipe.references, [
+    'https://cdn.test/linlan.png',
+    'https://cdn.test/pose.png',
+    'https://cdn.test/prev.png',
+  ]);
 });
 
 test('空规格仍产出可执行的图片配方', () => {
-  const result = assemblePanelRecipe({ shot: panel({ description: '一个人站在码头', image_prompt: null, action: null, expression: null, framing: null, viewpoint: null, composition: null, lighting: null, mood: null, project_asset_ids: [], extra_reference_images: [' https://cdn.test/light.png ', 'https://cdn.test/light.png'] }), assets: [] });
-  assert.deepEqual(result.panelRecipe, { prompt: '一个人站在码头\n干净画面；无字幕、无气泡、无水印', references: ['https://cdn.test/light.png'] });
+  const result = assemblePanelRecipe({
+    shot: panel({
+      description: '一个人站在码头',
+      image_prompt: null,
+      action: null,
+      expression: null,
+      framing: null,
+      viewpoint: null,
+      composition: null,
+      lighting: null,
+      mood: null,
+      project_asset_ids: [],
+      extra_reference_images: [' https://cdn.test/light.png ', 'https://cdn.test/light.png'],
+    }),
+    assets: [],
+  });
+  assert.deepEqual(result.panelRecipe, {
+    prompt: '一个人站在码头\n干净画面；无字幕、无气泡、无水印',
+    references: ['https://cdn.test/light.png'],
+  });
 });

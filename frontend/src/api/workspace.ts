@@ -148,7 +148,11 @@ export const workspaceApi = {
     apiClient.post<never, Panel>(
       `/dramas/${projectId}/panels/${id}/confirm-review`,
     ),
-  assemblePanelRecipe: (projectId: number, id: number, input: Partial<Panel>) =>
+  assemblePanelRecipe: (
+    projectId: number,
+    id: number,
+    input: Partial<Panel> & { include_previous_panel?: boolean },
+  ) =>
     apiClient.post<never, Panel>(
       `/dramas/${projectId}/panels/${id}/assemble-recipe`,
       input,

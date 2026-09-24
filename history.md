@@ -681,3 +681,11 @@
 - 已删前端 `ComposeWorkspace`、`TtsConfigPage`、导航与路由；后端删 `captionService` / `pageLayoutService` / `freedubService` / `ttsAdapter` 及 compose/captions/tts/pages 路由；schema 去掉 `panel_captions`、`panel_audio`、`page_layouts`、`tts_configs`；去掉 `archiver` 依赖与 `panelWorkflow` 测。
 - `spec.md` / `README.md` 主链与验收合同已同步；`AI漫画工作流.md` 与 `plan.md` 文首标注旧页组装/TTS 条款作废。
 - 验证：后端 typecheck + `69/69` 测试通过；前端 vitest `25/25`、build 通过。未做浏览器人工点通；本地若仍有旧库表（captions/audio/layouts/tts），空库重建或 `clear_database` 后才与新 schema 一致。
+
+## 2026-09-24：故事源简化与分格组装定稿落地
+
+- Owner 定稿：总览只保留画风锁（基调/参考设定）+ 合一故事剧本；不建镜头、不与分格挂钩、不自动建格。
+- 分格组装顺序改为：画风锁 → 本格动作 → 资产文本 → 画面细化；参考图含资产标准图、额外参考图与可选上一格底板。
+- UI 去掉节拍说明/图像提示词双写；规格收敛为本格动作 + 取景/视角/构图/表情/光线/氛围；组装可选「承接上一格」。
+- 空库前提，不做迁移；保存故事页时旧总览/本话结构列写空串。
+- 验证：后端 typecheck + `69/69`；前端 typecheck + vitest `25/25`。未做浏览器人工点通。

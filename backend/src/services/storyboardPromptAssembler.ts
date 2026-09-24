@@ -7,9 +7,16 @@ export interface PanelRecipe {
   };
 }
 
+export interface StyleLock {
+  tone?: string | null;
+  reference_setting?: string | null;
+}
+
 export interface StoryboardRecipeInput {
   shot: PanelRow;
   assets: ProjectAssetRow[];
+  styleLock?: StyleLock;
+  previousPanelImage?: string | null;
 }
 
 const PROFILE_FIELDS: Record<
@@ -70,6 +77,8 @@ const PROFILE_FIELDS: Record<
 export function assemblePanelRecipe({
   shot,
   assets,
+  styleLock,
+  previousPanelImage,
 }: StoryboardRecipeInput): PanelRecipe {
   const selectedAssets = assets.filter((asset) =>
     shot.project_asset_ids.includes(asset.id),
@@ -78,14 +87,21 @@ export function assemblePanelRecipe({
   const references = unique([
     ...selectedAssets.map((asset) => asset.image_url),
     ...shot.extra_reference_images,
+    previousPanelImage,
   ]);
+  const beat =
+    clean(shot.action) ||
+    clean(shot.description) ||
+    clean(shot.image_prompt) ||
+    clean(shot.title);
   const imagePrompt = joinBlocks([
-    clean(shot.image_prompt) || clean(shot.description) || clean(shot.title),
+    field("基调", styleLock?.tone),
+    field("参考设定", styleLock?.reference_setting),
+    beat,
     ...assetBlocks,
     field("取景", shot.framing),
     field("构图", shot.composition),
     field("视角", shot.viewpoint),
-    field("动作定格", shot.action),
     field("表情", shot.expression),
     field("光线", shot.lighting),
     field("氛围", shot.mood),

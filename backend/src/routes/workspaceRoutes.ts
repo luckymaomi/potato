@@ -256,10 +256,21 @@ function registerPanelRoutes(
       projectId,
       positive(req.params.panelId),
     );
-    const updated = services.assets.updatePanel(panel.id, bodyRecord(req));
+    const body = bodyRecord(req);
+    const includePrevious = body.include_previous_panel === true;
+    const updated = services.assets.updatePanel(panel.id, body);
+    const project = services.projects.require(projectId);
+    const previousPanelImage = includePrevious
+      ? previousPanelImageUrl(services, updated)
+      : undefined;
     const recipe = assemblePanelRecipe({
       shot: updated,
       assets: services.assets.listProjectAssets(projectId),
+      styleLock: {
+        tone: project.tone,
+        reference_setting: project.reference_setting,
+      },
+      previousPanelImage,
     });
     success(
       res,
@@ -446,6 +457,18 @@ function requirePanel(
   if (!panel || !episode || episode.drama_id !== projectId)
     throw new NotFoundError("分格不存在");
   return panel;
+}
+
+function previousPanelImageUrl(
+  services: Pick<ServiceContainer, "assets">,
+  panel: PanelRow,
+): string | undefined {
+  const previous = services.assets
+    .listPanels(panel.episode_id)
+    .filter((item) => item.panel_number < panel.panel_number)
+    .sort((left, right) => right.panel_number - left.panel_number)[0];
+  const url = previous?.image_url?.trim();
+  return url || undefined;
 }
 
 function assetKindQuery(value: unknown): AssetKind | undefined {
