@@ -52,30 +52,6 @@ export interface Panel {
   recipe_needs_reassembly?: boolean;
   project_asset_ids?: number[];
   extra_reference_images?: string[];
-  captions?: PanelCaption[];
-  audio?: PanelAudio | null;
-}
-
-export interface PanelCaption {
-  id?: number;
-  panel_id?: number;
-  text: string;
-  bubble_type: "speech" | "thought" | "narration" | string;
-  x: number;
-  y: number;
-  scale: number;
-  sort_order?: number;
-}
-
-export interface PanelAudio {
-  id: number;
-  panel_id: number;
-  text: string;
-  role?: string | null;
-  style?: string | null;
-  public_url: string;
-  local_path: string;
-  status: string;
 }
 
 export type AssetKind = "character" | "scene" | "prop";

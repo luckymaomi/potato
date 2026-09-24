@@ -4,8 +4,6 @@ import type {
   AssetTextProfile,
   Episode,
   Panel,
-  PanelAudio,
-  PanelCaption,
   ProjectAsset,
   ReferenceLockKind,
 } from "../types/domain";
@@ -37,8 +35,8 @@ export interface ScriptSceneDraft {
 }
 export interface PanelWorkspace {
   episode: Episode;
-  items?: Array<Panel & { captions?: PanelCaption[] }>;
-  panels?: Array<Panel & { captions?: PanelCaption[] }>;
+  items?: Panel[];
+  panels?: Panel[];
 }
 export interface GenerateMediaInput {
   provider?: string;
@@ -48,28 +46,6 @@ export interface GenerateMediaInput {
 export interface PanelReadiness {
   recipe: { ready: boolean; reason?: string };
   image: { ready: boolean; reason?: string };
-}
-export interface PageExportResult {
-  id: number;
-  publicUrl: string;
-  localPath: string;
-  width: number;
-  height: number;
-}
-export interface TtsConfig {
-  provider: string;
-  base_url: string;
-  role: string | null;
-  style: string | null;
-  configured: boolean;
-}
-export interface TtsOptions {
-  roles: string[];
-  styles: string[];
-}
-export interface TtsProvider {
-  id: string;
-  label: string;
 }
 
 export const workspaceApi = {
@@ -203,64 +179,4 @@ export const workspaceApi = {
     apiClient.get<never, { items: MediaGenerationHistory[] }>(
       `/dramas/${projectId}/panels/${id}/history`,
     ),
-  savePanelCaptions: (
-    projectId: number,
-    id: number,
-    captions: PanelCaption[],
-  ) =>
-    apiClient.put<never, { captions: PanelCaption[] }>(
-      `/dramas/${projectId}/panels/${id}/captions`,
-      { captions },
-    ),
-  panelTts: (
-    projectId: number,
-    id: number,
-    input: { text: string; role?: string; style?: string },
-  ) =>
-    apiClient.post<never, PanelAudio>(
-      `/dramas/${projectId}/panels/${id}/tts`,
-      input,
-    ),
-  compose: (projectId: number, episodeId?: number) =>
-    apiClient.get<never, PanelWorkspace>(`/dramas/${projectId}/compose`, {
-      params: { episode_id: episodeId },
-    }),
-  ttsConfig: () => apiClient.get<never, TtsConfig>("/tts/config"),
-  ttsProviders: () => apiClient.get<never, TtsProvider[]>("/tts/providers"),
-  ttsOptions: (params?: {
-    provider?: string;
-    base_url?: string;
-    api_key?: string;
-  }) => apiClient.get<never, TtsOptions>("/tts/options", { params }),
-  saveTtsConfig: (input: {
-    provider: string;
-    base_url: string;
-    api_key: string;
-    role?: string;
-    style?: string;
-  }) => apiClient.put<never, TtsConfig>("/tts/config", input),
-  exportPage: (
-    projectId: number,
-    episodeId: number,
-    template: "single" | "grid_2x2" | "vertical_4",
-    panelIds?: number[],
-  ) =>
-    apiClient.post<never, PageExportResult>(
-      `/dramas/${projectId}/episodes/${episodeId}/pages/export`,
-      { template, panel_ids: panelIds },
-    ),
-  downloadPackage: (
-    projectId: number,
-    episodeId: number,
-    template: "single" | "grid_2x2" | "vertical_4",
-    panelIds?: number[],
-  ) =>
-    apiClient.get<never, Blob>(`/dramas/${projectId}/compose/package`, {
-      params: {
-        episode_id: episodeId,
-        template,
-        panel_ids: panelIds?.join(","),
-      },
-      responseType: "blob",
-    }),
 };

@@ -668,3 +668,16 @@
 - 选项只随组装请求与前端草稿，不单独入库；生成仍只读已保存 `output_prompt`。过程曾试过身份多档、关开开关、强制写入，均按 owner 纠偏收敛为本形态。
 - `ref/` 浅克隆第三方漫画/生图参考库已忽略入库；`.gitignore` 增加 `ref/*/`。
 - 定向测：`assetOutputPromptAssembler`、coreServices 组装断言通过；未做真实供应商出片验收。未验证项：浏览器点选组装与人工读提示词。
+
+## 2026-09-24：页组装取消四格拼页，配音挂底板旁
+
+- Owner 要求：音频放在底板预览旁；取消四格/竖四格拼页 UI；不要原来的底部独立区域。
+- 页组装改为左侧底板库 + 主区「底板字层与配音」；导出/话数包固定按当前选中底板走 `single`。后端仍保留多模板拼页能力与既有测试，产品入口不再暴露。
+- 未做浏览器人工点通验收。
+
+## 2026-09-24：砍掉页组装与配音，工作区只留三区
+
+- Owner 明确：删除页组装整页与音频/TTS；产品只保留总览与剧本、资产图、分格台。
+- 已删前端 `ComposeWorkspace`、`TtsConfigPage`、导航与路由；后端删 `captionService` / `pageLayoutService` / `freedubService` / `ttsAdapter` 及 compose/captions/tts/pages 路由；schema 去掉 `panel_captions`、`panel_audio`、`page_layouts`、`tts_configs`；去掉 `archiver` 依赖与 `panelWorkflow` 测。
+- `spec.md` / `README.md` 主链与验收合同已同步；`AI漫画工作流.md` 与 `plan.md` 文首标注旧页组装/TTS 条款作废。
+- 验证：后端 typecheck + `69/69` 测试通过；前端 vitest `25/25`、build 通过。未做浏览器人工点通；本地若仍有旧库表（captions/audio/layouts/tts），空库重建或 `clear_database` 后才与新 schema 一致。

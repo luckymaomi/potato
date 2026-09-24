@@ -7,9 +7,6 @@ import { MediaReferenceService } from './mediaReferenceService';
 import { MediaArchiveService } from './mediaArchiveService';
 import { ProjectService } from './projectService';
 import { TaskService } from './taskService';
-import { CaptionService } from './captionService';
-import { PageLayoutService } from './pageLayoutService';
-import { FreedubService } from './freedubService';
 
 export interface ServiceContainer {
   aiConfigs: AiConfigService;
@@ -17,9 +14,6 @@ export interface ServiceContainer {
   images: ImageGenerationService;
   projects: ProjectService;
   tasks: TaskService;
-  captions: CaptionService;
-  pages: PageLayoutService;
-  freedub: FreedubService;
 }
 
 export function createServices(
@@ -35,17 +29,11 @@ export function createServices(
   const assets = new AssetRepository(db, log);
   const mediaReferences = new MediaReferenceService(config, db);
   const images = new ImageGenerationService(db, mediaReferences, mediaArchive, aiConfigs, tasks, registry, log, assets);
-  const captions = new CaptionService(db);
-  const pages = new PageLayoutService(db, config);
-  const freedub = new FreedubService(db, config);
   return {
     aiConfigs,
     assets,
     images,
     projects,
     tasks,
-    captions,
-    pages,
-    freedub,
   };
 }

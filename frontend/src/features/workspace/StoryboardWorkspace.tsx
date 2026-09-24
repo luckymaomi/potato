@@ -1476,8 +1476,6 @@ function panelPayload(values: PanelFormValues): Partial<Panel> {
     scene_asset_ids,
     prop_asset_ids,
     aspect_ratio: _aspect,
-    captions: _captions,
-    audio: _audio,
     ...rest
   } = values;
   return {

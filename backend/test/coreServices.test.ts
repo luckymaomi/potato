@@ -299,7 +299,7 @@ test('分格显式组装图片配方，图片生成消费用户保存的图片�
   }
 });
 
-test('分格台与页组装路由都返回当前话工作区', async () => {
+test('分格台路由返回当前话工作区', async () => {
   const { db, services, config } = setup();
   const app = express();
   app.use(express.json());
@@ -315,13 +315,10 @@ test('分格台与页组装路由都返回当前话工作区', async () => {
     assert.ok(address && typeof address === 'object');
     const base = `http://127.0.0.1:${address.port}/dramas/${project.id}`;
     const panels = await fetch(`${base}/panels?episode_id=${episode.id}`);
-    const compose = await fetch(`${base}/compose?episode_id=${episode.id}`);
     const readiness = await fetch(`${base}/panels/${services.assets.listPanels(episode.id)[0].id}/readiness`);
     assert.equal(panels.status, 200);
-    assert.equal(compose.status, 200);
     assert.equal(readiness.status, 200);
     assert.equal((await panels.json() as { data: { items: unknown[] } }).data.items.length, 1);
-    assert.equal((await compose.json() as { data: { panels: unknown[] } }).data.panels.length, 1);
     const readinessData = (await readiness.json() as {
       data: {
         recipe: { ready: boolean; reason?: string };
@@ -331,55 +328,6 @@ test('分格台与页组装路由都返回当前话工作区', async () => {
     assert.equal(readinessData.recipe.ready, false);
     assert.match(readinessData.recipe.reason ?? "", /閰嶆柟|配方/u);
     assert.equal(readinessData.image.ready, false);
-  } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    db.close();
-  }
-});
-
-test('TTS 独立配置路由可达且不回显密钥，空密钥更新保留已存凭据', async () => {
-  const { db, services, config } = setup();
-  const app = express();
-  app.use(express.json());
-  app.use(workspaceRoutes(services, config));
-  const server = app.listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  try {
-    const address = server.address();
-    assert.ok(address && typeof address === 'object');
-    const base = `http://127.0.0.1:${address.port}`;
-    const providers = await fetch(`${base}/tts/providers`);
-    assert.equal(providers.status, 200);
-    assert.deepEqual((await providers.json() as { data: Array<{ id: string }> }).data.map((item) => item.id), ['freedub']);
-    const initialConfig = await fetch(`${base}/tts/config`);
-    assert.deepEqual((await initialConfig.json() as { data: Record<string, unknown> }).data, {
-      provider: 'freedub',
-      base_url: 'https://api.pearapi.ai/api/freedub',
-      role: 'zh-CN-XiaoyiNeural',
-      style: 'cheerful',
-      configured: false,
-    });
-    const saved = await fetch(`${base}/tts/config`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'freedub', base_url: 'https://tts.test', api_key: 'secret' }),
-    });
-    assert.equal(saved.status, 200);
-    assert.doesNotMatch(await saved.text(), /secret/u);
-    const updated = await fetch(`${base}/tts/config`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'freedub', base_url: 'https://tts.next', api_key: '' }),
-    });
-    assert.equal(updated.status, 200);
-    assert.deepEqual((await updated.json() as { data: { base_url: string; configured: boolean } }).data, {
-      base_url: 'https://tts.next',
-      provider: 'freedub',
-      role: null,
-      style: null,
-      configured: true,
-    });
-    assert.equal((db.prepare('SELECT api_key FROM tts_configs WHERE id = 1').get() as { api_key: string }).api_key, 'secret');
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     db.close();

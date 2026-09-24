@@ -1,4 +1,4 @@
-import { ApiOutlined, AppstoreOutlined, AudioOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons'
+import { ApiOutlined, AppstoreOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons'
 import { Button } from 'antd'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useTheme } from '../theme/ThemeContext'
@@ -17,7 +17,6 @@ export function AppShell() {
         <nav className="app-nav" aria-label="主导航">
           <NavLink to="/" end><AppstoreOutlined />项目</NavLink>
           <NavLink to="/ai-config"><ApiOutlined />AI 配置</NavLink>
-          <NavLink to="/tts-config"><AudioOutlined />配音配置</NavLink>
         </nav>
         <Button
           className="theme-toggle"
