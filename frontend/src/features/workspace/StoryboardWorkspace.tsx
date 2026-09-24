@@ -970,7 +970,7 @@ function PanelInspector(props: {
               },
               {
                 key: "recipe",
-                label: "显式图片配方快照",
+                label: "图片配方（提示词 + 参考图）",
                 children: (
                   <RecipeEditor
                     form={props.form}
@@ -1087,23 +1087,44 @@ function AssetSelector(props: {
 }) {
   return (
     <div className="panel-asset-picks">
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+        勾选本格出场资产。有标准图的会在组装时进入配方参考图；待定妆需先去资产台出图。
+      </Typography.Paragraph>
       {(["character", "scene", "prop"] as AssetKind[]).map((kind) => (
         <div key={kind} className="panel-asset-group">
           <Typography.Text type="secondary">
             {assetLabels[kind]}
           </Typography.Text>
-          {props.assets
-            .filter((asset) => asset.kind === kind)
-            .map((asset) => (
-              <Checkbox
-                key={asset.id}
-                checked={props.selectedIds.includes(asset.id)}
-                onChange={() => props.onToggle(kind, asset.id)}
-              >
-                {asset.name}
-                {asset.image_url ? " · 有标准图" : " · 待定妆"}
-              </Checkbox>
-            ))}
+          <div className="panel-asset-pick-list">
+            {props.assets
+              .filter((asset) => asset.kind === kind)
+              .map((asset) => {
+                const checked = props.selectedIds.includes(asset.id);
+                return (
+                  <label
+                    key={asset.id}
+                    className={`panel-asset-pick${checked ? " is-selected" : ""}`}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onChange={() => props.onToggle(kind, asset.id)}
+                    />
+                    {asset.image_url ? (
+                      <Image
+                        src={mediaUrl(asset.image_url)}
+                        width={44}
+                        height={44}
+                        preview={{ mask: "查看" }}
+                        alt={asset.name}
+                      />
+                    ) : (
+                      <span className="panel-asset-pick-empty">待定妆</span>
+                    )}
+                    <span className="panel-asset-pick-name">{asset.name}</span>
+                  </label>
+                );
+              })}
+          </div>
         </div>
       ))}
     </div>
@@ -1116,32 +1137,37 @@ function RecipeEditor(props: {
   onUploadReference: (file: File) => Promise<boolean>;
   uploading: boolean;
 }) {
-  const references = Form.useWatch("extra_reference_images", props.form) ?? [];
+  const recipeReferences =
+    Form.useWatch("image_recipe_references", props.form) ?? [];
+  const extraReferences =
+    Form.useWatch("extra_reference_images", props.form) ?? [];
   return (
     <div className="panel-recipe-editor">
       <Typography.Paragraph type="secondary">
-        配方是这一格底板的可编辑最终快照。组装会按资产 ID
-        带入标准图和文本，之后可以手工改写。
+        配方快照 = 最终提示词 + 参考图（勾选资产的标准图 + 下方额外参考图）。点组装写入；之后可改提示词或删参考图，不会暗中覆盖。
       </Typography.Paragraph>
       <Form.Item name="image_recipe_prompt" label="最终图片提示词">
         <Input.TextArea rows={7} />
       </Form.Item>
-      <Form.Item name="image_recipe_references" label="已写入配方的参考图">
-        <Select mode="tags" tokenSeparators={[","]} />
+      <Form.Item name="image_recipe_references" hidden>
+        <Select mode="tags" open={false} />
       </Form.Item>
       <RecipeReferences
-        label="配方参考图预览"
-        values={Form.useWatch("image_recipe_references", props.form) ?? []}
-      />
-      <ReferenceLimitNotice
-        model={props.model}
-        count={
-          (Form.useWatch("image_recipe_references", props.form) ?? []).length
+        label="配方参考图"
+        hint="组装写入的资产标准图与当时带入的额外参考图"
+        values={recipeReferences}
+        onRemove={(url) =>
+          props.form.setFieldValue(
+            "image_recipe_references",
+            recipeReferences.filter((item: string) => item !== url),
+          )
         }
       />
+      <ReferenceLimitNotice model={props.model} count={recipeReferences.length} />
       <div className="panel-reference-toolbar">
+        <Typography.Text strong>额外参考图</Typography.Text>
         <Typography.Text type="secondary">
-          额外参考图 {references.length} 张
+          {extraReferences.length} 张 · 下次组装时并入配方参考图
         </Typography.Text>
         <Upload
           accept="image/*"
@@ -1156,35 +1182,41 @@ function RecipeEditor(props: {
             icon={<CloudUploadOutlined />}
             loading={props.uploading}
           >
-            上传参考图
+            上传
           </Button>
         </Upload>
       </div>
       <div className="panel-reference-list">
-        {references.map((reference: string) => (
-          <div className="panel-reference-item" key={reference}>
-            <Image
-              src={mediaUrl(reference)}
-              width={58}
-              height={58}
-              preview
-              alt="额外参考图"
-            />
-            <Button
-              type="text"
-              danger
-              size="small"
-              icon={<DeleteOutlined />}
-              aria-label="移除额外参考图"
-              onClick={() =>
-                props.form.setFieldValue(
-                  "extra_reference_images",
-                  references.filter((item: string) => item !== reference),
-                )
-              }
-            />
-          </div>
-        ))}
+        {extraReferences.length ? (
+          extraReferences.map((reference: string) => (
+            <div className="panel-reference-item" key={reference}>
+              <Image
+                src={mediaUrl(reference)}
+                width={58}
+                height={58}
+                preview
+                alt="额外参考图"
+              />
+              <Button
+                type="text"
+                danger
+                size="small"
+                icon={<DeleteOutlined />}
+                aria-label="移除额外参考图"
+                onClick={() =>
+                  props.form.setFieldValue(
+                    "extra_reference_images",
+                    extraReferences.filter(
+                      (item: string) => item !== reference,
+                    ),
+                  )
+                }
+              />
+            </div>
+          ))
+        ) : (
+          <Typography.Text type="secondary">暂无额外参考图</Typography.Text>
+        )}
       </div>
     </div>
   );
@@ -1274,30 +1306,49 @@ function GenerationControls(props: {
   );
 }
 
-function RecipeReferences(props: { label: string; values: string[] }) {
+function RecipeReferences(props: {
+  label: string;
+  hint?: string;
+  values: string[];
+  onRemove?: (url: string) => void;
+}) {
   return (
     <div className="director-recipe-references panel-recipe-reference-preview">
       <div className="panel-reference-toolbar">
         <Typography.Text strong>{props.label}</Typography.Text>
         <Typography.Text type="secondary">
           {props.values.length} 张
+          {props.hint ? ` · ${props.hint}` : ""}
         </Typography.Text>
       </div>
       {props.values.length ? (
         <div className="panel-reference-list">
           {props.values.map((value) => (
-            <Image
-              key={value}
-              src={mediaUrl(value)}
-              width={58}
-              height={58}
-              preview
-              alt="配方参考图"
-            />
+            <div className="panel-reference-item" key={value}>
+              <Image
+                src={mediaUrl(value)}
+                width={58}
+                height={58}
+                preview
+                alt="配方参考图"
+              />
+              {props.onRemove ? (
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  aria-label="从配方移除参考图"
+                  onClick={() => props.onRemove?.(value)}
+                />
+              ) : null}
+            </div>
           ))}
         </div>
       ) : (
-        <Typography.Text type="secondary">暂无参考图</Typography.Text>
+        <Typography.Text type="secondary">
+          暂无。勾选已定妆资产并组装后会出现在这里。
+        </Typography.Text>
       )}
     </div>
   );
