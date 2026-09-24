@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assembleAssetOutputPrompt } from '../src/services/assetOutputPromptAssembler';
+import { assembleAssetOutputPrompt, normalizeReferenceLock } from '../src/services/assetOutputPromptAssembler';
 import type { AssetOutputType, ProjectAssetRow } from '../src/types/domain';
 
-function asset(outputType: AssetOutputType): ProjectAssetRow {
+function asset(
+  outputType: AssetOutputType,
+  referenceLock: 'face' | 'scene' | 'prop' | null = null,
+): ProjectAssetRow & { reference_lock: 'face' | 'scene' | 'prop' | null } {
   const kind = outputType.startsWith('character-')
     ? 'character'
     : outputType.startsWith('scene-') ? 'scene' : 'prop';
@@ -25,40 +28,32 @@ function asset(outputType: AssetOutputType): ProjectAssetRow {
     current_image_generation_id: null,
     created_at: '',
     updated_at: '',
+    reference_lock: referenceLock,
   };
 }
 
-test('角色卡四种布局生成各自的标准图册产出提示词', () => {
-  const cases: Array<[AssetOutputType, RegExp]> = [
-    ['character-layout-a', /三栏三视图.*左栏.*正面.*中栏.*背面.*右栏.*头部/u],
-    ['character-layout-b', /左脸右身.*正脸特写.*正面.*90度侧面.*背面/u],
-    ['character-layout-c', /4\+3 双层.*第一排.*四张全身图.*第二排.*三张头部特写/u],
-    ['character-layout-d', /7 图身份锚点组.*正面肖像.*四分之三侧面.*手部特写/u],
-  ];
-
-  for (const [outputType, layoutPattern] of cases) {
-    const prompt = assembleAssetOutputPrompt(asset(outputType));
-    assert.match(prompt, layoutPattern);
-    assert.match(prompt, /同一张脸、同一发型、同一服装/u);
-    assert.match(prompt, /身高比例和五官完全一致/u);
-    assert.match(prompt, /纯色或中性背景/u);
-  }
+test('未选图片参考锁定时不组装锁定段', () => {
+  assert.equal(normalizeReferenceLock('character', null), null);
+  assert.equal(normalizeReferenceLock('character', undefined), null);
+  const prompt = assembleAssetOutputPrompt(asset('character-layout-c', null));
+  assert.equal(/图片参考锁定|img2img/u.test(prompt), false);
+  assert.match(prompt, /产出布局 C/u);
 });
 
-test('场景卡三种产出类型生成可直接执行的独立卡提示词', () => {
-  const panorama = assembleAssetOutputPrompt(asset('scene-panorama'));
-  const detail = assembleAssetOutputPrompt(asset('scene-detail'));
-  const lighting = assembleAssetOutputPrompt(asset('scene-lighting-variant'));
-
-  assert.match(panorama, /空间全景图.*整体布局.*空间关系.*建筑风格/u);
-  assert.match(detail, /局部特写图.*关键陈设.*材质.*光影细节/u);
-  assert.match(lighting, /光影变体卡.*独立 ID.*一种光影设定/u);
+test('选中锁脸后组装写入最前；布局仍按预设', () => {
+  const prompt = assembleAssetOutputPrompt(asset('character-layout-b', 'face'));
+  assert.match(prompt, /^图片参考锁定（锁脸）：以我上传的参考图为唯一面部身份锚点，img2img 图生图。/u);
+  assert.match(prompt, /发际线与发型轮廓一致/u);
+  assert.match(prompt, /左脸右身/u);
 });
 
-test('道具卡两种产出类型生成多角度或独立状态卡提示词', () => {
-  const multiAngle = assembleAssetOutputPrompt(asset('prop-multi-angle'));
-  const stateVariant = assembleAssetOutputPrompt(asset('prop-state-variant'));
-
-  assert.match(multiAngle, /多角度图.*正面.*侧面.*局部特写/u);
-  assert.match(stateVariant, /状态变体卡.*独立 ID.*一种道具状态/u);
+test('场景选锁景、道具选锁物', () => {
+  assert.match(
+    assembleAssetOutputPrompt(asset('scene-panorama', 'scene')),
+    /^图片参考锁定（锁景）：以我上传的参考图为唯一场景锚点，img2img 图生图。/u,
+  );
+  assert.match(
+    assembleAssetOutputPrompt(asset('prop-multi-angle', 'prop')),
+    /^图片参考锁定（锁物）：以我上传的参考图为唯一道具锚点，img2img 图生图。/u,
+  );
 });

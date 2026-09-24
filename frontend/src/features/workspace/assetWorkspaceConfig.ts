@@ -1,4 +1,4 @@
-import type { AssetKind, AssetOutputType, AssetTextProfile } from '../../types/domain'
+import type { AssetKind, AssetOutputType, AssetTextProfile, ReferenceLockKind } from '../../types/domain'
 
 export type AssetFilter = 'all' | AssetKind
 
@@ -6,6 +6,7 @@ export interface AssetFormValues {
   name?: string
   text_profile?: AssetTextProfile
   output_type?: AssetOutputType
+  reference_lock?: ReferenceLockKind | null
   output_prompt?: string
   input_reference_images?: string[]
   aspect_ratio?: string
@@ -59,6 +60,13 @@ export const outputTypeOptions: Record<AssetKind, Array<{ value: AssetOutputType
     { value: 'prop-multi-angle', label: '多角度' },
     { value: 'prop-state-variant', label: '状态变体' },
   ],
+}
+
+/** 与预设模板同为下拉：不选则组装不含锁定段；选中则写入对应文案。 */
+export const referenceLockOptions: Record<AssetKind, Array<{ value: ReferenceLockKind; label: string }>> = {
+  character: [{ value: 'face', label: '锁脸' }],
+  scene: [{ value: 'scene', label: '锁景' }],
+  prop: [{ value: 'prop', label: '锁物' }],
 }
 
 export function profileSummary(profile: AssetTextProfile): string {

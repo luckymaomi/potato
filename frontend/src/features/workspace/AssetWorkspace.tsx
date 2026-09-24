@@ -100,6 +100,7 @@ export function AssetWorkspace() {
       name: selected.name,
       text_profile: selected.text_profile,
       output_type: selected.output_type,
+      reference_lock: null,
       output_prompt: selected.output_prompt,
       input_reference_images: selected.input_reference_images,
        aspect_ratio: undefined,
@@ -157,13 +158,19 @@ export function AssetWorkspace() {
         name: values.name,
         text_profile: values.text_profile,
         output_type: values.output_type,
+        reference_lock: values.reference_lock ?? null,
       })
       const draft = drafts.current.get(assetId) ?? values
       draft.output_type = result.output_type
+      draft.reference_lock = result.reference_lock
       draft.output_prompt = result.output_prompt
       drafts.current.set(assetId, draft)
       if (formAssetId.current === assetId) {
-        form.setFieldsValue({ output_type: result.output_type, output_prompt: result.output_prompt })
+        form.setFieldsValue({
+          output_type: result.output_type,
+          reference_lock: result.reference_lock,
+          output_prompt: result.output_prompt,
+        })
       }
       notifyAppSuccess(message, '提示词已组装')
     } catch (reason) {

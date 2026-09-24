@@ -14,7 +14,7 @@ import type { ProviderModel } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { assetGenerationStatus, type AssetGenerationState } from './assetGenerationStatus'
-import { assetLabels, outputTypeOptions, profileGroups, type AssetFormValues } from './assetWorkspaceConfig'
+import { assetLabels, outputTypeOptions, profileGroups, referenceLockOptions, type AssetFormValues } from './assetWorkspaceConfig'
 import { modelCapabilitySummary, aspectRatioLabel } from '../providers/catalog'
 
 export function AssetDetailPanel({
@@ -103,6 +103,9 @@ export function AssetDetailPanel({
         <section className="asset-output-prompt-panel">
           <div className="asset-panel-heading"><strong>生成提示词</strong></div>
           <div className="asset-output-controls">
+            <Form.Item name="reference_lock" label="图片参考锁定">
+              <Select allowClear placeholder="不选则不组装锁定段" options={referenceLockOptions[selected.kind]} />
+            </Form.Item>
             <Form.Item name="output_type" label="预设模板" rules={[{ required: true, message: '请选择预设模板' }]}><Select options={outputTypeOptions[selected.kind]} /></Form.Item>
             <Button icon={<BuildOutlined />} loading={assembling} onClick={onAssemble}>组装提示词</Button>
           </div>

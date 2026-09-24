@@ -24,3 +24,7 @@ research-output/
 
 # Read-only third-party design references
 reference/*/
+
+# Local shallow clones of third-party AI manga / image / novel refs
+ref/*/
+

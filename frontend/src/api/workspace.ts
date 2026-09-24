@@ -7,6 +7,7 @@ import type {
   PanelAudio,
   PanelCaption,
   ProjectAsset,
+  ReferenceLockKind,
 } from "../types/domain";
 import type { MediaGenerationHistory } from "./media";
 import { apiClient } from "./client";
@@ -111,11 +112,16 @@ export const workspaceApi = {
       name?: string;
       text_profile?: AssetTextProfile;
       output_type?: AssetOutputType;
+      reference_lock?: ReferenceLockKind | null;
     },
   ) =>
     apiClient.post<
       never,
-      { output_type: AssetOutputType; output_prompt: string }
+      {
+        output_type: AssetOutputType;
+        reference_lock: ReferenceLockKind | null;
+        output_prompt: string;
+      }
     >(`/dramas/${projectId}/assets/assemble-output-prompt`, input),
   updateAsset: (projectId: number, id: number, input: Partial<ProjectAsset>) =>
     apiClient.patch<never, ProjectAsset>(

@@ -1,7 +1,13 @@
-import type { AssetOutputType, ProjectAssetRow } from '../types/domain';
+import type { AssetKind, AssetOutputType, ProjectAssetRow } from '../types/domain';
 import { compileAssetTextBlock } from './storyboardPromptAssembler';
+import { ValidationError } from '../errors';
 
-export type AssetOutputPromptSource = Pick<ProjectAssetRow, 'kind' | 'name' | 'text_profile' | 'output_type'>;
+/** 图片参考锁定：未选不组装；选中则按类型写入锁脸/锁景/锁物。 */
+export type ReferenceLockKind = 'face' | 'scene' | 'prop';
+
+export type AssetOutputPromptSource = Pick<ProjectAssetRow, 'kind' | 'name' | 'text_profile' | 'output_type'> & {
+  reference_lock?: ReferenceLockKind | null;
+};
 
 const OUTPUT_INSTRUCTIONS: Record<AssetOutputType, string> = {
   'character-layout-a': '产出布局 A（三栏三视图）：左栏为无头全身正面站姿立绘；中栏为无头全身背面站姿立绘；右栏为大比例面部五官头部正侧特写。',
@@ -15,20 +21,40 @@ const OUTPUT_INSTRUCTIONS: Record<AssetOutputType, string> = {
   'prop-state-variant': '产出状态变体卡：当前道具卡具有独立 ID，只表达文本结构指定的一种道具状态；清楚呈现该状态的形态、材质、特殊标记和可辨识细节。',
 };
 
-const CHARACTER_CONSISTENCY = '角色一致性约束：所有视图必须是同一人物、同一张脸、同一发型、同一服装；身高比例和五官完全一致；使用纯色或中性背景，背景不得干扰人物辨识。';
-const SCENE_CONSISTENCY = '场景一致性约束：画面不出现角色，空间结构、尺度、建筑风格、陈设位置和色调必须与本卡文本一致。';
-const PROP_CONSISTENCY = '道具一致性约束：画面不出现无关物体，所有视图的尺寸比例、材质、颜色、形状和特殊标记必须一致，使用纯色或中性背景。';
+const REFERENCE_LOCK_TEXT: Record<ReferenceLockKind, string> = {
+  face:
+    '图片参考锁定（锁脸）：以我上传的参考图为唯一面部身份锚点，img2img 图生图。严格保持参考图中人物的同一张脸：脸型、额头、颧骨、下颌、眉形、眼型、鼻型、唇形、发际线与发型轮廓一致。',
+  scene:
+    '图片参考锁定（锁景）：以我上传的参考图为唯一场景锚点，img2img 图生图。严格保持参考图中的空间结构、建筑风格、尺度关系、关键陈设相对位置与色调一致。',
+  prop:
+    '图片参考锁定（锁物）：以我上传的参考图为唯一道具锚点，img2img 图生图。严格保持参考图中道具的外形轮廓、比例、材质、颜色与特殊标记一致。',
+};
 
-export function assembleAssetOutputPrompt(asset: AssetOutputPromptSource): string {
-  return [
-    compileAssetTextBlock(asset),
-    OUTPUT_INSTRUCTIONS[asset.output_type],
-    consistencyInstruction(asset),
-  ].join('\n');
+const LOCK_FOR_ASSET_KIND: Record<AssetKind, ReferenceLockKind> = {
+  character: 'face',
+  scene: 'scene',
+  prop: 'prop',
+};
+
+export function normalizeReferenceLock(kind: AssetKind, value: unknown): ReferenceLockKind | null {
+  if (value === null || value === undefined || value === '') return null;
+  const expected = LOCK_FOR_ASSET_KIND[kind];
+  if (value === expected || value === 'on' || value === true) return expected;
+  // 兼容误传其它 lock 名：仍按当前资产类型纠正
+  if (value === 'face' || value === 'scene' || value === 'prop') {
+    if (value !== expected) {
+      throw new ValidationError(`当前${kind === 'character' ? '角色' : kind === 'scene' ? '场景' : '道具'}卡只能选择${expected === 'face' ? '锁脸' : expected === 'scene' ? '锁景' : '锁物'}`);
+    }
+    return value;
+  }
+  throw new ValidationError('图片参考锁定选项无效');
 }
 
-function consistencyInstruction(asset: Pick<ProjectAssetRow, 'kind'>): string {
-  if (asset.kind === 'character') return CHARACTER_CONSISTENCY;
-  if (asset.kind === 'scene') return SCENE_CONSISTENCY;
-  return PROP_CONSISTENCY;
+export function assembleAssetOutputPrompt(asset: AssetOutputPromptSource): string {
+  const lock = normalizeReferenceLock(asset.kind, asset.reference_lock);
+  return [
+    lock ? REFERENCE_LOCK_TEXT[lock] : '',
+    compileAssetTextBlock(asset),
+    OUTPUT_INSTRUCTIONS[asset.output_type],
+  ].filter((part) => part.trim().length > 0).join('\n');
 }

@@ -6,7 +6,7 @@ import multer from "multer";
 import { NotFoundError, ValidationError } from "../errors";
 import { created, success } from "../response";
 import type { ServiceContainer } from "../services/container";
-import { assembleAssetOutputPrompt } from "../services/assetOutputPromptAssembler";
+import { assembleAssetOutputPrompt, normalizeReferenceLock } from "../services/assetOutputPromptAssembler";
 import { assemblePanelRecipe } from "../services/storyboardPromptAssembler";
 import {
   normalizeOutputType,
@@ -129,13 +129,19 @@ function registerAssetRoutes(
     const body = bodyRecord(req);
     const kind = requiredKind(body.kind);
     const outputType = normalizeOutputType(kind, body.output_type);
+    const referenceLock = normalizeReferenceLock(kind, body.reference_lock);
     const outputPrompt = assembleAssetOutputPrompt({
       kind,
       name: text(body.name) || "未命名资产",
       text_profile: normalizeTextProfile(kind, body.text_profile),
       output_type: outputType,
+      reference_lock: referenceLock,
     });
-    success(res, { output_type: outputType, output_prompt: outputPrompt });
+    success(res, {
+      output_type: outputType,
+      reference_lock: referenceLock,
+      output_prompt: outputPrompt,
+    });
   });
 
   router.post("/dramas/:id/assets/:assetId/generate-image", (req, res) => {
