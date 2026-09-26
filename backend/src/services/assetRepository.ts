@@ -63,10 +63,4 @@ export class AssetRepository {
   markPanelImageChanged(...args: Parameters<PanelRepository["markPanelImageChanged"]>) {
     return this.panels.markPanelImageChanged(...args);
   }
-  confirmPanelReview(...args: Parameters<PanelRepository["confirmPanelReview"]>) {
-    return this.panels.confirmPanelReview(...args);
-  }
-  setPanelReviewState(...args: Parameters<PanelRepository["setPanelReviewState"]>) {
-    return this.panels.setPanelReviewState(...args);
-  }
 }

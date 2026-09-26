@@ -268,6 +268,43 @@ test("分镜保存漫画规格、项目资产和本镜额外参考图", () => {
   }
 });
 
+test("资产标准图或文本变更会使引用分镜的配方标记待重装", () => {
+  const { db, projectId, episodeId, assets } = setup();
+  try {
+    const queen = assets.createProjectAsset(projectId, {
+      kind: "character",
+      name: "红女王",
+      text_profile: { brief: "深红礼服" },
+    });
+    const shot = assets.createPanel({
+      episode_id: episodeId,
+      action: "抬手扶冠",
+      image_recipe_prompt: "已保存的配方",
+      image_recipe_references: ["/static/assets/queen.png"],
+      project_asset_ids: [queen.id],
+    });
+    assert.equal(assets.getPanel(shot.id)?.recipe_needs_reassembly, false);
+
+    assets.markAssetImageChanged(queen.id);
+    assert.equal(assets.getPanel(shot.id)?.recipe_needs_reassembly, true);
+
+    assets.updatePanel(shot.id, {
+      image_recipe_prompt: "重装后的配方",
+      image_recipe_references: ["/static/assets/queen.png"],
+      recipe_reassembled: true,
+    });
+    assert.equal(assets.getPanel(shot.id)?.recipe_needs_reassembly, false);
+
+    assets.updateProjectAsset(queen.id, {
+      name: "红女王",
+      text_profile: { brief: "暗红加冕礼" },
+    });
+    assert.equal(assets.getPanel(shot.id)?.recipe_needs_reassembly, true);
+  } finally {
+    db.close();
+  }
+});
+
 test("删除项目资产后分镜托盘保留仍存在的资产", () => {
   const { db, projectId, episodeId, assets } = setup();
   try {

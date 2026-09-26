@@ -148,10 +148,6 @@ export const workspaceApi = {
     apiClient.get<never, PanelReadiness>(
       `/dramas/${projectId}/panels/${id}/readiness`,
     ),
-  confirmPanelReview: (projectId: number, id: number) =>
-    apiClient.post<never, Panel>(
-      `/dramas/${projectId}/panels/${id}/confirm-review`,
-    ),
   assemblePanelRecipe: (
     projectId: number,
     id: number,

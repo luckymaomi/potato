@@ -757,3 +757,10 @@
 - generation 新增 `remote` 状态与 `archive_attempts`；供应商成功先 `acceptRemote`；同任务内尝试归档，失败不抹预览；`startArchiveRetryLoop` 有界重试（超时 45s、最多 5 次）。
 - 前端状态区分远程预览·待归档 / 本地保存失败 / 已完成；选用允许 remote。
 - `spec` / media-archive skill / 测同步。
+
+## 2026-09-26：清理待复核死路径与配方过期接线
+
+- Owner：归档推送后做整体调试：删死代码/错误逻辑，再二次推送。
+- 删除 `confirm-review` 路由、facade 与前端 API；去掉已无调用的 `assembleStoryboardRecipes`。
+- `markPanelImageChanged` 恢复单参；资产标准图/文本变更经 `markAssetImageChanged` 置 `recipe_needs_reassembly`（有配方或底板的引用分镜）。`image_needs_review` 列仍保留兼容，产品面不再使用。
+- 回归：新增仓储测；后端 77 测与 typecheck 通过。

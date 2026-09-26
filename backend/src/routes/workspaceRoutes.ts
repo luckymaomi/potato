@@ -349,15 +349,6 @@ function registerPanelRoutes(
     success(res, { cleared: true, panel: services.assets.getPanel(panel.id) });
   });
 
-  router.post("/dramas/:id/panels/:panelId/confirm-review", (req, res) => {
-    const panel = requirePanel(
-      services,
-      idParam(req),
-      positive(req.params.panelId),
-    );
-    success(res, services.assets.confirmPanelReview(panel.id));
-  });
-
   router.get("/dramas/:id/panels/:panelId/history", (req, res) => {
     const projectId = idParam(req);
     const panel = requirePanel(

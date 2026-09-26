@@ -145,7 +145,7 @@ export class ImageGenerationService {
           'UPDATE panels SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?',
         )
         .run(row.image_url, row.id, now, target[1]);
-      this.assets.markPanelImageChanged(target[1], { imageSelected: true });
+      this.assets.markPanelImageChanged(target[1]);
     } else {
       this.db
         .prepare(
@@ -238,7 +238,7 @@ export class ImageGenerationService {
       'UPDATE panels SET image_url = NULL, current_image_generation_id = NULL, updated_at = ? WHERE id = ?',
     ).run(now, panelId).changes;
     if (!changed) throw new NotFoundError('分镜不存在');
-    this.assets.markPanelImageChanged(panelId, { imageSelected: false });
+    this.assets.markPanelImageChanged(panelId);
     this.log.audit?.('image.generation.cleared', { panelId });
   }
 
@@ -274,7 +274,7 @@ export class ImageGenerationService {
     });
     clearCurrent();
     if (row.project_asset_id) this.assets.markAssetImageChanged(row.project_asset_id);
-    if (row.panel_id) this.assets.markPanelImageChanged(row.panel_id, { imageSelected: false });
+    if (row.panel_id) this.assets.markPanelImageChanged(row.panel_id);
     if (row.local_path) {
       await this.mediaArchive.remove(row.local_path).catch(() => undefined);
     }
@@ -492,7 +492,7 @@ export class ImageGenerationService {
     });
     commit();
     if (input.projectAssetId) this.assets.markAssetImageChanged(input.projectAssetId);
-    if (input.panelId) this.assets.markPanelImageChanged(input.panelId, { imageSelected: true });
+    if (input.panelId) this.assets.markPanelImageChanged(input.panelId);
   }
 
   private noteArchiveAttempt(id: number, error: unknown): void {
@@ -570,7 +570,7 @@ export class ImageGenerationService {
     });
     commit();
     if (input.projectAssetId) this.assets.markAssetImageChanged(input.projectAssetId);
-    if (input.panelId) this.assets.markPanelImageChanged(input.panelId, { imageSelected: true });
+    if (input.panelId) this.assets.markPanelImageChanged(input.panelId);
   }
 
   private assertTargetAvailable(input: ImageGenerationInput): void {

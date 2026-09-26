@@ -112,7 +112,7 @@ export class PanelRepository {
         `
       UPDATE panels SET panel_number = ?, title = ?, description = ?, action = ?,
         image_prompt = ?, image_recipe_prompt = ?, image_recipe_references = ?, extra_reference_images = ?,
-        image_needs_review = ?, recipe_needs_reassembly = ?, updated_at = ?
+        recipe_needs_reassembly = ?, updated_at = ?
       WHERE id = ?
     `,
       )
@@ -130,11 +130,6 @@ export class PanelRepository {
         ),
         JSON.stringify(imageRecipeReferences),
         JSON.stringify(extraReferences),
-        specificationChanged
-          ? Number(
-              Boolean(current.image_url || current.image_recipe_prompt.trim()),
-            )
-          : Number(current.image_needs_review),
         recipeSaved
           ? 0
           : specificationChanged
@@ -208,6 +203,7 @@ export class PanelRepository {
     return panels;
   }
 
+  /** 资产标准图变更后，引用该资产的分镜配方参考图过期，下次生成需重装。 */
   markAssetImageChanged(assetId: number): void {
     if (!this.assets.getProjectAsset(assetId))
       throw new NotFoundError("项目资产不存在");
@@ -215,7 +211,10 @@ export class PanelRepository {
       .prepare(
         `
       UPDATE panels
-      SET image_needs_review = CASE WHEN image_url IS NOT NULL OR image_recipe_prompt <> '' THEN 1 ELSE image_needs_review END,
+      SET recipe_needs_reassembly = CASE
+            WHEN image_url IS NOT NULL OR image_recipe_prompt <> '' THEN 1
+            ELSE recipe_needs_reassembly
+          END,
           updated_at = ?
       WHERE id IN (SELECT panel_id FROM panel_project_assets WHERE project_asset_id = ?)
     `,
@@ -223,50 +222,11 @@ export class PanelRepository {
       .run(new Date().toISOString(), assetId);
   }
 
-  markPanelImageChanged(
-    panelId: number,
-    input: { imageSelected: boolean },
-  ): void {
+  markPanelImageChanged(panelId: number): void {
     const changed = this.db
-      .prepare(
-        `
-      UPDATE panels
-      SET image_needs_review = ?,
-          updated_at = ?
-      WHERE id = ?
-    `,
-      )
-      .run(
-        input.imageSelected ? 0 : 1,
-        new Date().toISOString(),
-        panelId,
-      ).changes;
-    if (!changed) throw new NotFoundError("分镜不存在");
-  }
-
-  confirmPanelReview(panelId: number): PanelRow {
-    const changed = this.db
-      .prepare(
-        `UPDATE panels SET image_needs_review = 0, updated_at = ? WHERE id = ?`,
-      )
+      .prepare(`UPDATE panels SET updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), panelId).changes;
     if (!changed) throw new NotFoundError("分镜不存在");
-    return this.getPanel(panelId) as PanelRow;
-  }
-
-  setPanelReviewState(
-    panelId: number,
-    input: Pick<PanelRow, "image_needs_review" | "recipe_needs_reassembly">,
-  ): void {
-    this.db
-      .prepare(
-        "UPDATE panels SET image_needs_review = ?, recipe_needs_reassembly = ? WHERE id = ?",
-      )
-      .run(
-        Number(input.image_needs_review),
-        Number(input.recipe_needs_reassembly),
-        panelId,
-      );
   }
 
   private syncPanelAssets(

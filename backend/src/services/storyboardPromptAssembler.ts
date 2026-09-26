@@ -45,13 +45,6 @@ export function assemblePanelRecipe({
   return { panelRecipe: { prompt: imagePrompt, references: [...references] } };
 }
 
-/** @deprecated Use assemblePanelRecipe. */
-export function assembleStoryboardRecipes(
-  input: StoryboardRecipeInput,
-): PanelRecipe {
-  return assemblePanelRecipe(input);
-}
-
 /** 资产台组装提示词用的卡面文本块；分镜组装不再注入此段。 */
 export function compileAssetTextBlock(
   asset: Pick<ProjectAssetRow, "kind" | "name" | "text_profile">,
