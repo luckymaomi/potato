@@ -41,13 +41,20 @@ export interface ImageGenerationRow {
   status: string;
   task_id: string | null;
   error_msg: string | null;
+  archive_attempts: number;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
   available: boolean;
 }
 
+const ARCHIVE_MAX_ATTEMPTS = 5;
+const ARCHIVE_RETRY_MS = 8_000;
+
 export class ImageGenerationService {
+  private archiveRetryTimer?: ReturnType<typeof setInterval>;
+  private readonly archiveInFlight = new Set<number>();
+
   constructor(
     private readonly db: SQLiteDatabase,
     private readonly mediaReferences: MediaReferenceService,
@@ -58,6 +65,47 @@ export class ImageGenerationService {
     private readonly log: Logger,
     private readonly assets: AssetRepository,
   ) {}
+
+  /** 后台轮询 status=remote 且未超过重试上限的记录，有界归档后切本地指针。 */
+  startArchiveRetryLoop(): void {
+    if (this.archiveRetryTimer) return;
+    this.archiveRetryTimer = setInterval(() => {
+      void this.retryPendingArchives().catch((error) => {
+        this.log.audit?.('image.archive.retry.loop_failed', { error });
+      });
+    }, ARCHIVE_RETRY_MS);
+    if (typeof this.archiveRetryTimer.unref === 'function') {
+      this.archiveRetryTimer.unref();
+    }
+  }
+
+  stopArchiveRetryLoop(): void {
+    if (!this.archiveRetryTimer) return;
+    clearInterval(this.archiveRetryTimer);
+    this.archiveRetryTimer = undefined;
+  }
+
+  async retryPendingArchives(limit = 3): Promise<number> {
+    const rows = this.db
+      .prepare(
+        `
+      SELECT id FROM image_generations
+      WHERE status = 'remote'
+        AND source_url IS NOT NULL AND trim(source_url) <> ''
+        AND (local_path IS NULL OR trim(local_path) = '')
+        AND COALESCE(archive_attempts, 0) < ?
+      ORDER BY updated_at ASC
+      LIMIT ?
+    `,
+      )
+      .all(ARCHIVE_MAX_ATTEMPTS, limit) as Array<{ id: number }>;
+    let archived = 0;
+    for (const row of rows) {
+      const ok = await this.archiveGeneration(row.id);
+      if (ok) archived += 1;
+    }
+    return archived;
+  }
 
   list(dramaId?: number): ImageGenerationRow[] {
     this.reclaimStaleActiveGenerations();
@@ -75,19 +123,41 @@ export class ImageGenerationService {
   select(id: number): ImageGenerationRow {
     const row = this.get(id);
     if (!row) throw new ValidationError('图片生成记录不存在');
-    if (row.status !== 'completed' || !row.image_url || !row.local_path || !row.available) throw new ValidationError('只能选用本地文件真实存在的已完成图片');
+    const remoteOk = row.status === 'remote' && Boolean(row.image_url?.trim());
+    const localOk =
+      row.status === 'completed' &&
+      Boolean(row.image_url) &&
+      Boolean(row.local_path) &&
+      row.available;
+    if (!remoteOk && !localOk) {
+      throw new ValidationError('只能选用远程预览或本地文件真实存在的已完成图片');
+    }
     const now = new Date().toISOString();
     const target = row.project_asset_id
-      ? ['project_assets', row.project_asset_id] as const
-      : row.panel_id ? ['panels', row.panel_id] as const : undefined;
+      ? (['project_assets', row.project_asset_id] as const)
+      : row.panel_id
+        ? (['panels', row.panel_id] as const)
+        : undefined;
     if (!target) throw new ValidationError('这条通用图片历史没有可切换的业务资产');
     if (target[0] === 'panels') {
-      this.db.prepare('UPDATE panels SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
+      this.db
+        .prepare(
+          'UPDATE panels SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?',
+        )
         .run(row.image_url, row.id, now, target[1]);
       this.assets.markPanelImageChanged(target[1], { imageSelected: true });
     } else {
-      this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?')
-        .run(row.image_url, row.local_path, row.id, now, target[1]);
+      this.db
+        .prepare(
+          'UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?',
+        )
+        .run(
+          row.image_url,
+          row.status === 'completed' ? row.local_path : null,
+          row.id,
+          now,
+          target[1],
+        );
       this.assets.markAssetImageChanged(target[1]);
     }
     return row;
@@ -177,9 +247,6 @@ export class ImageGenerationService {
     if (!row) throw new NotFoundError('图片生成记录不存在');
     if (row.status === 'pending' || row.status === 'processing') {
       throw new ValidationError('进行中的生成不能删除，请等完成或归档后再删');
-    }
-    if (row.status === 'completed' && (!row.local_path || !row.available)) {
-      throw new ValidationError('未归档完成的历史不能删除');
     }
     const now = new Date().toISOString();
     const clearCurrent = this.db.transaction(() => {
@@ -288,32 +355,39 @@ export class ImageGenerationService {
         reporter.throwIfCancelled();
         if (result.status === 'failed') throw new Error(result.error || '图片生成失败');
         if (!result.imageUrl) throw new Error('图片供应商没有返回图片地址');
-        reporter.stage('归档中');
-        const archived = await this.mediaArchive.archiveRemote({
-          projectId: input.dramaId,
+        // 供应商成功：先挂远程预览指针，任务可结束；本地归档失败不抹掉可见图。
+        this.acceptRemote(id, result.imageUrl, input);
+        reporter.stage('正在保存到本地');
+        const archivedOk = await this.tryArchiveOnce(id, result.imageUrl, input, reporter.signal);
+        const current = this.get(id) as ImageGenerationRow;
+        this.log.audit?.('image.generation.completed', {
           generationId: id,
-          kind: 'image',
-          sourceUrl: result.imageUrl,
-          signal: reporter.signal,
+          projectId: input.dramaId,
+          target: { projectAssetId: input.projectAssetId, panelId: input.panelId },
+          remote: current.status === 'remote',
+          archived: archivedOk,
         });
-        try {
-          reporter.throwIfCancelled();
-          this.complete(id, result.imageUrl, archived, input);
-          this.log.audit?.('image.generation.completed', {
-            generationId: id,
-            projectId: input.dramaId,
-            target: { projectAssetId: input.projectAssetId, panelId: input.panelId },
-            archived,
-          });
-        } catch (error) {
-          await this.mediaArchive.remove(archived.relativePath).catch(() => undefined);
-          if (reporter.signal.aborted) throw error;
-          throw new MediaArchiveError('本地归档失败：无法提交生成记录和当前 generation 指针', { cause: error });
-        }
-        return { image_url: archived.publicUrl, source_url: result.imageUrl, local_path: archived.relativePath, generation_id: id };
+        return {
+          image_url: current.image_url,
+          source_url: current.source_url,
+          local_path: current.local_path,
+          generation_id: id,
+          status: current.status,
+        };
       } catch (error) {
-        if (reporter.signal.aborted) this.mark(id, 'cancelled');
-        else this.fail(id, error, error instanceof MediaArchiveError ? 'archive' : 'provider');
+        if (reporter.signal.aborted) {
+          const current = this.get(id);
+          if (current?.status === 'remote' || current?.status === 'completed') {
+            return {
+              image_url: current.image_url,
+              source_url: current.source_url,
+              local_path: current.local_path,
+              generation_id: id,
+              status: current.status,
+            };
+          }
+          this.mark(id, 'cancelled');
+        } else this.fail(id, error, error instanceof MediaArchiveError ? 'archive' : 'provider');
         this.log.audit?.('image.generation.failed', {
           generationId: id,
           projectId: input.dramaId,
@@ -327,7 +401,128 @@ export class ImageGenerationService {
     return this.get(id) as ImageGenerationRow;
   }
 
+  private async tryArchiveOnce(
+    id: number,
+    sourceUrl: string,
+    input: ImageGenerationInput,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (this.archiveInFlight.has(id)) return false;
+    this.archiveInFlight.add(id);
+    try {
+      const archived = await this.mediaArchive.archiveRemote({
+        projectId: input.dramaId,
+        generationId: id,
+        kind: 'image',
+        sourceUrl,
+        signal,
+      });
+      try {
+        this.finalizeLocal(id, sourceUrl, archived, input);
+        return true;
+      } catch (error) {
+        await this.mediaArchive.remove(archived.relativePath).catch(() => undefined);
+        this.noteArchiveAttempt(
+          id,
+          new MediaArchiveError('本地归档失败：无法提交生成记录和当前 generation 指针', {
+            cause: error,
+          }),
+        );
+        return false;
+      }
+    } catch (error) {
+      if (signal?.aborted) return false;
+      this.noteArchiveAttempt(id, error);
+      return false;
+    } finally {
+      this.archiveInFlight.delete(id);
+    }
+  }
+
+  private async archiveGeneration(id: number): Promise<boolean> {
+    const row = this.get(id);
+    if (!row || row.status !== 'remote') return false;
+    const sourceUrl = row.source_url?.trim();
+    if (!sourceUrl) return false;
+    if ((row.archive_attempts ?? 0) >= ARCHIVE_MAX_ATTEMPTS) return false;
+    return this.tryArchiveOnce(
+      id,
+      sourceUrl,
+      {
+        dramaId: row.drama_id,
+        projectAssetId: row.project_asset_id ?? undefined,
+        panelId: row.panel_id ?? undefined,
+        prompt: row.prompt,
+        referenceImages: [],
+      },
+    );
+  }
+
+  /** 供应商已出图：指针先指向远程 URL，status=remote。 */
+  private acceptRemote(
+    id: number,
+    sourceUrl: string,
+    input: ImageGenerationInput,
+  ): void {
+    const now = new Date().toISOString();
+    const commit = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `
+        UPDATE image_generations SET status = 'remote', image_url = ?, source_url = ?, local_path = NULL,
+          media_type = NULL, file_size = NULL, failure_stage = NULL, error_msg = NULL,
+          archive_attempts = 0, updated_at = ?, completed_at = ? WHERE id = ?
+      `,
+        )
+        .run(sourceUrl, sourceUrl, now, now, id);
+      if (input.projectAssetId) {
+        this.db
+          .prepare(
+            'UPDATE project_assets SET image_url = ?, local_path = NULL, current_image_generation_id = ?, updated_at = ? WHERE id = ?',
+          )
+          .run(sourceUrl, id, now, input.projectAssetId);
+      }
+      if (input.panelId) {
+        this.db
+          .prepare(
+            'UPDATE panels SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?',
+          )
+          .run(sourceUrl, id, now, input.panelId);
+      }
+    });
+    commit();
+    if (input.projectAssetId) this.assets.markAssetImageChanged(input.projectAssetId);
+    if (input.panelId) this.assets.markPanelImageChanged(input.panelId, { imageSelected: true });
+  }
+
+  private noteArchiveAttempt(id: number, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `
+      UPDATE image_generations
+      SET archive_attempts = COALESCE(archive_attempts, 0) + 1,
+          failure_stage = 'archive',
+          error_msg = ?,
+          updated_at = ?
+      WHERE id = ? AND status = 'remote'
+    `,
+      )
+      .run(message, now, id);
+    this.log.audit?.('image.archive.attempt_failed', { generationId: id, error: message });
+  }
+
   private complete(
+    id: number,
+    sourceUrl: string,
+    archived: { publicUrl: string; relativePath: string; mediaType: string; fileSize: number },
+    input: ImageGenerationInput,
+  ): void {
+    this.finalizeLocal(id, sourceUrl, archived, input);
+  }
+
+  private finalizeLocal(
     id: number,
     sourceUrl: string,
     archived: { publicUrl: string; relativePath: string; mediaType: string; fileSize: number },
@@ -335,12 +530,43 @@ export class ImageGenerationService {
   ): void {
     const now = new Date().toISOString();
     const commit = this.db.transaction(() => {
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         UPDATE image_generations SET status = 'completed', image_url = ?, source_url = ?, local_path = ?, media_type = ?,
           file_size = ?, failure_stage = NULL, error_msg = NULL, updated_at = ?, completed_at = ? WHERE id = ?
-      `).run(archived.publicUrl, sourceUrl, archived.relativePath, archived.mediaType, archived.fileSize, now, now, id);
-      if (input.projectAssetId) this.db.prepare('UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, archived.relativePath, id, now, input.projectAssetId);
-      if (input.panelId) this.db.prepare('UPDATE panels SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?').run(archived.publicUrl, id, now, input.panelId);
+      `,
+        )
+        .run(
+          archived.publicUrl,
+          sourceUrl,
+          archived.relativePath,
+          archived.mediaType,
+          archived.fileSize,
+          now,
+          now,
+          id,
+        );
+      if (input.projectAssetId) {
+        this.db
+          .prepare(
+            'UPDATE project_assets SET image_url = ?, local_path = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?',
+          )
+          .run(
+            archived.publicUrl,
+            archived.relativePath,
+            id,
+            now,
+            input.projectAssetId,
+          );
+      }
+      if (input.panelId) {
+        this.db
+          .prepare(
+            'UPDATE panels SET image_url = ?, current_image_generation_id = ?, updated_at = ? WHERE id = ?',
+          )
+          .run(archived.publicUrl, id, now, input.panelId);
+      }
     });
     commit();
     if (input.projectAssetId) this.assets.markAssetImageChanged(input.projectAssetId);
@@ -419,7 +645,12 @@ export class ImageGenerationService {
   }
 
   private present(row: ImageGenerationRow): ImageGenerationRow {
-    return { ...row, available: row.status === 'completed' && this.mediaArchive.isAvailable(row.local_path) };
+    return {
+      ...row,
+      archive_attempts: Number(row.archive_attempts ?? 0),
+      available:
+        row.status === 'completed' && this.mediaArchive.isAvailable(row.local_path),
+    };
   }
 
 }

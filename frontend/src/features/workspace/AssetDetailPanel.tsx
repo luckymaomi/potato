@@ -201,7 +201,9 @@ export function AssetDetailPanel({
         <section className="asset-history-panel">
           <div className="asset-panel-heading"><strong>标准图历史</strong><HistoryOutlined /></div>
           <List size="small" locale={{ emptyText: '还没有生成历史' }} dataSource={history} renderItem={(item) => {
-            const canManage = item.status === 'completed' && item.available
+            const canManage =
+              (item.status === 'completed' && item.available) ||
+              (item.status === 'remote' && Boolean(item.image_url))
             return <List.Item actions={[
               <Button key="select" size="small" disabled={!canManage} onClick={() => onSelectGeneration(item.id)}>选用</Button>,
               <Popconfirm key="delete" title="删除这张标准图历史？" description="本地归档文件会一起删掉；若它是当前标准图，当前指针会清空。" okText="删除" cancelText="取消" disabled={!canManage} onConfirm={() => onDeleteGeneration(item.id)}>

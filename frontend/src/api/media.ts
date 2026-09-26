@@ -21,6 +21,7 @@ export interface MediaGenerationHistory {
   created_at: string
   completed_at?: string | null
   available: boolean
+  archive_attempts?: number
 }
 
 export const uploadsApi = {

@@ -49,8 +49,29 @@ export function AssetWorkspace() {
     if (submissions[assetId]) return submissions[assetId]
     const track = tracker.get(assetImageKey(assetId))
     const latest = history.find((item) => item.project_asset_id === assetId)
-    if (track && (!latest || (track.generationId ?? 0) >= latest.id)) return track
-    return latest ? { status: latest.status, message: latest.error_msg ?? undefined } : undefined
+    if (track && (!latest || (track.generationId ?? 0) >= (latest.id ?? 0))) {
+      if (
+        track.status === 'completed' &&
+        latest &&
+        track.generationId === latest.id
+      ) {
+        return {
+          status: latest.status,
+          message: latest.error_msg ?? track.message,
+          failure_stage: latest.failure_stage,
+          archive_attempts: latest.archive_attempts,
+        }
+      }
+      return track
+    }
+    return latest
+      ? {
+          status: latest.status,
+          message: latest.error_msg ?? undefined,
+          failure_stage: latest.failure_stage,
+          archive_attempts: latest.archive_attempts,
+        }
+      : undefined
   }
   const selectedState = selected ? generationState(selected.id) : undefined
   const generating = selectedState?.status === 'submitting' || selectedState?.status === 'pending' || selectedState?.status === 'processing'

@@ -548,7 +548,12 @@ function HistoryList(props: {
                     <Button
                       key="select"
                       size="small"
-                      disabled={!item.available}
+                      disabled={
+                        !(
+                          (item.status === "completed" && item.available) ||
+                          (item.status === "remote" && Boolean(item.image_url))
+                        )
+                      }
                       onClick={() => props.onSelect(item)}
                     >
                       选用
@@ -568,7 +573,7 @@ function HistoryList(props: {
                       ) : undefined
                     }
                     title={item.prompt}
-                    description={`${item.status}${item.model ? ` · ${item.model}` : ""}`}
+                    description={`${item.status === "remote" ? "远程预览" : item.status === "completed" && item.available ? "本地已归档" : item.status}${item.model ? ` · ${item.model}` : ""}`}
                   />
                 </List.Item>
               )}

@@ -131,10 +131,15 @@ export class MediaArchiveService {
 
 async function download(sourceUrl: string, kind: ArchivedMediaKind, limit: number, signal?: AbortSignal): Promise<Buffer> {
   if (!/^https?:\/\//iu.test(sourceUrl)) throw new MediaArchiveError('本地归档失败：供应商没有返回可下载的 HTTP 媒体地址');
+  const timeout = AbortSignal.timeout(45_000);
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let response: Response;
   try {
-    response = await fetch(sourceUrl, { signal });
+    response = await fetch(sourceUrl, { signal: combined });
   } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      throw new MediaArchiveError(`本地归档失败：下载供应商${kind === 'image' ? '图片' : '视频'}超时`, { cause: error });
+    }
     throw new MediaArchiveError(`本地归档失败：无法下载供应商${kind === 'image' ? '图片' : '视频'}`, { cause: error });
   }
   if (!response.ok) throw new MediaArchiveError(`本地归档失败：媒体下载返回 HTTP ${response.status}`);

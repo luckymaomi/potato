@@ -26,6 +26,7 @@ export function createApp(): AppContext {
   if (interrupted || reclaimed) {
     logger.warn('已将服务重启前未完成的任务标记为失败', { interrupted, reclaimed });
   }
+  services.images.startArchiveRetryLoop();
 
   const app = express();
   app.disable('x-powered-by');

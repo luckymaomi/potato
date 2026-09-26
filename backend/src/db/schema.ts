@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS provider_model_catalog (provider TEXT NOT NULL, model
 CREATE TABLE IF NOT EXISTS ai_model_presets (service_type TEXT PRIMARY KEY CHECK(service_type IN ('image')), provider TEXT NOT NULL, model_id TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS async_tasks (id TEXT PRIMARY KEY, type TEXT NOT NULL, status TEXT NOT NULL, progress INTEGER NOT NULL DEFAULT -1, message TEXT, error TEXT, result TEXT, resource_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT);
 CREATE TABLE IF NOT EXISTS image_generations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE, project_asset_id INTEGER REFERENCES project_assets(id) ON DELETE SET NULL, panel_id INTEGER REFERENCES panels(id) ON DELETE SET NULL, provider TEXT, prompt TEXT NOT NULL, model TEXT, size TEXT, aspect_ratio TEXT, reference_images TEXT NOT NULL DEFAULT '[]', image_url TEXT, source_url TEXT, local_path TEXT, media_type TEXT, file_size INTEGER, failure_stage TEXT, status TEXT NOT NULL DEFAULT 'pending', task_id TEXT, error_msg TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
+  id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL REFERENCES dramas(id) ON DELETE CASCADE, project_asset_id INTEGER REFERENCES project_assets(id) ON DELETE SET NULL, panel_id INTEGER REFERENCES panels(id) ON DELETE SET NULL, provider TEXT, prompt TEXT NOT NULL, model TEXT, size TEXT, aspect_ratio TEXT, reference_images TEXT NOT NULL DEFAULT '[]', image_url TEXT, source_url TEXT, local_path TEXT, media_type TEXT, file_size INTEGER, failure_stage TEXT, status TEXT NOT NULL DEFAULT 'pending', task_id TEXT, error_msg TEXT, archive_attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_drama ON episodes(drama_id);
 CREATE INDEX IF NOT EXISTS idx_project_assets_drama ON project_assets(drama_id, kind);
@@ -39,4 +39,18 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON async_tasks(status);
 export function initializeDatabase(database: SQLiteDatabase): void {
   database.pragma('foreign_keys = ON');
   database.exec(SCHEMA);
+  ensureColumn(database, 'image_generations', 'archive_attempts', 'INTEGER NOT NULL DEFAULT 0');
+}
+
+function ensureColumn(
+  database: SQLiteDatabase,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    name: string;
+  }>;
+  if (columns.some((item) => item.name === column)) return;
+  database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
