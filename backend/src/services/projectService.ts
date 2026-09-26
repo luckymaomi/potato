@@ -4,13 +4,16 @@ import type {
   Drama,
   DramaRow,
   EpisodeRow,
-  PanelRow,
   MediaLifecycleState,
-  ProjectAssetRow,
 } from "../types/domain";
 import type { SQLiteDatabase } from "../types/core";
 import { NotFoundError, ValidationError } from "../errors";
 import { MediaArchiveService } from "./mediaArchiveService";
+import { hydratePanelRow, type RawPanel } from "./panelRepository";
+import {
+  hydrateProjectAsset,
+  type RawProjectAsset,
+} from "./projectAssetRepository";
 
 export interface DramaListInput {
   page: number;
@@ -91,38 +94,15 @@ export class ProjectService {
     );
     drama.episodes = episodes.map((episode) => ({
       ...episode,
-      panels: (panelStatement.all(episode.id) as RawPanel[]).map((panel) => ({
-        ...panel,
-        project_asset_ids: relationIds(
-          this.db,
-          "panel_project_assets",
-          "project_asset_id",
-          panel.id,
-        ),
-        extra_reference_images: parseJson<string[]>(
-          String(panel.extra_reference_images),
-          [],
-        ),
-        image_recipe_references: parseJson<string[]>(
-          String(panel.image_recipe_references),
-          [],
-        ),
-        image_needs_review: Boolean(panel.image_needs_review),
-        recipe_needs_reassembly: Boolean(panel.recipe_needs_reassembly),
-      })),
+      panels: (panelStatement.all(episode.id) as RawPanel[]).map((panel) =>
+        hydratePanelRow(this.db, panel),
+      ),
     }));
     drama.project_assets = (
       this.db
         .prepare("SELECT * FROM project_assets WHERE drama_id = ? ORDER BY id")
-        .all(id) as ProjectAssetRow[]
-    ).map((asset) => ({
-      ...asset,
-      text_profile: parseJson(String(asset.text_profile), {}),
-      input_reference_images: parseJson<string[]>(
-        String(asset.input_reference_images),
-        [],
-      ),
-    }));
+        .all(id) as RawProjectAsset[]
+    ).map(hydrateProjectAsset);
     drama.media_lifecycle = {
       images: this.mediaLifecycle("image_generations", "image_url", id),
     };
@@ -490,36 +470,4 @@ function normalizeDrama(row: DramaRow): Drama {
 function jsonObject(value: unknown): JsonObject {
   const object = asRecord(value);
   return object ? (JSON.parse(JSON.stringify(object)) as JsonObject) : {};
-}
-
-interface RawPanel
-  extends Omit<
-    PanelRow,
-    | "project_asset_ids"
-    | "extra_reference_images"
-    | "image_recipe_references"
-    | "image_needs_review"
-    | "recipe_needs_reassembly"
-  > {
-  extra_reference_images: string;
-  image_recipe_references: string;
-  image_needs_review: number;
-  recipe_needs_reassembly: number;
-}
-
-function relationIds(
-  db: SQLiteDatabase,
-  table: string,
-  column: string,
-  panelId: number,
-): number[] {
-  const ownerColumn =
-    table === "panel_project_assets" ? "panel_id" : "panel_id";
-  return (
-    db
-      .prepare(
-        `SELECT ${column} AS id FROM ${table} WHERE ${ownerColumn} = ? ORDER BY ${column}`,
-      )
-      .all(panelId) as Array<{ id: number }>
-  ).map((item) => item.id);
 }

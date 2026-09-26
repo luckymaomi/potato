@@ -702,3 +702,11 @@
 - Owner 反馈左侧「分镜轨道」区过杂：全部 / 缺底板筛选、「缺底板」标签与统计条重复表达空缩略图已能看出的信息。
 - 左侧改为「分镜列表」：缩略图 + 序号标题；去掉筛选条、状态 Tag、勾选列残留布局；新增改为完整「新增分镜」按钮。
 - 页眉只保留「话 N · N 镜」，不再挂已有/缺底板计数 Tag。
+
+## 2026-09-26：职责拆分落地（仓储 / 分镜 UI / CSS）
+
+- 按 plan 语义拆分，不为行数而拆。
+- 后端：`projectAssetRepository`（资产）与 `panelRepository`（分镜+配方失效）分离；`assetRepository` 保留 `services.assets` 门面；`workspaceNormalize` 抽共用规范化；`projectService` 复用 panel/asset hydrate。
+- 前端：分镜台展示迁入 `workspace/panels/*`；`StoryboardWorkspace` 只编排；`app.css` 存活 class 改 `panel-*` 并删无用 `director-*`。
+- 未拆：`workspaceRoutes`、`imageGenerationService`、`agnes`。
+- 验证：相关后端测 22 通过；前后端 typecheck 通过。未做浏览器人工点通。未 commit。
