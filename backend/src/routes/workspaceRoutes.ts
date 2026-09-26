@@ -261,27 +261,13 @@ function registerPanelRoutes(
     );
     const body = bodyRecord(req);
     const includePrevious = body.include_previous_panel === true;
-    const updated = services.assets.updatePanel(panel.id, body);
-    const project = services.projects.require(projectId);
-    const previousPanelImage = includePrevious
-      ? previousPanelImageUrl(services, updated)
-      : undefined;
-    const recipe = assemblePanelRecipe({
-      shot: updated,
-      assets: services.assets.listProjectAssets(projectId),
-      styleLock: {
-        tone: project.tone,
-        reference_setting: project.reference_setting,
-      },
-      previousPanelImage,
-    });
+    const updated = services.assets.updatePanel(
+      panel.id,
+      panelFieldsFromBody(body),
+    );
     success(
       res,
-      services.assets.updatePanel(panel.id, {
-        image_recipe_prompt: recipe.panelRecipe.prompt,
-        image_recipe_references: recipe.panelRecipe.references,
-        recipe_reassembled: true,
-      }),
+      saveAssembledPanelRecipe(services, projectId, updated, includePrevious),
     );
   });
 
@@ -291,17 +277,9 @@ function registerPanelRoutes(
       idParam(req),
       positive(req.params.panelId),
     );
-    const recipeReason = panel.recipe_needs_reassembly
-      ? "规格已变化，请重新组装图片配方"
-        : !panel.image_recipe_prompt.trim()
-          ? "请先组装并保存图片配方"
-          : undefined;
-    const imageReason = recipeReason ?? (!panel.image_url ? "尚未生成或上传底板" : undefined);
+    const imageReason = !panel.image_url ? "尚未生成或上传底板" : undefined;
     success(res, {
-      recipe: {
-        ready: !recipeReason,
-        ...(recipeReason ? { reason: recipeReason } : {}),
-      },
+      recipe: { ready: true },
       image: {
         ready: !imageReason,
         ...(imageReason ? { reason: imageReason } : {}),
@@ -311,15 +289,25 @@ function registerPanelRoutes(
 
   router.post("/dramas/:id/panels/:panelId/generate-image", (req, res) => {
     const projectId = idParam(req);
-    const panel = requirePanel(
+    let panel = requirePanel(
       services,
       projectId,
       positive(req.params.panelId),
     );
-    if (panel.recipe_needs_reassembly || !panel.image_recipe_prompt.trim()) {
-      throw new ValidationError("请先完成这一格的图片配方组装");
-    }
     const body = bodyRecord(req);
+    const includePrevious = body.include_previous_panel === true;
+    const fields = panelFieldsFromBody(body);
+    if (Object.keys(fields).length > 0) {
+      panel = services.assets.updatePanel(panel.id, fields);
+    }
+    if (panel.recipe_needs_reassembly || !panel.image_recipe_prompt.trim()) {
+      panel = saveAssembledPanelRecipe(
+        services,
+        projectId,
+        panel,
+        includePrevious,
+      );
+    }
     created(
       res,
       services.images.create({
@@ -352,7 +340,7 @@ function registerPanelRoutes(
             dramaId: projectId,
             panelId: panel.id,
             sourcePath: req.file.path,
-            prompt: "人工上传分格底板",
+            prompt: "人工上传分镜底板",
           }),
         );
       } finally {
@@ -458,7 +446,7 @@ function requirePanel(
   const panel = services.assets.getPanel(id);
   const episode = panel ? services.assets.episode(panel.episode_id) : undefined;
   if (!panel || !episode || episode.drama_id !== projectId)
-    throw new NotFoundError("分格不存在");
+    throw new NotFoundError("分镜不存在");
   return panel;
 }
 
@@ -472,6 +460,47 @@ function previousPanelImageUrl(
     .sort((left, right) => right.panel_number - left.panel_number)[0];
   const url = previous?.image_url?.trim();
   return url || undefined;
+}
+
+const GENERATION_BODY_KEYS = new Set([
+  "provider",
+  "model",
+  "aspect_ratio",
+  "include_previous_panel",
+  "recipe_reassembled",
+]);
+
+function panelFieldsFromBody(
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(body).filter(([key]) => !GENERATION_BODY_KEYS.has(key)),
+  );
+}
+
+function saveAssembledPanelRecipe(
+  services: WorkspaceServices,
+  projectId: number,
+  panel: PanelRow,
+  includePrevious: boolean,
+): PanelRow {
+  const project = services.projects.require(projectId);
+  const recipe = assemblePanelRecipe({
+    shot: panel,
+    assets: services.assets.listProjectAssets(projectId),
+    styleLock: {
+      tone: project.tone,
+      reference_setting: project.reference_setting,
+    },
+    previousPanelImage: includePrevious
+      ? previousPanelImageUrl(services, panel)
+      : undefined,
+  });
+  return services.assets.updatePanel(panel.id, {
+    image_recipe_prompt: recipe.panelRecipe.prompt,
+    image_recipe_references: recipe.panelRecipe.references,
+    recipe_reassembled: true,
+  });
 }
 
 function assetKindQuery(value: unknown): AssetKind | undefined {

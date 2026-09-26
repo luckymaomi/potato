@@ -22,7 +22,10 @@ export function createApp(): AppContext {
   initializeDatabase(db);
   const services = createServices(db, config, providerRegistry, logger);
   const interrupted = services.tasks.failInterrupted();
-  if (interrupted) logger.warn('已将服务重启前未完成的任务标记为失败', { interrupted });
+  const reclaimed = services.images.reclaimStaleActiveGenerations();
+  if (interrupted || reclaimed) {
+    logger.warn('已将服务重启前未完成的任务标记为失败', { interrupted, reclaimed });
+  }
 
   const app = express();
   app.disable('x-powered-by');

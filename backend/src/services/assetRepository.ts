@@ -281,7 +281,7 @@ export class AssetRepository {
 
   updatePanel(id: number, input: unknown): PanelRow {
     const current = this.getPanel(id);
-    if (!current) throw new NotFoundError("分格不存在");
+    if (!current) throw new NotFoundError("分镜不存在");
     const body = asRecord(input) ?? {};
     const extraReferences =
       body.extra_reference_images === undefined
@@ -444,7 +444,7 @@ export class AssetRepository {
         new Date().toISOString(),
         panelId,
       ).changes;
-    if (!changed) throw new NotFoundError("分格不存在");
+    if (!changed) throw new NotFoundError("分镜不存在");
   }
 
   confirmPanelReview(panelId: number): PanelRow {
@@ -452,7 +452,7 @@ export class AssetRepository {
     const changed = this.db
       .prepare(`UPDATE panels SET ${column} = 0, updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), panelId).changes;
-    if (!changed) throw new NotFoundError("分格不存在");
+    if (!changed) throw new NotFoundError("分镜不存在");
     return this.getPanel(panelId) as PanelRow;
   }
 
@@ -695,7 +695,7 @@ function outputPromptValue(value: unknown): string {
 function promptValue(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string")
-    throw new ValidationError("分格最终提示词必须是文本");
+    throw new ValidationError("分镜最终提示词必须是文本");
   return value;
 }
 

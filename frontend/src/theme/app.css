@@ -198,21 +198,14 @@ button, input, textarea { font: inherit; }
 .panel-workbench-grid { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(190px, 0.75fr) minmax(300px, 1.35fr) minmax(360px, 1.1fr); gap: 14px; overflow: hidden; }
 .panel-workbench-grid > .ant-card { min-width: 0; min-height: 0; overflow: hidden; }
 .panel-track .ant-card-body, .panel-inspector .ant-card-body, .panel-preview .ant-card-body { min-height: 0; height: calc(100% - 57px); overflow-y: auto; }
-.panel-track-list { display: flex; flex-direction: column; gap: 7px; }
-.panel-track-summary { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
-.panel-track-summary .ant-btn { padding-inline: 7px; font-size: 11px; }
-.panel-track-bulkbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 8px 0 10px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
-.panel-track-bulkbar .ant-checkbox-wrapper { color: var(--ink); font-size: 11px; }
-.panel-track-row { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 4px; }
-.panel-track-row > .ant-checkbox-wrapper { justify-self: center; }
-.panel-track-row .panel-track-item { width: 100%; }
-.panel-track-item { min-width: 0; display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 9px; padding: 7px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 7px; text-align: left; cursor: pointer; }
+.panel-track-list { display: flex; flex-direction: column; gap: 8px; }
+.panel-track-item { min-width: 0; width: 100%; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 8px; text-align: left; cursor: pointer; }
 .panel-track-item:hover, .panel-track-item.is-active { background: var(--accent-soft); border-color: var(--accent); }
-.panel-track-thumb { width: 54px; height: 64px; display: grid; place-items: center; overflow: hidden; color: var(--muted); background: var(--surface-3); border-radius: 5px; }
+.panel-track-thumb { width: 48px; height: 56px; display: grid; place-items: center; overflow: hidden; color: var(--muted); background: var(--surface-3); border-radius: 6px; font-size: 14px; font-weight: 600; }
 .panel-track-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.panel-track-item strong, .panel-track-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.panel-track-item small { margin-top: 3px; color: var(--muted); font-size: 11px; }
-.panel-track-item .ant-tag { margin: 5px 4px 0 0; font-size: 10px; }
+.panel-track-copy { min-width: 0; }
+.panel-track-item strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.panel-track-add { margin-top: 10px; }
 .panel-preview { display: flex; flex-direction: column; }
 .panel-preview .ant-card-body { position: relative; display: grid; place-items: center; background: #111a20; }
 .panel-preview-image { max-width: 100%; max-height: 100%; object-fit: contain; }

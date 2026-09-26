@@ -133,7 +133,7 @@ test("项目资产库保存三类结构化卡和各自的生成输入参考图",
   }
 });
 
-test("同项目各话复用同一资产 ID，分格关系只保存当前项目资产", () => {
+test("同项目各话复用同一资产 ID，分镜关系只保存当前项目资产", () => {
   const { db, projectId, episodeId, assets } = setup();
   try {
     const now = new Date().toISOString();
@@ -249,7 +249,7 @@ test("更新资产卡会规范化结构化文本和参考图数组", () => {
   }
 });
 
-test("分格保存漫画规格、项目资产和本格额外参考图", () => {
+test("分镜保存漫画规格、项目资产和本镜额外参考图", () => {
   const { db, projectId, episodeId, assets } = setup();
   try {
     const queen = assets.createProjectAsset(projectId, {
@@ -295,7 +295,7 @@ test("分格保存漫画规格、项目资产和本格额外参考图", () => {
   }
 });
 
-test("删除项目资产后分格托盘保留仍存在的资产", () => {
+test("删除项目资产后分镜托盘保留仍存在的资产", () => {
   const { db, projectId, episodeId, assets } = setup();
   try {
     const queen = assets.createProjectAsset(projectId, {
@@ -319,7 +319,7 @@ test("删除项目资产后分格托盘保留仍存在的资产", () => {
   }
 });
 
-test("删除分格后按现有顺序生成连续编号", () => {
+test("删除分镜后按现有顺序生成连续编号", () => {
   const { db, episodeId, assets } = setup();
   try {
     const first = assets.createPanel({ episode_id: episodeId, title: "一" });

@@ -160,7 +160,7 @@ export function AssetDetailPanel({
           </List.Item>
           }} />
         </section>
-        <Popconfirm title="删除这个资产卡？" description="分格中的引用也会移除。" okText="删除" cancelText="取消" onConfirm={onRemove}><Button danger icon={<DeleteOutlined />} loading={deleting}>删除资产卡</Button></Popconfirm>
+        <Popconfirm title="删除这个资产卡？" description="分镜中的引用也会移除。" okText="删除" cancelText="取消" onConfirm={onRemove}><Button danger icon={<DeleteOutlined />} loading={deleting}>删除资产卡</Button></Popconfirm>
       </Form>
     </div>
   </aside>

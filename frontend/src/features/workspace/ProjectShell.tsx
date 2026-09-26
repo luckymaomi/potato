@@ -12,7 +12,7 @@ import { useTheme } from '../../theme/ThemeContext'
 const tabs = [
   { path: 'script', label: '总览与剧本', icon: <BookOutlined /> },
   { path: 'assets', label: '资产图', icon: <FolderOpenOutlined /> },
-  { path: 'panels', label: '分格台', icon: <PictureOutlined /> },
+  { path: 'panels', label: '分镜台', icon: <PictureOutlined /> },
 ]
 
 export function ProjectShell() {
@@ -129,7 +129,7 @@ export function ProjectShell() {
               <Button icon={<EditOutlined />} onClick={() => openRename(episode)}>重命名</Button>
               <Popconfirm
                 title="删除这一话？"
-                description="本话剧本与分格也会删除，且不可恢复。"
+                description="本话剧本与分镜也会删除，且不可恢复。"
                 okText="删除"
                 cancelText="取消"
                 okButtonProps={{ danger: true }}

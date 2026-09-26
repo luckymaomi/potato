@@ -19,9 +19,9 @@ export const RAINY_NIGHT_DEMO = {
     duration: 6,
   },
   story:
-    "王室浴室暖雾未散。成年真人女性女王刚离浴池，未着衣物，仅有蒸汽与水光，回眸一笑，完成这一格。",
+    "王室浴室暖雾未散。成年真人女性女王刚离浴池，未着衣物，仅有蒸汽与水光，回眸一笑，完成这一镜。",
   episodePlan: {
-    episode_goal: "完成女王出浴这一格的写实真人资产标准图与分镜底板。",
+    episode_goal: "完成女王出浴这一镜的写实真人资产标准图与分镜底板。",
     conflict: "蒸汽、水光与真人面部必须统一，禁止漂成动漫。",
     turning_point: "女王回眸，暖光勾出轮廓。",
     ending_hook: "出浴定格完成，可继续扩写。",
@@ -93,13 +93,13 @@ export const RAINY_NIGHT_DEMO = {
         unique_design: "宽幅，褶皱自然",
         default_state: "叠放在石台上，未裹身",
         interaction_states: "静置；被拿起；仍未穿戴",
-        bindings: "场景陈设；本格人物未使用它；写实布料",
+        bindings: "场景陈设；本镜人物未使用它；写实布料",
       },
     },
   ],
   panels: [
     {
-      title: "分格1｜女王出浴",
+      title: "分镜1｜女王出浴",
       description:
         "写实真人摄影：王室浴室蒸汽中，成年女性女王刚离浴池、未着衣物，回眸而立，湿发贴肩，水光未干。",
       characters: ["女王"],

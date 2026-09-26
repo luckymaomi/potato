@@ -60,6 +60,7 @@ export class ImageGenerationService {
   ) {}
 
   list(dramaId?: number): ImageGenerationRow[] {
+    this.reclaimStaleActiveGenerations();
     const rows = dramaId
       ? this.db.prepare('SELECT * FROM image_generations WHERE drama_id = ? ORDER BY id DESC').all(dramaId) as ImageGenerationRow[]
       : this.db.prepare('SELECT * FROM image_generations ORDER BY id DESC').all() as ImageGenerationRow[];
@@ -100,10 +101,10 @@ export class ImageGenerationService {
     prompt?: string;
   }): Promise<ImageGenerationRow> {
     if (!input.projectAssetId && !input.panelId) {
-      throw new ValidationError('本地上传必须指定项目资产或分格');
+      throw new ValidationError('本地上传必须指定项目资产或分镜');
     }
     if (input.projectAssetId && input.panelId) {
-      throw new ValidationError('本地上传不能同时指定项目资产和分格');
+      throw new ValidationError('本地上传不能同时指定项目资产和分镜');
     }
     this.assertTargetAvailable({
       dramaId: input.dramaId,
@@ -166,7 +167,7 @@ export class ImageGenerationService {
     const changed = this.db.prepare(
       'UPDATE panels SET image_url = NULL, current_image_generation_id = NULL, updated_at = ? WHERE id = ?',
     ).run(now, panelId).changes;
-    if (!changed) throw new NotFoundError('分格不存在');
+    if (!changed) throw new NotFoundError('分镜不存在');
     this.assets.markPanelImageChanged(panelId, { imageSelected: false });
     this.log.audit?.('image.generation.cleared', { panelId });
   }
@@ -347,13 +348,64 @@ export class ImageGenerationService {
   }
 
   private assertTargetAvailable(input: ImageGenerationInput): void {
+    this.reclaimStaleActiveGenerations();
     const target = input.projectAssetId
       ? ['project_asset_id', input.projectAssetId, '项目资产'] as const
-      : input.panelId ? ['panel_id', input.panelId, '分格'] as const : undefined;
+      : input.panelId ? ['panel_id', input.panelId, '分镜'] as const : undefined;
     if (!target) return;
     const active = this.db.prepare(`SELECT id FROM image_generations WHERE ${target[0]} = ? AND status IN ('pending', 'processing') LIMIT 1`)
       .get(target[1]) as { id: number } | undefined;
     if (active) throw new ConflictError(`${target[2]}已有进行中的生成任务，请等待完成或先取消`);
+  }
+
+  /** 回收任务已终态/丢失但仍卡在 pending|processing 的生成记录（常见于服务重启）。 */
+  reclaimStaleActiveGenerations(): number {
+    const rows = this.db.prepare(`
+      SELECT id, task_id FROM image_generations WHERE status IN ('pending', 'processing')
+    `).all() as Array<{ id: number; task_id: string | null }>;
+    let changed = 0;
+    for (const row of rows) {
+      const task = row.task_id ? this.tasks.get(row.task_id) : undefined;
+      if (!row.task_id || !task) {
+        this.fail(row.id, new Error('生成任务已中断，请重新运行'), 'provider');
+        changed += 1;
+        continue;
+      }
+      if (task.status === 'failed') {
+        this.fail(row.id, new Error(task.error || '生成任务已失败，请重新运行'), 'provider');
+        changed += 1;
+        continue;
+      }
+      if (task.status === 'cancelled') {
+        this.mark(row.id, 'cancelled');
+        this.db.prepare('UPDATE image_generations SET error_msg = ?, updated_at = ? WHERE id = ?')
+          .run(task.message || '用户停止', new Date().toISOString(), row.id);
+        changed += 1;
+        continue;
+      }
+      if (task.status === 'completed') {
+        this.fail(row.id, new Error('生成任务已结束但未完成归档，请重新运行'), 'archive');
+        changed += 1;
+      }
+    }
+    if (changed) this.log.audit?.('image.generation.reclaimed', { count: changed });
+    return changed;
+  }
+
+  settleByTaskId(taskId: string, status: 'cancelled' | 'failed', message: string): number {
+    const rows = this.db.prepare(`
+      SELECT id FROM image_generations WHERE task_id = ? AND status IN ('pending', 'processing')
+    `).all(taskId) as Array<{ id: number }>;
+    for (const row of rows) {
+      if (status === 'cancelled') {
+        this.mark(row.id, 'cancelled');
+        this.db.prepare('UPDATE image_generations SET error_msg = ?, updated_at = ? WHERE id = ?')
+          .run(message, new Date().toISOString(), row.id);
+      } else {
+        this.fail(row.id, new Error(message), 'provider');
+      }
+    }
+    return rows.length;
   }
 
   private mark(id: number, status: string): void {

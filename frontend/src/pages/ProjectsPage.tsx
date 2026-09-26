@@ -254,7 +254,7 @@ export function ProjectsPage() {
                               <Tooltip title="重命名"><Button type="text" size="small" icon={<EditOutlined />} aria-label="重命名话" onClick={() => openRenameEpisode(project, episode)} /></Tooltip>
                               <Popconfirm
                                 title="删除这一话？"
-                                description="本话剧本与分格也会删除。"
+                                description="本话剧本与分镜也会删除。"
                                 okText="删除"
                                 cancelText="取消"
                                 okButtonProps={{ danger: true }}

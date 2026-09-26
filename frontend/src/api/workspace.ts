@@ -43,6 +43,8 @@ export interface GenerateMediaInput {
   provider?: string;
   model?: string;
   aspect_ratio?: string;
+  include_previous_panel?: boolean;
+  [key: string]: unknown;
 }
 export interface PanelReadiness {
   recipe: { ready: boolean; reason?: string };

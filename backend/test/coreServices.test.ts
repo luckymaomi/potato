@@ -71,7 +71,7 @@ async function taskDone(get: () => { status: string; error: string | null } | un
   throw new Error('task did not finish');
 }
 
-test('项目服务持久化多话、项目资产和各话分格', () => {
+test('项目服务持久化多话、项目资产和各话分镜', () => {
   const { db, services } = setup();
   try {
     const project = services.projects.create({ title: '夜城', metadata: { aspect_ratio: '9:16' } });
@@ -235,7 +235,7 @@ test('单卡任务公开排队、生成、归档和本地文件完成状态', as
   } finally { releaseProvider(); db.close(); }
 });
 
-test('分格显式组装图片配方，图片生成消费用户保存的图片配方', async () => {
+test('分镜显式组装图片配方，图片生成消费用户保存的图片配方', async () => {
   let receivedPrompt = '';
   let receivedReferences: string[] = [];
   const { db, services, config } = setup({
@@ -299,7 +299,65 @@ test('分格显式组装图片配方，图片生成消费用户保存的图片�
   }
 });
 
-test('分格台路由返回当前话工作区', async () => {
+test('规格变更后点生成会按最新规格自动组装配方', async () => {
+  let receivedPrompt = '';
+  const { db, services, config } = setup({
+    submitImage: async (_context, request) => {
+      receivedPrompt = request.prompt;
+      return { status: 'completed', imageUrl: TEST_PNG };
+    },
+  });
+  const app = express();
+  app.use(express.json());
+  app.use(workspaceRoutes(services, config));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await services.aiConfigs.refresh('agnes');
+    const project = services.projects.create({ title: '自动重装' });
+    const episode = project.episodes?.[0];
+    assert.ok(episode);
+    const asset = services.assets.createProjectAsset(project.id, {
+      kind: 'prop', name: '王冠', text_profile: { material: '暗金' },
+    });
+    db.prepare('UPDATE project_assets SET image_url = ? WHERE id = ?').run(TEST_PNG, asset.id);
+    const shot = services.assets.createPanel({
+      episode_id: episode.id,
+      action: '旧动作',
+      project_asset_ids: [asset.id],
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const shotUrl = `http://127.0.0.1:${address.port}/dramas/${project.id}/panels/${shot.id}`;
+    const first = await fetch(`${shotUrl}/assemble-recipe`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: '旧动作', project_asset_ids: [asset.id] }),
+    });
+    assert.equal(first.status, 200);
+    services.assets.updatePanel(shot.id, { action: '新动作：女王回眸' });
+    assert.equal(services.assets.getPanel(shot.id)?.recipe_needs_reassembly, true);
+
+    const response = await fetch(`${shotUrl}/generate-image`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: '新动作：女王回眸',
+        project_asset_ids: [asset.id],
+        model: 'agnes-image',
+        aspect_ratio: '1:1',
+      }),
+    });
+    assert.equal(response.status, 201);
+    const row = (await response.json() as { data: { task_id: string } }).data;
+    await taskDone(() => services.tasks.get(row.task_id));
+    assert.match(receivedPrompt, /新动作：女王回眸/);
+    assert.equal(services.assets.getPanel(shot.id)?.recipe_needs_reassembly, false);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    db.close();
+  }
+});
+
+test('分镜台路由返回当前话工作区', async () => {
   const { db, services, config } = setup();
   const app = express();
   app.use(express.json());
@@ -310,7 +368,7 @@ test('分格台路由返回当前话工作区', async () => {
     const project = services.projects.create({ title: '路由可达' });
     const episode = project.episodes?.[0];
     assert.ok(episode);
-    services.assets.createPanel({ episode_id: episode.id, title: '第一格' });
+    services.assets.createPanel({ episode_id: episode.id, title: '第一镜' });
     const address = server.address();
     assert.ok(address && typeof address === 'object');
     const base = `http://127.0.0.1:${address.port}/dramas/${project.id}`;
@@ -325,9 +383,9 @@ test('分格台路由返回当前话工作区', async () => {
         image: { ready: boolean; reason?: string };
       };
     }).data;
-    assert.equal(readinessData.recipe.ready, false);
-    assert.match(readinessData.recipe.reason ?? "", /閰嶆柟|配方/u);
+    assert.equal(readinessData.recipe.ready, true);
     assert.equal(readinessData.image.ready, false);
+    assert.match(readinessData.image.reason ?? "", /底板/u);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     db.close();
@@ -420,7 +478,7 @@ test('本地上传成为资产标准图并保留 generation 历史', async () =>
   } finally { db.close(); }
 });
 
-test('全新 schema 支持项目资产卡和分格额外参考图', () => {
+test('全新 schema 支持项目资产卡和分镜额外参考图', () => {
   const db = new Database(':memory:');
   try {
     initializeDatabase(db);

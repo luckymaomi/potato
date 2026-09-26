@@ -8,7 +8,7 @@ const panel = (overrides: Partial<PanelRow> = {}): PanelRow => ({
 });
 const assets: ProjectAssetRow[] = [{ id: 7, drama_id: 1, kind: 'character', name: '林岚', text_profile: { occupation: '调查记者' }, output_type: 'character-layout-a', output_prompt: '定妆', input_reference_images: [], image_url: 'https://cdn.test/linlan.png', local_path: null, current_image_generation_id: null, created_at: '', updated_at: '' }];
 
-test('分格配方按画风锁、本格动作与资产 ID 组装', () => {
+test('分镜配方按画风锁、本镜动作与资产 ID 组装', () => {
   const result = assemblePanelRecipe({
     shot: panel(),
     assets,

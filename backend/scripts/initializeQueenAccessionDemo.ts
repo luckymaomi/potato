@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     const services = createServices(db, config, providerRegistry, logger);
     const project = initializeQueenAccessionDemo(db, services, logger);
     console.log(`《女王登基》Demo 已初始化：项目 ID ${project.id}`);
-    console.log('故事总览、项目资产和两条完整漫画格规格已写入；未调用供应商或生成媒体。');
+    console.log('故事总览、项目资产和两条完整分镜规格已写入；未调用供应商或生成媒体。');
   } finally {
     closeDb();
   }

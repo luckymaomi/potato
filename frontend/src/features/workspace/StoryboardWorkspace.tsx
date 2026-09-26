@@ -44,6 +44,7 @@ import {
   panelImageKey,
   useGenerationTracker,
 } from "../generation/useGenerationTracker";
+import { useAnnounceGenerationOutcomes } from "../generation/useAnnounceGenerationOutcomes";
 import { GenerationElapsedTime } from "../generation/GenerationElapsedTime";
 import { modelCapabilitySummary } from "../providers/catalog";
 import type {
@@ -87,7 +88,6 @@ export function PanelWorkspace() {
     Record<number, MediaGenerationHistory[]>
   >({});
   const [selectedId, setSelectedId] = useState<number>();
-  const [checkedTrackIds, setCheckedTrackIds] = useState<number[]>([]);
   const [imageModel, setImageModel] = useState<ProviderModel>();
   const [imageModelLabel, setImageModelLabel] = useState("读取中…");
   const [duplicating, setDuplicating] = useState(false);
@@ -96,9 +96,6 @@ export function PanelWorkspace() {
   const [assembling, setAssembling] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [referenceUploading, setReferenceUploading] = useState(false);
-  const [trackFilter, setTrackFilter] = useState<
-    "all" | "missing" | "review" | "recipe"
-  >("all");
   const [activeCollapse, setActiveCollapse] = useState([
     "spec",
     "assets",
@@ -106,6 +103,7 @@ export function PanelWorkspace() {
     "generation",
   ]);
   const tracker = useGenerationTracker(project.id);
+  useAnnounceGenerationOutcomes(tracker.tracks);
 
   const selected = useMemo(
     () => items.find((item) => item.id === selectedId),
@@ -139,16 +137,6 @@ export function PanelWorkspace() {
     ...sceneAssetIds,
     ...propAssetIds,
   ];
-  const visibleItems = useMemo(
-    () =>
-      items.filter((item) => {
-        if (trackFilter === "missing") return !item.image_url;
-        if (trackFilter === "review") return item.image_needs_review;
-        if (trackFilter === "recipe") return item.recipe_needs_reassembly;
-        return true;
-      }),
-    [items, trackFilter],
-  );
 
   const loadPanels = useCallback(async () => {
     try {
@@ -372,27 +360,27 @@ export function PanelWorkspace() {
       return;
     }
     try {
-      await workspaceApi.updatePanel(
-        project.id,
-        selected.id,
-        panelPayload(form.getFieldsValue(true)),
-      );
+      await flush().catch(() => undefined);
+      const values = form.getFieldsValue(true) as PanelFormValues;
       const generation = await workspaceApi.generatePanelImage(
         project.id,
         selected.id,
         {
+          ...panelPayload(values),
+          include_previous_panel: Boolean(values.include_previous_panel),
           provider: imageModel.provider,
           model: imageModel.id,
           aspect_ratio: aspectRatio,
         },
       );
       if (!generation.task_id) throw new Error("生成任务没有返回任务号");
+      await loadPanels();
       tracker.watch({
         key: panelImageKey(selected.id),
         taskId: generation.task_id,
         generationId: generation.id,
         kind: "image",
-        label: selected.title || `分格 ${selected.panel_number}`,
+        label: selected.title || `分镜 ${selected.panel_number}`,
         startedAt: generation.created_at,
       });
       notifyAppSuccess(message, "已提交底板生成任务");
@@ -409,7 +397,7 @@ export function PanelWorkspace() {
       });
       await loadPanels();
       setSelectedId(created.id);
-      notifyAppSuccess(message, "已新增分格");
+      notifyAppSuccess(message, "已新增分镜");
     } catch (reason) {
       notifyAppError({ message, modal }, reason);
     }
@@ -422,7 +410,7 @@ export function PanelWorkspace() {
       const copy = await workspaceApi.createPanel(project.id, {
         ...panelPayload(form.getFieldsValue(true)),
         episode_id: episode.id,
-        title: `${selected.title || `分格 ${selected.panel_number}`} - 副本`,
+        title: `${selected.title || `分镜 ${selected.panel_number}`} - 副本`,
         image_url: undefined,
         current_image_generation_id: undefined,
         image_needs_review: false,
@@ -430,7 +418,7 @@ export function PanelWorkspace() {
       });
       await loadPanels();
       setSelectedId(copy.id);
-      notifyAppSuccess(message, "已复制分格规格，新的底板需要重新生成");
+      notifyAppSuccess(message, "已复制分镜规格，新的底板需要重新生成");
     } catch (reason) {
       notifyAppError({ message, modal }, reason);
     } finally {
@@ -443,7 +431,7 @@ export function PanelWorkspace() {
     try {
       await workspaceApi.deletePanel(project.id, selected.id);
       await loadPanels();
-      notifyAppSuccess(message, "分格已删除，阅读序已重新整理");
+      notifyAppSuccess(message, "分镜已删除，阅读序已重新整理");
     } catch (reason) {
       notifyAppError({ message, modal }, reason);
     }
@@ -503,53 +491,6 @@ export function PanelWorkspace() {
     }
   };
 
-  const confirmReview = async () => {
-    if (!selected) return;
-    try {
-      await workspaceApi.confirmPanelReview(project.id, selected.id);
-      await loadPanels();
-      notifyAppSuccess(message, "底板已确认通过");
-    } catch (reason) {
-      notifyAppError({ message, modal }, reason);
-    }
-  };
-
-  const toggleTrackCheck = (panelId: number) => {
-    setCheckedTrackIds((current) =>
-      current.includes(panelId)
-        ? current.filter((id) => id !== panelId)
-        : [...current, panelId],
-    );
-  };
-
-  const checkVisibleTracks = () => {
-    setCheckedTrackIds((current) => [
-      ...new Set([...current, ...visibleItems.map((item) => item.id)]),
-    ]);
-  };
-
-  const clearTrackChecks = () => setCheckedTrackIds([]);
-
-  const confirmCheckedReviews = async () => {
-    const reviewIds = checkedTrackIds.filter((id) =>
-      items.some((item) => item.id === id && item.image_needs_review),
-    );
-    if (!reviewIds.length) {
-      notifyAppError({ message, modal }, new Error("请先勾选待复核底板"));
-      return;
-    }
-    try {
-      await Promise.all(
-        reviewIds.map((id) => workspaceApi.confirmPanelReview(project.id, id)),
-      );
-      clearTrackChecks();
-      await loadPanels();
-      notifyAppSuccess(message, `已确认 ${reviewIds.length} 张底板`);
-    } catch (reason) {
-      notifyAppError({ message, modal }, reason);
-    }
-  };
-
   const toggleAsset = (kind: AssetKind, id: number) => {
     const field = `${kind}_asset_ids` as
       | "character_asset_ids"
@@ -576,32 +517,17 @@ export function PanelWorkspace() {
       ? "当前模型未声明画幅，生成已禁用"
       : !aspectRatio
         ? "请手动选择当前模型声明的画幅"
-        : selectedReadiness?.recipe.ready
-          ? undefined
-          : selectedReadiness?.recipe.reason || "请先组装并保存图片配方";
+        : undefined;
 
   return (
     <div className="panel-workbench">
         <PanelHeader
           episodeNumber={episode.episode_number}
           count={items.length}
-          completed={items.filter((item) => Boolean(item.image_url)).length}
-          missing={items.filter((item) => !item.image_url).length}
-          review={items.filter((item) => item.image_needs_review).length}
-          recipe={items.filter((item) => item.recipe_needs_reassembly).length}
         />
         <div className="panel-workbench-grid">
           <PanelTrack
-          items={visibleItems}
-          allItems={items}
-          totalItems={items.length}
-          filter={trackFilter}
-          onFilterChange={setTrackFilter}
-          checkedIds={checkedTrackIds}
-          onToggleCheck={toggleTrackCheck}
-          onCheckVisible={checkVisibleTracks}
-          onClearChecks={clearTrackChecks}
-          onConfirmChecked={() => void confirmCheckedReviews()}
+          items={items}
           selectedId={selectedId}
           onSelect={selectPanel}
           onCreate={() => void createPanel()}
@@ -644,11 +570,14 @@ export function PanelWorkspace() {
           onToggleAsset={toggleAsset}
           onAssemble={() => void assembleRecipe()}
           onGenerate={() => void generateImage()}
+          onStop={() => {
+            if (!selected) return;
+            void tracker.cancel(panelImageKey(selected.id));
+          }}
           onUpload={uploadPanel}
           onUploadReference={uploadReference}
           onClear={() => void clearImage()}
           onSelectHistory={(item) => void selectHistory(item)}
-          onConfirmReview={() => void confirmReview()}
           onDelete={() => void deletePanel()}
           onDuplicate={() => void duplicatePanel()}
           duplicating={duplicating}
@@ -658,166 +587,74 @@ export function PanelWorkspace() {
   );
 }
 
-function PanelHeader(props: {
-  episodeNumber: number;
-  count: number;
-  completed: number;
-  missing: number;
-  review: number;
-  recipe: number;
-}) {
+function PanelHeader(props: { episodeNumber: number; count: number }) {
   return (
     <div className="workspace-section-heading director-heading">
       <div>
-        <Typography.Title level={2}>分格台</Typography.Title>
+        <Typography.Title level={2}>分镜台</Typography.Title>
         <Typography.Text type="secondary">
-          话 {props.episodeNumber} · 逐格生产单张底板
+          话 {props.episodeNumber}
+          {props.count > 0 ? ` · ${props.count} 镜` : ""}
         </Typography.Text>
       </div>
-      <Space wrap>
-        <Tag color="blue">
-          {props.completed}/{props.count} 已有底板
-        </Tag>
-        <Tag color={props.missing ? "warning" : "success"}>
-          {props.missing} 缺底板
-        </Tag>
-        <Tag color={props.review ? "gold" : "default"}>
-          {props.review} 待复核
-        </Tag>
-        <Tag color={props.recipe ? "error" : "default"}>
-          {props.recipe} 待重装
-        </Tag>
-      </Space>
     </div>
   );
 }
 
 function PanelTrack(props: {
   items: Panel[];
-  allItems: Panel[];
-  totalItems: number;
-  filter: "all" | "missing" | "review" | "recipe";
-  onFilterChange: (filter: "all" | "missing" | "review" | "recipe") => void;
-  checkedIds: number[];
-  onToggleCheck: (id: number) => void;
-  onCheckVisible: () => void;
-  onClearChecks: () => void;
-  onConfirmChecked: () => void;
   selectedId?: number;
   onSelect: (id: number) => void;
   onCreate: () => void;
 }) {
   return (
-    <Card
-      className="panel-track"
-      title="分格轨道"
-      extra={
-        <Typography.Text type="secondary">
-          {props.items.length}/{props.totalItems} 格 · 按阅读序排列
-        </Typography.Text>
-      }
-    >
-      <div className="panel-track-summary" role="tablist" aria-label="分格状态筛选">
-        {(
-          [
-            ["all", `全部 ${props.totalItems}`],
-            ["missing", `缺底板 ${props.allItems.filter((item) => !item.image_url).length}`],
-            ["review", `待复核 ${props.allItems.filter((item) => item.image_needs_review).length}`],
-            ["recipe", `待重装 ${props.allItems.filter((item) => item.recipe_needs_reassembly).length}`],
-          ] as Array<[typeof props.filter, string]>
-        ).map(([filter, label]) => (
-          <Button
-            key={filter}
-            size="small"
-            type={props.filter === filter ? "primary" : "text"}
-            role="tab"
-            aria-selected={props.filter === filter}
-            onClick={() => props.onFilterChange(filter)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
-      <div className="panel-track-bulkbar">
-        <Checkbox
-          checked={props.items.length > 0 && props.items.every((item) => props.checkedIds.includes(item.id))}
-          indeterminate={props.items.some((item) => props.checkedIds.includes(item.id)) && !props.items.every((item) => props.checkedIds.includes(item.id))}
-          onChange={(event) => event.target.checked ? props.onCheckVisible() : props.onClearChecks()}
-        >
-          勾选当前轨道
-        </Checkbox>
-        <Space size={4} wrap>
-          <Typography.Text type="secondary">已选 {props.checkedIds.length} 格</Typography.Text>
-          <Button size="small" disabled={!props.checkedIds.length} onClick={props.onClearChecks}>
-            清除选择
-          </Button>
-          <Button
-            size="small"
-            type="primary"
-            disabled={!props.checkedIds.length}
-            onClick={props.onConfirmChecked}
-          >
-            批量确认复核
-          </Button>
-        </Space>
-      </div>
+    <Card className="panel-track" title="分镜列表">
       {props.items.length ? (
         <>
           <div className="panel-track-list">
-            {props.items.map((item) => (
-              <div className="panel-track-row" key={item.id}>
-                <Checkbox
-                  checked={props.checkedIds.includes(item.id)}
-                  onChange={() => props.onToggleCheck(item.id)}
-                  aria-label={`勾选分格 ${item.panel_number}`}
-                />
+            {props.items.map((item) => {
+              const label =
+                item.title?.trim() ||
+                item.action?.trim() ||
+                item.description?.trim() ||
+                "未命名";
+              return (
                 <button
+                  key={item.id}
                   type="button"
                   className={`panel-track-item${item.id === props.selectedId ? " is-active" : ""}`}
                   onClick={() => props.onSelect(item.id)}
                 >
-                <div className="panel-track-thumb">
-                  {item.image_url ? (
-                    <img src={mediaUrl(item.image_url)} alt="" />
-                  ) : (
-                    <span>{item.panel_number}</span>
-                  )}
-                </div>
-                <div className="panel-track-copy">
-                  <strong>分格 {item.panel_number}</strong>
-                  <small>{item.title || item.description || "未命名分格"}</small>
-                  <span className="panel-track-tags">
-                    {item.image_needs_review ? <Tag color="warning">待复核</Tag> : null}
-                    {item.recipe_needs_reassembly ? <Tag color="error">待重装</Tag> : null}
-                    {item.image_url ? <Tag color="success">有底板</Tag> : <Tag>缺底板</Tag>}
-                  </span>
-                </div>
+                  <div className="panel-track-thumb">
+                    {item.image_url ? (
+                      <img src={mediaUrl(item.image_url)} alt="" />
+                    ) : (
+                      <span>{item.panel_number}</span>
+                    )}
+                  </div>
+                  <div className="panel-track-copy">
+                    <strong>{item.panel_number}. {label}</strong>
+                  </div>
                 </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="panel-track-add">
             <Button
-              type="text"
+              type="dashed"
+              block
               icon={<PlusOutlined />}
-              aria-label="新增分格"
-              title="新增分格"
               onClick={props.onCreate}
-            />
+            >
+              新增分镜
+            </Button>
           </div>
         </>
-      ) : props.filter === "all" ? (
-        <Empty description="还没有分格">
-          <Button icon={<PlusOutlined />} onClick={props.onCreate}>
-            新增第一格
-          </Button>
-        </Empty>
       ) : (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="当前筛选没有匹配分格"
-        >
-          <Button onClick={() => props.onFilterChange("all")}>显示全部</Button>
+        <Empty description="还没有分镜">
+          <Button type="primary" icon={<PlusOutlined />} onClick={props.onCreate}>
+            新增第一镜
+          </Button>
         </Empty>
       )}
     </Card>
@@ -839,20 +676,20 @@ function PanelPreview(props: {
       className="panel-preview"
       title={
         props.selected
-          ? `分格 ${props.selected.panel_number} · 底板预览`
+          ? `分镜 ${props.selected.panel_number} · 底板预览`
           : "底板预览"
       }
       extra={
         props.selected ? (
           <Space>
-            <Tooltip title="上一格">
+            <Tooltip title="上一镜">
               <Button
                 icon={<LeftOutlined />}
                 disabled={props.selectedIndex <= 0}
                 onClick={props.onPrevious}
               />
             </Tooltip>
-            <Tooltip title="下一格">
+            <Tooltip title="下一镜">
               <Button
                 icon={<RightOutlined />}
                 disabled={
@@ -869,7 +706,7 @@ function PanelPreview(props: {
       {props.selected?.image_url ? (
         <Image
           src={mediaUrl(props.selected.image_url)}
-          alt={props.selected.title || "分格底板"}
+          alt={props.selected.title || "分镜底板"}
           className="panel-preview-image"
           preview={{
             toolbarRender: (originalNode) => (
@@ -891,7 +728,7 @@ function PanelPreview(props: {
         <div className="panel-preview-empty">
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚无底板" />
           <Typography.Text type="secondary">
-            在右侧保存规格、组装配方后生成，或上传本地文件
+            在右侧编辑规格后生成，或上传本地文件
           </Typography.Text>
         </div>
       )}
@@ -908,11 +745,7 @@ function PanelPreview(props: {
           <div>
             <span>配方</span>
             <strong>
-              {props.selected.recipe_needs_reassembly
-                ? "待重装"
-                : props.readiness?.recipe?.ready
-                  ? "已就绪"
-                  : "待检查"}
+              {props.selected.image_recipe_prompt?.trim() ? "已保存" : "点生成时自动组装"}
             </strong>
           </div>
           <div>
@@ -974,11 +807,11 @@ function PanelInspector(props: {
   onToggleAsset: (kind: AssetKind, id: number) => void;
   onAssemble: () => void;
   onGenerate: () => void;
+  onStop: () => void;
   onUpload: (file: File) => Promise<boolean>;
   onUploadReference: (file: File) => Promise<boolean>;
   onClear: () => void;
   onSelectHistory: (item: MediaGenerationHistory) => void;
-  onConfirmReview: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
   duplicating: boolean;
@@ -986,7 +819,7 @@ function PanelInspector(props: {
   return (
     <Card
       className="panel-inspector"
-      title="分格检查器"
+      title="分镜检查器"
       extra={
         props.selected ? (
           <Space size={8}>
@@ -995,7 +828,7 @@ function PanelInspector(props: {
               {autoSaveLabel(props.autoSaveStatus)}
             </span>
             <Popconfirm
-              title="删除这一格？"
+              title="删除这一镜？"
               description="会重新整理阅读序，历史媒体仍保留。"
               onConfirm={props.onDelete}
               okButtonProps={{ danger: true }}
@@ -1021,7 +854,7 @@ function PanelInspector(props: {
             items={[
               {
                 key: "spec",
-                label: "漫画格规格",
+                label: "分镜规格",
                 children: <PanelSpecFields />,
               },
               {
@@ -1068,13 +901,13 @@ function PanelInspector(props: {
               loading={props.duplicating}
               onClick={props.onDuplicate}
             >
-              复制分格
+              复制分镜
             </Button>
           </div>
           <HistoryList items={props.history} onSelect={props.onSelectHistory} />
         </Form>
       ) : (
-        <Empty description="从左侧选择一个分格" />
+        <Empty description="从左侧选择一个分镜" />
       )}
     </Card>
   );
@@ -1082,23 +915,19 @@ function PanelInspector(props: {
 
 function PanelReadinessSummary(props: { readiness?: PanelReadiness }) {
   const image = props.readiness?.image;
-  const recipe = props.readiness?.recipe;
   if (!props.readiness) {
-    return <div className="panel-readiness-summary">正在读取当前分格门闸…</div>;
+    return <div className="panel-readiness-summary">正在读取当前分镜状态…</div>;
   }
   return (
-    <div className="panel-readiness-summary" aria-label="当前分格门闸">
-      <div className={recipe?.ready ? "is-ready" : "is-blocked"}>
+    <div className="panel-readiness-summary" aria-label="当前分镜状态">
+      <div className="is-ready">
         <strong>图片配方</strong>
-        <span>{recipe?.ready ? "已就绪" : recipe?.reason || "需要重新组装"}</span>
+        <span>点「生成底板」会按当前规格自动组装；也可先点「组装图片配方」预览</span>
       </div>
       <div className={image?.ready ? "is-ready" : "is-blocked"}>
-        <strong>底板生成</strong>
-        <span>{image?.ready ? "可生成" : image?.reason || "尚未满足条件"}</span>
+        <strong>底板</strong>
+        <span>{image?.ready ? "已有底板" : image?.reason || "尚未生成或上传"}</span>
       </div>
-      <Typography.Text type="secondary">
-        规格会自动保存；组装配方后才可清除「配方待重装」。门闸失败原因会保留在这里，不会静默禁用。
-      </Typography.Text>
     </div>
   );
 }
@@ -1109,13 +938,13 @@ function PanelSpecFields() {
       <Form.Item name="title" label="标题">
         <Input.TextArea
           autoSize={{ minRows: 2, maxRows: 4 }}
-          placeholder="例如：分格1｜晴晨入城"
+          placeholder="例如：分镜1｜晴晨入城"
         />
       </Form.Item>
       <Form.Item
         name="action"
-        label="本格动作 / 节拍"
-        extra="一句视觉动作。组装时作为本格主干；不再另写节拍说明或图像提示词。"
+        label="本镜动作 / 节拍"
+        extra="一句视觉动作。组装时作为本镜主干；不再另写节拍说明或图像提示词。"
       >
         <Input.TextArea
           autoSize={{ minRows: 2, maxRows: 8 }}
@@ -1123,7 +952,7 @@ function PanelSpecFields() {
         />
       </Form.Item>
       <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
-        画面细化（本格镜头语法）
+        画面细化（本镜画面语法）
       </Typography.Text>
       <div className="panel-field-grid">
         {(
@@ -1147,7 +976,7 @@ function PanelSpecFields() {
         style={{ marginTop: 8 }}
       >
         <Checkbox>
-          组装时带入上一格底板作连续性参考（第一格或换场可关掉）
+          组装时带入上一镜底板作连续性参考（第一镜或换场可关掉）
         </Checkbox>
       </Form.Item>
     </>
@@ -1162,7 +991,7 @@ function AssetSelector(props: {
   return (
     <div className="panel-asset-picks">
       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-        勾选本格出场资产。有标准图的会在组装时进入配方参考图；待定妆需先去资产台出图。
+        勾选本镜出场资产。有标准图的会在组装时进入配方参考图；待定妆需先去资产台出图。
       </Typography.Paragraph>
       {(["character", "scene", "prop"] as AssetKind[]).map((kind) => (
         <div key={kind} className="panel-asset-group">
@@ -1218,8 +1047,7 @@ function RecipeEditor(props: {
   return (
     <div className="panel-recipe-editor">
       <Typography.Paragraph type="secondary">
-        配方 = 画风锁 + 本格动作 + 资产文本 + 画面细化；参考图 =
-        勾选资产标准图 + 额外参考图 +（可选）上一格底板。点组装写入，不会暗中覆盖。
+        配方 = 画风锁 + 本镜动作 + 资产文本 + 画面细化。可点「组装图片配方」预览；点「生成底板」会按当前规格自动组装后再提交。
       </Typography.Paragraph>
       <Form.Item name="image_recipe_prompt" label="最终图片提示词">
         <Input.TextArea rows={7} />
@@ -1308,9 +1136,9 @@ function GenerationControls(props: {
   imageBusy: boolean;
   uploading: boolean;
   onGenerate: () => void;
+  onStop: () => void;
   onUpload: (file: File) => Promise<boolean>;
   onClear: () => void;
-  onConfirmReview: () => void;
   selected?: Panel;
   imageTrack?: {
     status: string;
@@ -1335,7 +1163,7 @@ function GenerationControls(props: {
         />
       </Form.Item>
       <Typography.Text type={props.gateReason ? "warning" : "secondary"}>
-        {props.gateReason || "规格和配方就绪"}
+        {props.gateReason || "将按当前规格生成底板"}
       </Typography.Text>
       {props.imageTrack ? (
         <GenerationElapsedTime
@@ -1357,6 +1185,11 @@ function GenerationControls(props: {
         >
           生成底板
         </Button>
+        {props.imageBusy ? (
+          <Button danger icon={<StopOutlined />} onClick={props.onStop}>
+            停止生成
+          </Button>
+        ) : null}
         <Upload
           accept="image/*"
           showUploadList={false}
@@ -1375,13 +1208,6 @@ function GenerationControls(props: {
           onClick={props.onClear}
         >
           清除当前
-        </Button>
-        <Button
-          icon={<CheckCircleOutlined />}
-          disabled={!props.selected?.image_needs_review}
-          onClick={props.onConfirmReview}
-        >
-          确认复核
         </Button>
       </Space>
     </div>

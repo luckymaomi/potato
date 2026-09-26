@@ -115,7 +115,7 @@ export function ScriptWorkspace() {
       >
         <Card title="画风锁" className="script-section-card">
           <Typography.Paragraph type="secondary">
-            项目级基调与参考设定。分格台组装图片配方时会注入，不按格重写。编辑后约 2 秒自动保存。
+            项目级基调与参考设定。分镜台组装图片配方时会注入，不按镜重写。编辑后约 2 秒自动保存。
           </Typography.Paragraph>
           <div className="script-field-grid">
             <Form.Item name="tone" label="基调">
@@ -140,7 +140,7 @@ export function ScriptWorkspace() {
           className="script-section-card script-content-card"
         >
           <Typography.Paragraph type="secondary">
-            故事源与本话剧本合在一处。与分格台彻底分离：不建镜头、不自动建格。
+            故事源与本话剧本合在一处。与分镜台彻底分离：不建镜头、不自动建镜。
           </Typography.Paragraph>
           <Form.Item name="script_content" className="script-content-field">
             <Input.TextArea
