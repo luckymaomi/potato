@@ -57,10 +57,9 @@ export class PanelRepository {
       .prepare(
         `
       INSERT INTO panels (
-        episode_id, panel_number, title, description, action, expression,
-        framing, viewpoint, composition, lighting, mood,
+        episode_id, panel_number, title, description, action,
         image_prompt, image_recipe_prompt, image_recipe_references, extra_reference_images, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       )
       .run(
@@ -69,12 +68,6 @@ export class PanelRepository {
         textOrNull(body.title),
         textOrNull(body.description),
         textOrNull(body.action),
-        textOrNull(body.expression),
-        textOrNull(body.framing),
-        textOrNull(body.viewpoint),
-        textOrNull(body.composition),
-        textOrNull(body.lighting),
-        textOrNull(body.mood),
         textOrNull(body.image_prompt),
         promptValue(body.image_recipe_prompt, "分镜最终提示词必须是文本"),
         JSON.stringify(normalizeStringArray(body.image_recipe_references)),
@@ -117,8 +110,7 @@ export class PanelRepository {
     this.db
       .prepare(
         `
-      UPDATE panels SET panel_number = ?, title = ?, description = ?, action = ?, expression = ?,
-        framing = ?, viewpoint = ?, composition = ?, lighting = ?, mood = ?,
+      UPDATE panels SET panel_number = ?, title = ?, description = ?, action = ?,
         image_prompt = ?, image_recipe_prompt = ?, image_recipe_references = ?, extra_reference_images = ?,
         image_needs_review = ?, recipe_needs_reassembly = ?, updated_at = ?
       WHERE id = ?
@@ -129,12 +121,6 @@ export class PanelRepository {
         optionalText(body, "title", current.title),
         optionalText(body, "description", current.description),
         optionalText(body, "action", current.action),
-        optionalText(body, "expression", current.expression),
-        optionalText(body, "framing", current.framing),
-        optionalText(body, "viewpoint", current.viewpoint),
-        optionalText(body, "composition", current.composition),
-        optionalText(body, "lighting", current.lighting),
-        optionalText(body, "mood", current.mood),
         optionalText(body, "image_prompt", current.image_prompt),
         optionalPrompt(
           body,
@@ -366,12 +352,6 @@ const STORYBOARD_SPECIFICATION_FIELDS = [
   "title",
   "description",
   "action",
-  "expression",
-  "framing",
-  "viewpoint",
-  "composition",
-  "lighting",
-  "mood",
   "image_prompt",
 ] as const;
 

@@ -83,8 +83,12 @@ export function PanelPreview(props: {
       {props.selected ? (
         <div className="panel-preview-meta" aria-label="底板状态摘要">
           <div>
-            <span>取景</span>
-            <strong>{props.selected.framing || "未填写"}</strong>
+            <span>画面</span>
+            <strong>
+              {props.selected.action?.trim() ||
+                props.selected.description?.trim() ||
+                "未填写"}
+            </strong>
           </div>
           <div>
             <span>资产</span>

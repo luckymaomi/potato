@@ -67,9 +67,6 @@ export function initializeQueenAccessionDemo(
     const assetIds = new Map(projectAssets.map((item) => [`${item.kind}:${item.name}`, item.id]));
     services.assets.syncPanels(episode.id, RAINY_NIGHT_DEMO.panels.map((item) => ({
       ...item,
-      composition: item.composition ?? item.description,
-      lighting: item.lighting ?? '冷色室内光',
-      mood: item.mood ?? '悬疑与压迫',
       project_asset_ids: [
         ...item.characters.map((name) => assetIds.get(`character:${name}`)),
         ...item.scenes.map((name) => assetIds.get(`scene:${name}`)),

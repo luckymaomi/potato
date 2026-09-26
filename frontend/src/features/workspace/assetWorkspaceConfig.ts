@@ -13,35 +13,79 @@ export interface AssetFormValues {
   aspect_ratio?: string
 }
 
-export interface ProfileField {
-  key: string
-  label: string
-}
-
-export interface ProfileGroup {
-  title: string
-  fields: ProfileField[]
-}
+/** 资产资料唯一文本键：各类卡都只存一段 brief。 */
+export const PROFILE_BRIEF_KEY = 'brief' as const
 
 export const assetLabels: Record<AssetKind, string> = { character: '角色卡', scene: '场景卡', prop: '道具卡' }
 
-export const profileGroups: Record<AssetKind, ProfileGroup[]> = {
-  character: [
-    { title: '身份', fields: [field('age', '年龄'), field('gender', '性别'), field('occupation', '职业'), field('faction', '阵营')] },
-    { title: '外形', fields: [field('face_shape', '脸型'), field('facial_features', '五官'), field('hairstyle', '发型'), field('body_type', '体型'), field('skin_tone', '肤色')] },
-    { title: '服装与神态', fields: [field('default_outfit', '默认穿搭'), field('personality', '性格'), field('common_expressions', '常见表情'), field('aura', '气场')] },
-  ],
-  scene: [
-    { title: '空间', fields: [field('location_type', '地点类型'), field('layout', '布局'), field('architectural_style', '建筑风格'), field('scale', '尺寸比例')] },
-    { title: '光影', fields: [field('time_of_day', '时间段'), field('light_source', '光源'), field('color_temperature', '色温'), field('contrast', '明暗对比')] },
-    { title: '陈设', fields: [field('key_furniture', '陈设'), field('props', '道具'), field('decorations', '装饰'), field('vegetation', '植被')] },
-    { title: '氛围', fields: [field('palette', '色调'), field('emotion', '情绪'), field('weather', '天气')] },
-  ],
-  prop: [
-    { title: '物理', fields: [field('category', '类别'), field('size', '尺寸'), field('material', '材质'), field('color', '颜色'), field('shape', '形状')] },
-    { title: '细节', fields: [field('condition', '新旧程度'), field('special_marks', '特殊标记'), field('unique_design', '独特设计')] },
-    { title: '状态', fields: [field('default_state', '默认状态'), field('interaction_states', '互动状态'), field('bindings', '绑定关系')] },
-  ],
+export const briefPlaceholders: Record<AssetKind, string> = {
+  character:
+    '年龄：成年\n性别：女\n外形：鹅蛋脸、黑长发、暖白肤色…\n服装：象牙白薄巾松绕胸下至大腿中段…\n表情：回眸浅笑、红唇轻启…',
+  scene:
+    '地点：王室私人浴室\n空间外观：大理石浴池、金线石柱…\n光影：暖琥珀壁灯、蒸汽体积光…\n氛围：私密安静奢华…',
+  prop:
+    '外形：象牙白厚实棉浴巾…\n细节：一角小金纹章…\n状态：叠放石台作背景陈设…',
+}
+
+export const briefLabels: Record<AssetKind, string> = {
+  character: '角色视觉描述',
+  scene: '场景视觉描述',
+  prop: '道具视觉描述',
+}
+
+const BRIEF_COPY_SPECS: Record<
+  AssetKind,
+  { cover: string; sample: string }
+> = {
+  character: {
+    cover:
+      '年龄、性别、外形（脸型、五官、发型、体型、肤色等）、服装（写清衣物覆盖到哪里、材质与松紧）、表情与气质',
+    sample: [
+      '年龄：成年',
+      '性别：女',
+      '外形：精致鹅蛋脸，黑长发浴后微湿贴肩，暖白肤色',
+      '服装：象牙白薄巾松绕，上沿压锁骨下方，下摆至大腿中段',
+      '表情：回眸浅笑、红唇轻启',
+    ].join('\n'),
+  },
+  scene: {
+    cover: '地点、空间外观与布局、光影（光源、色温、明暗）、氛围（情绪、天气或湿度、色调）',
+    sample: [
+      '地点：王室私人浴室',
+      '空间外观：中央大理石浴池，古典石柱与金线嵌边，私密中型空间',
+      '光影：暖琥珀壁灯，蒸汽散射体积光',
+      '氛围：私密安静奢华，高湿蒸汽',
+    ].join('\n'),
+  },
+  prop: {
+    cover: '外形（类别、尺寸、材质、颜色、形状）、细节（标记、纹样、新旧）、状态（默认摆放或使用中形态）',
+    sample: [
+      '外形：成人用大浴巾，厚实棉质，象牙白近纯白，长方形',
+      '细节：一角细小金色纹章，宽幅褶皱自然',
+      '状态：叠放在石台上作背景陈设，干净干燥备用',
+    ].join('\n'),
+  },
+}
+
+/** 复制给其他 AI：写作说明 + 分条输出样例 + 当前草稿。 */
+export function briefCopyLead(kind: AssetKind, name: string): string {
+  const cardLabel = assetLabels[kind]
+  const { cover, sample } = BRIEF_COPY_SPECS[kind]
+  const assetName = name.trim() || '（未命名）'
+  return [
+    `请为漫画项目的「${cardLabel}」写一份可直接复制粘贴回资产台的视觉描述提示词。`,
+    `资产名称：${assetName}`,
+    `需要尽量写全（不是死板填空，但应覆盖）：${cover}。`,
+    '输出格式：分条输出，每行「标签：内容」；编号可有可无；不要解释过程，不要寒暄。',
+    '输出样例：',
+    sample,
+    '当前草稿（可在此基础上改写，也可重写）：',
+  ].join('\n')
+}
+
+export function buildBriefCopyText(kind: AssetKind, name: string, brief: string): string {
+  const draft = brief.trim() || '（空）'
+  return `${briefCopyLead(kind, name)}\n${draft}`
 }
 
 export const outputTypeOptions: Record<AssetKind, Array<{ value: AssetOutputType; label: string }>> = {
@@ -75,13 +119,9 @@ export const banImageTextOptions: Array<{ value: ImageTextBanKind; label: string
 ]
 
 export function profileSummary(profile: AssetTextProfile): string {
-  return Object.values(profile).join(' · ')
+  return (profile[PROFILE_BRIEF_KEY] ?? '').trim()
 }
 
 export function parseKindFilter(value: string | null): AssetFilter {
   return value === 'character' || value === 'scene' || value === 'prop' ? value : 'all'
-}
-
-function field(key: string, label: string): ProfileField {
-  return { key, label }
 }

@@ -5,7 +5,6 @@ export interface PanelFormValues extends Partial<Panel> {
   scene_asset_ids?: number[];
   prop_asset_ids?: number[];
   aspect_ratio?: string | null;
-  include_previous_panel?: boolean;
 }
 
 export const assetLabels: Record<AssetKind, string> = {
@@ -20,7 +19,6 @@ export function panelPayload(values: PanelFormValues): Partial<Panel> {
     scene_asset_ids,
     prop_asset_ids,
     aspect_ratio: _aspect,
-    include_previous_panel: _previous,
     ...rest
   } = values;
   return {
@@ -40,20 +38,5 @@ export function filterAssetIds(
 ): number[] {
   return (ids ?? []).filter((id) =>
     assets.some((asset) => asset.id === id && asset.kind === kind),
-  );
-}
-
-export function fieldLabel(name: string): string {
-  return (
-    (
-      {
-        framing: "取景",
-        viewpoint: "视角",
-        composition: "构图",
-        expression: "表情",
-        lighting: "光线",
-        mood: "氛围",
-      } as Record<string, string>
-    )[name] ?? name
   );
 }

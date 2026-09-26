@@ -1,7 +1,6 @@
 import {
   BuildOutlined,
   CloudUploadOutlined,
-  CopyOutlined,
   DeleteOutlined,
   DownOutlined,
   HistoryOutlined,
@@ -40,11 +39,7 @@ import {
   autoSaveLabel,
   type AutoSaveStatus,
 } from "../useDebouncedAutoSave";
-import {
-  assetLabels,
-  fieldLabel,
-  type PanelFormValues,
-} from "./panelForm";
+import { assetLabels, type PanelFormValues } from "./panelForm";
 
 export function PanelInspector(props: {
   form: ReturnType<typeof Form.useForm<PanelFormValues>>[0];
@@ -82,8 +77,6 @@ export function PanelInspector(props: {
   onClear: () => void;
   onSelectHistory: (item: MediaGenerationHistory) => void;
   onDelete: () => void;
-  onDuplicate: () => void;
-  duplicating: boolean;
 }) {
   return (
     <Card
@@ -152,11 +145,6 @@ export function PanelInspector(props: {
                   />
                 ),
               },
-              {
-                key: "generation",
-                label: "画幅、生成与归档",
-                children: <GenerationControls {...props} />,
-              },
             ]}
           />
           <PanelReadinessSummary readiness={props.readiness} />
@@ -168,14 +156,13 @@ export function PanelInspector(props: {
             >
               组装图片配方
             </Button>
-            <Button
-              icon={<CopyOutlined />}
-              loading={props.duplicating}
-              onClick={props.onDuplicate}
-            >
-              复制分镜
-            </Button>
           </div>
+          <section className="panel-generation-section" aria-label="画幅与生成">
+            <div className="asset-panel-heading">
+              <strong>画幅与生成</strong>
+            </div>
+            <GenerationControls {...props} />
+          </section>
           <HistoryList items={props.history} onSelect={props.onSelectHistory} />
         </Form>
       ) : (
@@ -221,44 +208,13 @@ function PanelSpecFields() {
       </Form.Item>
       <Form.Item
         name="action"
-        label="本镜动作 / 节拍"
-        extra="一句视觉动作。组装时作为本镜主干；不再另写节拍说明或图像提示词。"
+        label="本镜画面"
+        extra="写清这一镜要画什么：场景里谁在做什么、怎么站、大致景别与氛围。细节进资产卡；需要连续性时自行上传上一镜到底下「其他参考图」。"
       >
         <Input.TextArea
-          autoSize={{ minRows: 2, maxRows: 8 }}
-          placeholder="例：女王从城门外走来，卫兵与民众在大道两侧迎接"
+          autoSize={{ minRows: 4, maxRows: 12 }}
+          placeholder="例：王室浴室蒸汽中，女王刚离浴池回眸而立，半身至膝上，暖琥珀灯光，私密奢华"
         />
-      </Form.Item>
-      <Typography.Text
-        type="secondary"
-        style={{ display: "block", marginBottom: 8 }}
-      >
-        画面细化（本镜画面语法）
-      </Typography.Text>
-      <div className="panel-field-grid">
-        {(
-          [
-            "framing",
-            "viewpoint",
-            "composition",
-            "expression",
-            "lighting",
-            "mood",
-          ] as const
-        ).map((name) => (
-          <Form.Item key={name} name={name} label={fieldLabel(name)}>
-            <Input.TextArea autoSize={{ minRows: 2, maxRows: 8 }} />
-          </Form.Item>
-        ))}
-      </div>
-      <Form.Item
-        name="include_previous_panel"
-        valuePropName="checked"
-        style={{ marginTop: 8 }}
-      >
-        <Checkbox>
-          组装时带入上一镜底板作连续性参考（第一镜或换场可关掉）
-        </Checkbox>
       </Form.Item>
     </>
   );
@@ -328,7 +284,7 @@ function RecipeEditor(props: {
   return (
     <div className="panel-recipe-editor">
       <Typography.Paragraph type="secondary">
-        配方 = 画风锁 + 本镜动作 + 资产文本 + 画面细化。可点「组装图片配方」预览；点「生成底板」会按当前规格自动组装后再提交。
+        文本只拼本镜画面；图片挂出场资产标准图 + 其他参考图。不注入总览画风锁或资产卡档案。点「生成底板」会按当前规格自动组装；也可先点「组装图片配方」预览。
       </Typography.Paragraph>
       <Form.Item name="image_recipe_prompt" label="最终图片提示词">
         <Input.TextArea rows={7} />
@@ -340,8 +296,8 @@ function RecipeEditor(props: {
         <Select mode="tags" open={false} />
       </Form.Item>
       <RecipeReferences
-        label="配方参考图"
-        hint="组装写入的资产标准图与当时带入的额外参考图"
+        label="配方参考图（组装快照）"
+        hint="组装时写入的出场资产标准图 + 当时的其他参考图"
         values={recipeReferences}
         onRemove={(url) => {
           props.form.setFieldsValue({
@@ -353,9 +309,9 @@ function RecipeEditor(props: {
       />
       <ReferenceLimitNotice model={props.model} count={recipeReferences.length} />
       <div className="panel-reference-toolbar">
-        <Typography.Text strong>额外参考图</Typography.Text>
+        <Typography.Text strong>其他参考图</Typography.Text>
         <Typography.Text type="secondary">
-          {extraReferences.length} 张 · 下次组装时并入配方参考图
+          {extraReferences.length} 张 · 下次组装并入配方参考图（含你自行上传的上一镜等）
         </Typography.Text>
         <Upload
           accept="image/*"
@@ -383,14 +339,14 @@ function RecipeEditor(props: {
                 width={58}
                 height={58}
                 preview
-                alt="额外参考图"
+                alt="其他参考图"
               />
               <Button
                 type="text"
                 danger
                 size="small"
                 icon={<DeleteOutlined />}
-                aria-label="移除额外参考图"
+                aria-label="移除其他参考图"
                 onClick={() =>
                   props.form.setFieldsValue({
                     extra_reference_images: extraReferences.filter(
@@ -402,7 +358,7 @@ function RecipeEditor(props: {
             </div>
           ))
         ) : (
-          <Typography.Text type="secondary">暂无额外参考图</Typography.Text>
+          <Typography.Text type="secondary">暂无其他参考图</Typography.Text>
         )}
       </div>
     </div>

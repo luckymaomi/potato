@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS project_assets (
 );
 CREATE TABLE IF NOT EXISTS panels (
   id INTEGER PRIMARY KEY AUTOINCREMENT, episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE, panel_number INTEGER NOT NULL,
-  title TEXT, description TEXT, action TEXT, expression TEXT, framing TEXT, viewpoint TEXT, composition TEXT, lighting TEXT, mood TEXT,
+  title TEXT, description TEXT, action TEXT,
   image_prompt TEXT, image_recipe_prompt TEXT NOT NULL DEFAULT '', image_recipe_references TEXT NOT NULL DEFAULT '[]', extra_reference_images TEXT NOT NULL DEFAULT '[]', image_needs_review INTEGER NOT NULL DEFAULT 0, recipe_needs_reassembly INTEGER NOT NULL DEFAULT 0,
   image_url TEXT, current_image_generation_id INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(episode_id, panel_number)
 );

@@ -260,15 +260,11 @@ function registerPanelRoutes(
       positive(req.params.panelId),
     );
     const body = bodyRecord(req);
-    const includePrevious = body.include_previous_panel === true;
     const updated = services.assets.updatePanel(
       panel.id,
       panelFieldsFromBody(body),
     );
-    success(
-      res,
-      saveAssembledPanelRecipe(services, projectId, updated, includePrevious),
-    );
+    success(res, saveAssembledPanelRecipe(services, projectId, updated));
   });
 
   router.get("/dramas/:id/panels/:panelId/readiness", (req, res) => {
@@ -295,18 +291,12 @@ function registerPanelRoutes(
       positive(req.params.panelId),
     );
     const body = bodyRecord(req);
-    const includePrevious = body.include_previous_panel === true;
     const fields = panelFieldsFromBody(body);
     if (Object.keys(fields).length > 0) {
       panel = services.assets.updatePanel(panel.id, fields);
     }
     if (panel.recipe_needs_reassembly || !panel.image_recipe_prompt.trim()) {
-      panel = saveAssembledPanelRecipe(
-        services,
-        projectId,
-        panel,
-        includePrevious,
-      );
+      panel = saveAssembledPanelRecipe(services, projectId, panel);
     }
     created(
       res,
@@ -450,23 +440,10 @@ function requirePanel(
   return panel;
 }
 
-function previousPanelImageUrl(
-  services: Pick<ServiceContainer, "assets">,
-  panel: PanelRow,
-): string | undefined {
-  const previous = services.assets
-    .listPanels(panel.episode_id)
-    .filter((item) => item.panel_number < panel.panel_number)
-    .sort((left, right) => right.panel_number - left.panel_number)[0];
-  const url = previous?.image_url?.trim();
-  return url || undefined;
-}
-
 const GENERATION_BODY_KEYS = new Set([
   "provider",
   "model",
   "aspect_ratio",
-  "include_previous_panel",
   "recipe_reassembled",
 ]);
 
@@ -482,19 +459,10 @@ function saveAssembledPanelRecipe(
   services: WorkspaceServices,
   projectId: number,
   panel: PanelRow,
-  includePrevious: boolean,
 ): PanelRow {
-  const project = services.projects.require(projectId);
   const recipe = assemblePanelRecipe({
     shot: panel,
     assets: services.assets.listProjectAssets(projectId),
-    styleLock: {
-      tone: project.tone,
-      reference_setting: project.reference_setting,
-    },
-    previousPanelImage: includePrevious
-      ? previousPanelImageUrl(services, panel)
-      : undefined,
   });
   return services.assets.updatePanel(panel.id, {
     image_recipe_prompt: recipe.panelRecipe.prompt,

@@ -53,11 +53,11 @@ test('半成品 Demo 会原位补齐为结构化漫画工作区且重复初始�
     assert.equal(repaired.episodes?.[0]?.panels?.every((shot) => shot.project_asset_ids.length === 3), true);
     assert.deepEqual(
       repaired.project_assets?.map((asset) => `${asset.kind}:${asset.name}`).sort(),
-      ['character:女王', 'prop:浴巾', 'scene:浴室'],
+      ['character:女王', 'prop:备用巾', 'scene:浴室'],
     );
-    const characterKeys = ['age', 'gender', 'occupation', 'faction', 'face_shape', 'facial_features', 'hairstyle', 'body_type', 'skin_tone', 'default_outfit', 'personality', 'common_expressions', 'aura'];
-    const sceneKeys = ['location_type', 'layout', 'architectural_style', 'scale', 'time_of_day', 'light_source', 'color_temperature', 'contrast', 'key_furniture', 'props', 'decorations', 'vegetation', 'palette', 'emotion', 'weather'];
-    const propKeys = ['category', 'size', 'material', 'color', 'shape', 'condition', 'special_marks', 'unique_design', 'default_state', 'interaction_states', 'bindings'];
+    const characterKeys = ['brief'];
+    const sceneKeys = ['brief'];
+    const propKeys = ['brief'];
     for (const asset of repaired.project_assets ?? []) {
       const expected = asset.kind === 'character' ? characterKeys : asset.kind === 'scene' ? sceneKeys : propKeys;
       assert.deepEqual(Object.keys(asset.text_profile).sort(), [...expected].sort());
@@ -67,7 +67,7 @@ test('半成品 Demo 会原位补齐为结构化漫画工作区且重复初始�
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'character')?.output_type, 'character-layout-a');
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'scene')?.output_type, 'scene-panorama');
     assert.equal(repaired.project_assets?.find((asset) => asset.kind === 'prop')?.output_type, 'prop-multi-angle');
-    assert.equal(repaired.episodes?.[0]?.panels?.every((shot) => Boolean(shot.framing && shot.viewpoint && shot.composition && shot.expression && shot.image_prompt)), true);
+    assert.equal(repaired.episodes?.[0]?.panels?.every((shot) => Boolean(shot.action && shot.image_prompt)), true);
     assert.equal(repaired.episodes?.[0]?.duration, 6);
     assert.equal(repaired.episodes?.[0]?.title, '第 1 话｜女王出浴');
     assert.equal(repaired.episodes?.[0]?.episode_goal.includes('出浴'), true);

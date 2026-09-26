@@ -42,7 +42,6 @@ export function PanelWorkspace() {
   const [selectedId, setSelectedId] = useState<number>();
   const [imageModel, setImageModel] = useState<ProviderModel>();
   const [imageModelLabel, setImageModelLabel] = useState("读取中…");
-  const [duplicating, setDuplicating] = useState(false);
   const hydratingPanel = useRef(false);
   const skipPanelHydrate = useRef(false);
   const [assembling, setAssembling] = useState(false);
@@ -52,7 +51,6 @@ export function PanelWorkspace() {
     "spec",
     "assets",
     "recipe",
-    "generation",
   ]);
   const tracker = useGenerationTracker(project.id);
   useAnnounceGenerationOutcomes(tracker.tracks);
@@ -195,7 +193,6 @@ export function PanelWorkspace() {
         "prop",
       ),
       aspect_ratio: null,
-      include_previous_panel: true,
     });
     hydratingPanel.current = false;
     void loadHistory(selected.id);
@@ -280,7 +277,6 @@ export function PanelWorkspace() {
       const values = form.getFieldsValue(true) as PanelFormValues;
       await workspaceApi.assemblePanelRecipe(project.id, selected.id, {
         ...panelPayload(values),
-        include_previous_panel: Boolean(values.include_previous_panel),
       });
       await loadPanels();
       notifyAppSuccess(message, "图片配方已组装并保存");
@@ -319,7 +315,6 @@ export function PanelWorkspace() {
         selected.id,
         {
           ...panelPayload(values),
-          include_previous_panel: Boolean(values.include_previous_panel),
           provider: imageModel.provider,
           model: imageModel.id,
           aspect_ratio: aspectRatio,
@@ -352,29 +347,6 @@ export function PanelWorkspace() {
       notifyAppSuccess(message, "已新增分镜");
     } catch (reason) {
       notifyAppError({ message, modal }, reason);
-    }
-  };
-
-  const duplicatePanel = async () => {
-    if (!selected || duplicating) return;
-    setDuplicating(true);
-    try {
-      const copy = await workspaceApi.createPanel(project.id, {
-        ...panelPayload(form.getFieldsValue(true)),
-        episode_id: episode.id,
-        title: `${selected.title || `分镜 ${selected.panel_number}`} - 副本`,
-        image_url: undefined,
-        current_image_generation_id: undefined,
-        image_needs_review: false,
-        recipe_needs_reassembly: true,
-      });
-      await loadPanels();
-      setSelectedId(copy.id);
-      notifyAppSuccess(message, "已复制分镜规格，新的底板需要重新生成");
-    } catch (reason) {
-      notifyAppError({ message, modal }, reason);
-    } finally {
-      setDuplicating(false);
     }
   };
 
@@ -533,8 +505,6 @@ export function PanelWorkspace() {
           onClear={() => void clearImage()}
           onSelectHistory={(item) => void selectHistory(item)}
           onDelete={() => void deletePanel()}
-          onDuplicate={() => void duplicatePanel()}
-          duplicating={duplicating}
         />
       </div>
     </div>

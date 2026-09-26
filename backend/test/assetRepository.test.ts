@@ -36,19 +36,8 @@ test("项目资产库保存三类结构化卡和各自的生成输入参考图",
       kind: "character",
       name: "红女王（加冕）",
       text_profile: {
-        age: "32岁",
-        gender: "女",
-        occupation: "夜城女王",
-        faction: "王党",
-        face_shape: "冷峻鹅蛋脸",
-        facial_features: "细长眼与高鼻梁",
-        hairstyle: "黑色盘发",
-        body_type: "高挑",
-        skin_tone: "冷白",
-        default_outfit: "深红加冕礼服",
-        personality: "克制锋利",
-        common_expressions: "审视",
-        aura: "威严",
+        brief:
+          "32岁女性；冷峻鹅蛋脸，细长眼与高鼻梁，黑色盘发，高挑冷白；深红加冕礼服；审视",
       },
       output_type: "character-layout-d",
       output_prompt: "红女王七图身份锚点组，保持同一造型。",
@@ -61,11 +50,7 @@ test("项目资产库保存三类结构化卡和各自的生成输入参考图",
       kind: "scene",
       name: "烛光王座厅",
       text_profile: {
-        location_type: "王宫大厅",
-        layout: "长厅尽头设王座",
-        time_of_day: "深夜",
-        light_source: "烛火",
-        weather: "暴雨",
+        brief: "王宫大厅；长厅尽头设王座；深夜烛火；暴雨夜",
       },
       output_type: "scene-detail",
       output_prompt: "烛光王座厅局部材质与光影特写。",
@@ -75,10 +60,7 @@ test("项目资产库保存三类结构化卡和各自的生成输入参考图",
       kind: "prop",
       name: "血色王冠",
       text_profile: {
-        category: "王权信物",
-        material: "暗金与红宝石",
-        condition: "边缘有旧裂痕",
-        default_state: "闭合完整",
+        brief: "王权信物，暗金与红宝石；边缘有旧裂痕；闭合完整",
       },
       output_type: "prop-state-variant",
       output_prompt: "血色王冠破损状态标准资产图。",
@@ -192,14 +174,14 @@ test("新建资产卡等待用户显式组装，并保留之后保存的用户�
     const card = assets.createProjectAsset(projectId, {
       kind: "character",
       name: "林岚",
-      text_profile: { hairstyle: "短发" },
+      text_profile: { brief: "短发" },
     });
     assert.equal(card.output_prompt, "");
     const prompt = "  用户手写的构图\n保持雀斑、短发和深蓝外套。\n";
     assets.updateProjectAsset(card.id, { output_prompt: prompt });
     const updated = assets.updateProjectAsset(card.id, {
       name: "林岚（雨夜）",
-      text_profile: { hairstyle: "湿润短发" },
+      text_profile: { brief: "湿润短发" },
     });
     assert.equal(updated.output_prompt, prompt);
     assert.equal(assets.listProjectAssets(projectId)[0]?.output_prompt, prompt);
@@ -218,9 +200,7 @@ test("更新资产卡会规范化结构化文本和参考图数组", () => {
     const updated = assets.updateProjectAsset(card.id, {
       name: "血色王冠",
       text_profile: {
-        material: " 暗金 ",
-        color: "",
-        interaction_states: "手持、放置",
+        brief: " 暗金；手持、放置 ",
       },
       output_type: "prop-state-variant",
       output_prompt: "  暗金王冠破损状态，多角度清晰呈现。  ",
@@ -233,8 +213,7 @@ test("更新资产卡会规范化结构化文本和参考图数组", () => {
 
     assert.equal(updated.name, "血色王冠");
     assert.deepEqual(updated.text_profile, {
-      material: "暗金",
-      interaction_states: "手持、放置",
+      brief: "暗金；手持、放置",
     });
     assert.equal(updated.output_type, "prop-state-variant");
     assert.equal(
@@ -260,13 +239,7 @@ test("分镜保存漫画规格、项目资产和本镜额外参考图", () => {
       episode_id: episodeId,
       title: "扶正王冠",
       description: "红女王在王座前扶正王冠",
-      framing: "半身人物",
-      viewpoint: "正面略低视角",
-      composition: "人物居中，王座位于后景",
       action: "抬手扶正王冠",
-      expression: "冷静、威严",
-      lighting: "烛光侧逆光",
-      mood: "冷静、威严",
       image_prompt: "电影感宫廷近景",
       image_recipe_prompt: "用户确认的宫廷近景图片配方",
       image_recipe_references: [

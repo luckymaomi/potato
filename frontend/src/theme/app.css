@@ -259,6 +259,8 @@ button, input, textarea { font: inherit; }
 .panel-readiness-summary > div span { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
 .panel-inspector-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .panel-inspector-actions .ant-btn { flex: 1 1 132px; min-height: 36px; }
+.panel-generation-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.panel-generation-section .panel-generation-gate { margin-top: 8px; }
 
 @media (max-width: 1100px) { .panel-workbench-grid { grid-template-columns: minmax(160px, .65fr) minmax(260px, 1fr); } .panel-inspector { grid-column: 1 / -1; max-height: 560px; } }
 @media (max-width: 760px) { .project-workspace-body { padding: 14px; } .panel-workbench-grid { display: flex; flex-direction: column; overflow-y: auto; } .panel-track, .panel-preview, .panel-inspector { flex: none; min-height: 360px; } }

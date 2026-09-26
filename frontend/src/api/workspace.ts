@@ -43,7 +43,6 @@ export interface GenerateMediaInput {
   provider?: string;
   model?: string;
   aspect_ratio?: string;
-  include_previous_panel?: boolean;
   [key: string]: unknown;
 }
 export interface PanelReadiness {
@@ -156,7 +155,7 @@ export const workspaceApi = {
   assemblePanelRecipe: (
     projectId: number,
     id: number,
-    input: Partial<Panel> & { include_previous_panel?: boolean },
+    input: Partial<Panel> = {},
   ) =>
     apiClient.post<never, Panel>(
       `/dramas/${projectId}/panels/${id}/assemble-recipe`,

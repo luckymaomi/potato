@@ -115,7 +115,7 @@ export function ScriptWorkspace() {
       >
         <Card title="画风锁" className="script-section-card">
           <Typography.Paragraph type="secondary">
-            项目级基调与参考设定。分镜台组装图片配方时会注入，不按镜重写。编辑后约 2 秒自动保存。
+            项目级基调与参考设定，给人读与写故事用；不会自动注入分镜台图片配方。需要风格时写进本镜画面。编辑后约 2 秒自动保存。
           </Typography.Paragraph>
           <div className="script-field-grid">
             <Form.Item name="tone" label="基调">

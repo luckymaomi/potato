@@ -24,10 +24,10 @@ function asset(
     kind,
     name: kind === 'character' ? '红女王（加冕）' : kind === 'scene' ? '黑曜王厅（烛光）' : '红宝石王冠（破损）',
     text_profile: kind === 'character'
-      ? { hairstyle: '黑色盘发', default_outfit: '深红加冕礼服' }
+      ? { brief: '黑色盘发；深红加冕礼服' }
       : kind === 'scene'
-        ? { layout: '中轴王座厅', time_of_day: '深夜', light_source: '烛火' }
-        : { material: '暗金与红宝石', default_state: '左侧冠齿破损' },
+        ? { brief: '中轴王座厅；深夜烛火' }
+        : { brief: '暗金与红宝石；左侧冠齿破损' },
     output_type: outputType,
     output_prompt: '测试提示词',
     input_reference_images: [],

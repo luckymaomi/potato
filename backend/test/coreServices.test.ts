@@ -82,7 +82,7 @@ test('项目服务持久化多话、项目资产和各话分镜', () => {
     const queen = services.assets.createProjectAsset(project.id, {
       kind: 'character',
       name: '红女王',
-      text_profile: { occupation: '女王', default_outfit: '深红礼服' },
+      text_profile: { brief: '女王气质；深红礼服' },
     });
     const episodes = services.projects.require(project.id).episodes ?? [];
     services.assets.createPanel({ episode_id: episodes[0]?.id, title: '归来', project_asset_ids: [queen.id] });
@@ -91,7 +91,7 @@ test('项目服务持久化多话、项目资产和各话分镜', () => {
     const saved = services.projects.require(project.id);
     assert.deepEqual(saved.episodes?.map((episode) => [episode.episode_number, episode.script_content]), [[1, '雨夜归城'], [2, '王厅审判']]);
     assert.deepEqual(saved.episodes?.map((episode) => episode.panels?.[0]?.project_asset_ids), [[queen.id], [queen.id]]);
-    assert.deepEqual(saved.project_assets?.[0]?.text_profile, { occupation: '女王', default_outfit: '深红礼服' });
+    assert.deepEqual(saved.project_assets?.[0]?.text_profile, { brief: '女王气质；深红礼服' });
   } finally { db.close(); }
 });
 
@@ -156,7 +156,7 @@ test('资产标准图生成消费用户保存的可见提示词和资产卡输�
     const asset = services.assets.createProjectAsset(project.id, {
       kind: 'character',
       name: '红女王',
-      text_profile: { occupation: '夜城女王', hairstyle: '黑色盘发' },
+      text_profile: { brief: '黑色盘发；夜城女王' },
       input_reference_images: ['/static/uploads/queen.png'],
     });
     const address = server.address();
@@ -256,7 +256,7 @@ test('分镜显式组装图片配方，图片生成消费用户保存的图片�
     const episode = project.episodes?.[0];
     assert.ok(episode);
     const asset = services.assets.createProjectAsset(project.id, {
-      kind: 'prop', name: '王冠', text_profile: { material: '暗金' },
+      kind: 'prop', name: '王冠', text_profile: { brief: '暗金' },
     });
     db.prepare('UPDATE project_assets SET image_url = ? WHERE id = ?').run(TEST_PNG, asset.id);
     const shot = services.assets.createPanel({
@@ -274,7 +274,7 @@ test('分镜显式组装图片配方，图片生成消费用户保存的图片�
     });
     assert.equal(assembled.status, 200);
     const recipes = (await assembled.json() as { data: { image_recipe_prompt: string; image_recipe_references: string[] } }).data;
-    assert.equal(recipes.image_recipe_prompt, '王冠静物近景\n道具卡「王冠」：材质：暗金\n干净画面；无字幕、无气泡、无水印');
+    assert.equal(recipes.image_recipe_prompt, '王冠静物近景\n干净画面；无字幕、无气泡、无水印');
     assert.deepEqual(recipes.image_recipe_references, [TEST_PNG, 'https://cdn.test/light.png']);
 
     const finalPrompt = '用户确认并改写的王冠静物图片配方';
@@ -318,7 +318,7 @@ test('规格变更后点生成会按最新规格自动组装配方', async () =>
     const episode = project.episodes?.[0];
     assert.ok(episode);
     const asset = services.assets.createProjectAsset(project.id, {
-      kind: 'prop', name: '王冠', text_profile: { material: '暗金' },
+      kind: 'prop', name: '王冠', text_profile: { brief: '暗金' },
     });
     db.prepare('UPDATE project_assets SET image_url = ? WHERE id = ?').run(TEST_PNG, asset.id);
     const shot = services.assets.createPanel({

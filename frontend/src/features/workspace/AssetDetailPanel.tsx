@@ -1,6 +1,7 @@
 import {
   BuildOutlined,
   CloudUploadOutlined,
+  CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
   HistoryOutlined,
@@ -8,14 +9,24 @@ import {
   SaveOutlined,
   StopOutlined,
 } from '@ant-design/icons'
-import { Button, Form, Image, Input, List, Popconfirm, Select, Space, Tag, Typography, Upload, type FormInstance } from 'antd'
+import { App, Button, Form, Image, Input, List, Popconfirm, Select, Space, Tag, Typography, Upload, type FormInstance } from 'antd'
 import type { MediaGenerationHistory } from '../../api/media'
 import type { ProjectAsset } from '../../types/domain'
 import type { ProviderModel } from '../../types/domain'
 import { mediaUrl } from '../../utils/mediaUrl'
 import { GenerationElapsedTime } from '../generation/GenerationElapsedTime'
 import { assetGenerationStatus, type AssetGenerationState } from './assetGenerationStatus'
-import { assetLabels, banImageTextOptions, outputTypeOptions, profileGroups, referenceLockOptions, type AssetFormValues } from './assetWorkspaceConfig'
+import {
+  assetLabels,
+  banImageTextOptions,
+  briefLabels,
+  briefPlaceholders,
+  buildBriefCopyText,
+  outputTypeOptions,
+  PROFILE_BRIEF_KEY,
+  referenceLockOptions,
+  type AssetFormValues,
+} from './assetWorkspaceConfig'
 import { modelCapabilitySummary, aspectRatioLabel } from '../providers/catalog'
 import { autoSaveLabel, type AutoSaveStatus } from './useDebouncedAutoSave'
 
@@ -70,7 +81,10 @@ export function AssetDetailPanel({
   aspectRatioOptions: string[]
   maxReferenceImages: number | null
 }) {
+  const { message } = App.useApp()
   const selectedAspectRatio = Form.useWatch('aspect_ratio', form)
+  const watchedName = Form.useWatch('name', form)
+  const watchedBrief = Form.useWatch(['text_profile', PROFILE_BRIEF_KEY], form)
   if (!selected) return <aside className="asset-detail-panel asset-detail-panel-empty"><span>选择一张资产卡查看详情</span></aside>
   const active = track?.status === 'pending' || track?.status === 'processing'
   const generateBlockedReason = !imageModel
@@ -80,6 +94,36 @@ export function AssetDetailPanel({
       : !selectedAspectRatio
         ? '请选择图片画幅'
         : undefined
+
+  const copyBriefForOtherAi = async () => {
+    const text = buildBriefCopyText(
+      selected.kind,
+      typeof watchedName === 'string' ? watchedName : selected.name,
+      typeof watchedBrief === 'string' ? watchedBrief : '',
+    )
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success('已复制，可粘贴给其他 AI 帮忙写描述')
+    } catch {
+      message.error('复制失败，请检查浏览器剪贴板权限')
+    }
+  }
+
+  const copyOutputPrompt = async () => {
+    const prompt = form.getFieldValue('output_prompt')
+    const text = typeof prompt === 'string' ? prompt.trim() : ''
+    if (!text) {
+      message.warning('最终生成提示词还是空的')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success('已复制最终生成提示词')
+    } catch {
+      message.error('复制失败，请检查浏览器剪贴板权限')
+    }
+  }
+
   return <aside className="asset-detail-panel">
     <div className="asset-detail-header">
       <div><span>{assetLabels[selected.kind]}</span><strong>{selected.name}</strong></div>
@@ -104,16 +148,21 @@ export function AssetDetailPanel({
           </div>
         </div>
         <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: '请输入资产卡名称' }]}>
-          <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="资产卡名称" />
+          <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="资产卡名称（固定标识，分镜勾选时显示）" />
         </Form.Item>
-        {profileGroups[selected.kind].map((group) => <section className="asset-profile-group" key={group.title}>
-          <div className="asset-panel-heading"><strong>{group.title}</strong></div>
-          <div className="asset-profile-grid">{group.fields.map((profileField) => (
-            <Form.Item key={profileField.key} name={['text_profile', profileField.key]} label={profileField.label}>
-              <Input.TextArea autoSize={{ minRows: 2, maxRows: 8 }} />
-            </Form.Item>
-          ))}</div>
-        </section>)}
+        <Form.Item
+          name={['text_profile', PROFILE_BRIEF_KEY]}
+          label={briefLabels[selected.kind]}
+          extra="只填这一段，建议按「标签：内容」分条写。可点复制，把说明发给其他 AI 写好后再粘贴回来。"
+        >
+          <Input.TextArea
+            autoSize={{ minRows: 6, maxRows: 16 }}
+            placeholder={briefPlaceholders[selected.kind]}
+          />
+        </Form.Item>
+        <Button icon={<CopyOutlined />} onClick={() => { void copyBriefForOtherAi() }} style={{ marginBottom: 16 }}>
+          复制给其他 AI
+        </Button>
         <section className="asset-output-prompt-panel">
           <div className="asset-panel-heading"><strong>生成提示词</strong></div>
           <div className="asset-output-controls">
@@ -124,7 +173,10 @@ export function AssetDetailPanel({
               <Select allowClear placeholder="不选则不组装禁字段" options={banImageTextOptions} />
             </Form.Item>
             <Form.Item name="output_type" label="预设模板" rules={[{ required: true, message: '请选择预设模板' }]}><Select options={outputTypeOptions[selected.kind]} /></Form.Item>
-            <Button icon={<BuildOutlined />} loading={assembling} onClick={onAssemble}>组装提示词</Button>
+            <Space wrap>
+              <Button icon={<BuildOutlined />} loading={assembling} onClick={onAssemble}>组装提示词</Button>
+              <Button icon={<CopyOutlined />} onClick={() => { void copyOutputPrompt() }}>复制生成提示词</Button>
+            </Space>
           </div>
           <Form.Item name="output_prompt" label="最终生成提示词"><Input.TextArea autoSize={{ minRows: 9, maxRows: 24 }} placeholder="填写标准资产图提示词" /></Form.Item>
         </section>

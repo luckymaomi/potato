@@ -37,15 +37,9 @@ export interface Panel {
   title?: string | null;
   description?: string | null;
   action?: string | null;
-  expression?: string | null;
   image_prompt?: string | null;
   image_recipe_prompt: string;
   image_recipe_references: string[];
-  framing?: string | null;
-  viewpoint?: string | null;
-  composition?: string | null;
-  lighting?: string | null;
-  mood?: string | null;
   image_url?: string | null;
   current_image_generation_id?: number | null;
   image_needs_review?: boolean;
